@@ -1,0 +1,18 @@
+# Build output
+/dist/
+
+# Runtime data, including the generated configuration file
+/data/
+
+# Binaries and test artefacts
+*.exe
+*.test
+*.out
+
+# Environment files
+.env*
+
+# Editor folders
+.vscode/
+.idea/
+.vs/
