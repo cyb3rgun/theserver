@@ -2,6 +2,58 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-015 Device tokens carry S01 authentication, stored as hashes
+
+- Date: 16 September 2026 (S01-B02)
+- Decision: A device authenticates in S01 with a token that the operator issues per device. The database keeps only its SHA-256 hash in devices.token_hash, never the token. Mutual TLS with device certificates replaces this in S02, without a change to the message schema.
+- Reason: A stolen database must not hand out working device credentials. The column and the hashing helper exist now; issuing tokens is the admin work of B04.
+- Versions: none. crypto/sha256 and crypto/subtle from the standard library.
+
+## D-014 Timestamps are integer unix milliseconds in UTC
+
+- Date: 16 September 2026 (S01-B02)
+- Decision: Every timestamp in the database is an INTEGER holding unix milliseconds in UTC. No SQLite datetime strings anywhere.
+- Reason: One representation that sorts, compares and subtracts without parsing, that an ESP32 can produce, and that carries no time zone to get wrong. The protocol already speaks unix milliseconds.
+- Versions: none.
+
+## D-013 Event ids are version 4 UUIDs, stored as 16 byte BLOBs
+
+- Date: 16 September 2026 (S01-B02)
+- Decision: An event id is a 16 byte UUID in a BLOB column, generated on the device. The store never invents one. The Go side builds ids with crypto/rand in the RFC 9562 version 4 layout and takes no uuid dependency.
+- Reason: The device is the only place that knows which event this is, so the id has to travel with the event for the journal to be idempotent. Sixteen raw bytes are half the size of the text form and index as one value. The standard library covers the generation, so nothing is added to the dependency list for it.
+- Versions: none of our own. github.com/google/uuid arrives as an indirect module of modernc.org/sqlite and is not used by theserver.
+
+## D-012 Events are immutable
+
+- Date: 16 September 2026 (S01-B02)
+- Decision: The journal inserts and never updates or deletes in S01. Idempotency rests on the primary key on event_id, and a unique index on (device_id, seq) keeps a sequence number unique per device.
+- Reason: An event is what a target reported at a moment; correcting it later would make the journal an opinion. Replay after a dropped connection then costs nothing: the same event id arrives, the row is already there, and nothing is written twice.
+- Refinements agreed with the architect during this pass:
+  - controller_id is filled by the caller, which hands the store the value it already decoded, rather than by the store decoding CBOR payloads. This pass therefore takes no CBOR dependency; the device link fills the column in B03.
+  - A sequence number that another event holds is ErrSeqConflict, and an event id already stored under another device or sequence number is ErrEventConflict. Either rolls the whole batch back, so a device that contradicts itself never leaves half a batch behind.
+- Versions: none.
+
+## D-011 WAL, synchronous NORMAL, foreign keys on, busy timeout on every connection
+
+- Date: 16 September 2026 (S01-B02)
+- Decision: Every connection runs with journal_mode WAL, synchronous NORMAL, foreign_keys ON and a busy timeout, set through the DSN so that no connection of the pool can miss them. The timeout is the setting store.busy_timeout_ms, default 5000.
+- Reason: WAL lets readers work while a writer holds the database, which the admin UI will need beside the event stream. synchronous NORMAL is the WAL companion that keeps commits cheap without risking the database on a crash. Foreign keys are off by default in SQLite, and the schema leans on them. The busy timeout turns a lock collision into a wait instead of an error.
+- Versions: none.
+
+## D-010 Own migration runner, no library
+
+- Date: 16 September 2026 (S01-B02)
+- Decision: Numbered SQL files under internal/store/migrations are embedded with embed, applied in ascending order, each in one transaction together with its row in schema_migrations. No migration library.
+- Reason: Twenty lines of Go cover what this project needs, and they are readable in one sitting. A dependency here would have to be trusted with the schema of the journal, and it would ship in the one binary.
+- Versions: none. embed from the standard library.
+
+## D-009 SQLite through modernc.org/sqlite
+
+- Date: 16 September 2026 (S01-B02)
+- Decision: The database is SQLite, reached through the pure Go driver modernc.org/sqlite.
+- Reason: No cgo, so no C toolchain on Windows or on the Raspberry, and cross compilation stays one command. No external database service, so one binary stays one binary (concept, principle 4).
+- Versions: modernc.org/sqlite v1.59.0, resolved with go get modernc.org/sqlite@latest on 16 September 2026. It brings nine indirect modules, among them modernc.org/libc v1.75.7, modernc.org/memory v1.12.1, modernc.org/mathutil v1.7.1, golang.org/x/sys v0.47.0, github.com/dustin/go-humanize v1.0.1, github.com/google/uuid v1.6.0, github.com/mattn/go-isatty v0.0.24, github.com/ncruces/go-strftime v1.0.0 and github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec.
+
 ## D-008 Every pass ends with a separate docs(handover) commit
 
 - Date: 15 September 2026 (S01-B01)
