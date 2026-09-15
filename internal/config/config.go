@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -28,6 +29,7 @@ const EnvPrefix = "THESERVER_"
 // Config is the complete configuration of theserver.
 type Config struct {
 	Server Server `toml:"server"`
+	Store  Store  `toml:"store"`
 	Log    Log    `toml:"log"`
 }
 
@@ -35,6 +37,11 @@ type Config struct {
 type Server struct {
 	ListenAddr string `toml:"listen_addr"`
 	DataDir    string `toml:"data_dir"`
+}
+
+// Store holds the database settings.
+type Store struct {
+	BusyTimeoutMs int `toml:"busy_timeout_ms"`
 }
 
 // Log holds the logging settings.
@@ -55,6 +62,9 @@ func Default() Config {
 			ListenAddr: ":8443",
 			DataDir:    "./data",
 		},
+		Store: Store{
+			BusyTimeoutMs: 5000,
+		},
 		Log: Log{
 			Level:  "info",
 			Format: "text",
@@ -64,13 +74,45 @@ func Default() Config {
 
 // setting describes one configuration value: its place in the TOML file, the
 // environment variable and the flag that override it, and what it means.
+// Exactly one of text and number points at the field it stands for.
 type setting struct {
 	section string
 	key     string
 	env     string
 	flag    string // empty when the setting has no flag
 	comment string
-	field   func(*Config) *string
+	text    func(*Config) *string
+	number  func(*Config) *int
+}
+
+// value is the setting as it is written into the file and the log.
+func (s setting) value(c *Config) any {
+	if s.text != nil {
+		return *s.text(c)
+	}
+	return *s.number(c)
+}
+
+// apply parses one override, which always arrives as text, and assigns it.
+func (s setting) apply(c *Config, value string) error {
+	if s.text != nil {
+		*s.text(c) = value
+		return nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil {
+		return fmt.Errorf("%s.%s: %q is not a whole number", s.section, s.key, value)
+	}
+	*s.number(c) = n
+	return nil
+}
+
+// logValue keeps a number a number in the log.
+func (s setting) logValue(c *Config) slog.Attr {
+	if s.text != nil {
+		return slog.String(s.key, *s.text(c))
+	}
+	return slog.Int(s.key, *s.number(c))
 }
 
 // settings lists every setting. Rows of the same section must be adjacent,
@@ -79,22 +121,27 @@ var settings = []setting{
 	{
 		section: "server", key: "listen_addr", env: EnvPrefix + "SERVER_LISTENADDR", flag: "listen",
 		comment: "Address and port the HTTP server listens on.",
-		field:   func(c *Config) *string { return &c.Server.ListenAddr },
+		text:    func(c *Config) *string { return &c.Server.ListenAddr },
 	},
 	{
 		section: "server", key: "data_dir", env: EnvPrefix + "SERVER_DATADIR", flag: "data-dir",
 		comment: "Directory for runtime data.",
-		field:   func(c *Config) *string { return &c.Server.DataDir },
+		text:    func(c *Config) *string { return &c.Server.DataDir },
+	},
+	{
+		section: "store", key: "busy_timeout_ms", env: EnvPrefix + "STORE_BUSYTIMEOUTMS",
+		comment: "Milliseconds a statement waits for a locked database.",
+		number:  func(c *Config) *int { return &c.Store.BusyTimeoutMs },
 	},
 	{
 		section: "log", key: "level", env: EnvPrefix + "LOG_LEVEL", flag: "log-level",
 		comment: "Lowest level that is logged: debug, info, warn or error.",
-		field:   func(c *Config) *string { return &c.Log.Level },
+		text:    func(c *Config) *string { return &c.Log.Level },
 	},
 	{
 		section: "log", key: "format", env: EnvPrefix + "LOG_FORMAT",
 		comment: "Log output format: text or json.",
-		field:   func(c *Config) *string { return &c.Log.Format },
+		text:    func(c *Config) *string { return &c.Log.Format },
 	},
 }
 
@@ -124,7 +171,9 @@ func Load(path string, lookupEnv func(string) (string, bool), flags map[string]s
 	if lookupEnv != nil {
 		for _, s := range settings {
 			if value, ok := lookupEnv(s.env); ok {
-				*s.field(&cfg) = value
+				if err := s.apply(&cfg, value); err != nil {
+					return Config{}, fmt.Errorf("environment %s: %w", s.env, err)
+				}
 			}
 		}
 	}
@@ -134,7 +183,9 @@ func Load(path string, lookupEnv func(string) (string, bool), flags map[string]s
 			continue
 		}
 		if value, ok := flags[s.flag]; ok {
-			*s.field(&cfg) = value
+			if err := s.apply(&cfg, value); err != nil {
+				return Config{}, fmt.Errorf("flag --%s: %w", s.flag, err)
+			}
 		}
 	}
 
@@ -152,6 +203,9 @@ func (c Config) Validate() error {
 	}
 	if c.Server.DataDir == "" {
 		errs = append(errs, errors.New("server.data_dir must not be empty"))
+	}
+	if c.Store.BusyTimeoutMs < 0 {
+		errs = append(errs, fmt.Errorf("store.busy_timeout_ms is %d, it must not be negative", c.Store.BusyTimeoutMs))
 	}
 	if !slices.Contains(logLevels, c.Log.Level) {
 		errs = append(errs, fmt.Errorf("log.level %q is not one of %s", c.Log.Level, strings.Join(logLevels, ", ")))
@@ -186,7 +240,7 @@ func (c Config) LogValue() slog.Value {
 		if _, ok := bySection[s.section]; !ok {
 			sections = append(sections, s.section)
 		}
-		bySection[s.section] = append(bySection[s.section], slog.String(s.key, *s.field(&c)))
+		bySection[s.section] = append(bySection[s.section], s.logValue(&c))
 	}
 	attrs := make([]slog.Attr, 0, len(sections))
 	for _, name := range sections {
@@ -214,7 +268,7 @@ func defaultTOML() ([]byte, error) {
 			section = s.section
 		}
 		fmt.Fprintf(&buf, "# %s %s\n", s.comment, s.overrides())
-		if err := toml.NewEncoder(&buf).Encode(map[string]string{s.key: *s.field(&def)}); err != nil {
+		if err := toml.NewEncoder(&buf).Encode(map[string]any{s.key: s.value(&def)}); err != nil {
 			return nil, fmt.Errorf("encode %s.%s: %w", s.section, s.key, err)
 		}
 	}

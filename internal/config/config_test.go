@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -31,6 +32,9 @@ func TestLoadPrecedence(t *testing.T) {
 listen_addr = "127.0.0.1:9000"
 data_dir = "file-data"
 
+[store]
+busy_timeout_ms = 1234
+
 [log]
 level = "warn"
 format = "json"
@@ -42,6 +46,7 @@ level = "debug"
 
 	fileConfig := Config{
 		Server: Server{ListenAddr: "127.0.0.1:9000", DataDir: "file-data"},
+		Store:  Store{BusyTimeoutMs: 1234},
 		Log:    Log{Level: "warn", Format: "json"},
 	}
 
@@ -66,19 +71,22 @@ level = "debug"
 			file: partial,
 			want: Config{
 				Server: Default().Server,
+				Store:  Default().Store,
 				Log:    Log{Level: "debug", Format: "text"},
 			},
 		},
 		{
 			name: "env over defaults",
 			env: map[string]string{
-				"THESERVER_SERVER_LISTENADDR": "127.0.0.1:9100",
-				"THESERVER_SERVER_DATADIR":    "env-data",
-				"THESERVER_LOG_LEVEL":         "error",
-				"THESERVER_LOG_FORMAT":        "json",
+				"THESERVER_SERVER_LISTENADDR":   "127.0.0.1:9100",
+				"THESERVER_SERVER_DATADIR":      "env-data",
+				"THESERVER_STORE_BUSYTIMEOUTMS": "250",
+				"THESERVER_LOG_LEVEL":           "error",
+				"THESERVER_LOG_FORMAT":          "json",
 			},
 			want: Config{
 				Server: Server{ListenAddr: "127.0.0.1:9100", DataDir: "env-data"},
+				Store:  Store{BusyTimeoutMs: 250},
 				Log:    Log{Level: "error", Format: "json"},
 			},
 		},
@@ -91,6 +99,7 @@ level = "debug"
 			},
 			want: Config{
 				Server: Server{ListenAddr: "127.0.0.1:9100", DataDir: "file-data"},
+				Store:  Store{BusyTimeoutMs: 1234},
 				Log:    Log{Level: "error", Format: "json"},
 			},
 		},
@@ -103,6 +112,7 @@ level = "debug"
 			},
 			want: Config{
 				Server: Server{ListenAddr: "127.0.0.1:9200", DataDir: "flag-data"},
+				Store:  Default().Store,
 				Log:    Log{Level: "debug", Format: "text"},
 			},
 		},
@@ -119,6 +129,7 @@ level = "debug"
 			},
 			want: Config{
 				Server: Server{ListenAddr: "127.0.0.1:9200", DataDir: "env-data"},
+				Store:  Default().Store,
 				Log:    Log{Level: "error", Format: "text"},
 			},
 		},
@@ -173,6 +184,8 @@ func TestLoadErrors(t *testing.T) {
 		{name: "invalid level from env", env: map[string]string{"THESERVER_LOG_LEVEL": "loud"}, wantErr: `log.level "loud"`},
 		{name: "listen address without port from flag", flags: map[string]string{"listen": "localhost"}, wantErr: "server.listen_addr"},
 		{name: "empty data dir from env", env: map[string]string{"THESERVER_SERVER_DATADIR": ""}, wantErr: "server.data_dir"},
+		{name: "busy timeout is not a number", env: map[string]string{"THESERVER_STORE_BUSYTIMEOUTMS": "soon"}, wantErr: "is not a whole number"},
+		{name: "negative busy timeout", env: map[string]string{"THESERVER_STORE_BUSYTIMEOUTMS": "-1"}, wantErr: "store.busy_timeout_ms"},
 	}
 
 	for _, tt := range tests {
@@ -227,8 +240,9 @@ func TestWriteDefaultCommentsEverySetting(t *testing.T) {
 			} else if !strings.Contains(lines[i-1], s.env) {
 				t.Errorf("comment of %s.%s does not name %s", s.section, s.key, s.env)
 			}
-			if !strings.Contains(line, *s.field(&def)) {
-				t.Errorf("%s.%s line %q does not carry the default %q", s.section, s.key, line, *s.field(&def))
+			want := fmt.Sprint(s.value(&def))
+			if !strings.Contains(line, want) {
+				t.Errorf("%s.%s line %q does not carry the default %q", s.section, s.key, line, want)
 			}
 		}
 		if !found {
@@ -256,9 +270,19 @@ func TestWriteDefaultKeepsExistingFile(t *testing.T) {
 // default file or the overrides.
 func TestSettingsCoverEveryField(t *testing.T) {
 	var cfg Config
-	rows := map[*string]int{}
+	textRows := map[*string]int{}
+	numberRows := map[*int]int{}
 	for _, s := range settings {
-		rows[s.field(&cfg)]++
+		switch {
+		case s.text != nil && s.number != nil:
+			t.Errorf("%s.%s is both text and number", s.section, s.key)
+		case s.text != nil:
+			textRows[s.text(&cfg)]++
+		case s.number != nil:
+			numberRows[s.number(&cfg)]++
+		default:
+			t.Errorf("%s.%s points at no field", s.section, s.key)
+		}
 	}
 
 	root := reflect.ValueOf(&cfg).Elem()
@@ -269,13 +293,18 @@ func TestSettingsCoverEveryField(t *testing.T) {
 			leaves++
 			field := section.Field(j)
 			name := root.Type().Field(i).Name + "." + section.Type().Field(j).Name
-			ptr, ok := field.Addr().Interface().(*string)
-			if !ok {
-				t.Errorf("%s is not a string; extend the settings table for its type", name)
+			var rows int
+			switch ptr := field.Addr().Interface().(type) {
+			case *string:
+				rows = textRows[ptr]
+			case *int:
+				rows = numberRows[ptr]
+			default:
+				t.Errorf("%s is neither string nor int; extend the settings table for its type", name)
 				continue
 			}
-			if rows[ptr] != 1 {
-				t.Errorf("%s has %d rows in the settings table, want 1", name, rows[ptr])
+			if rows != 1 {
+				t.Errorf("%s has %d rows in the settings table, want 1", name, rows)
 			}
 		}
 	}
