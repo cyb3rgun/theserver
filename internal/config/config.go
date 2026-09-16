@@ -29,7 +29,9 @@ const EnvPrefix = "THESERVER_"
 // Config is the complete configuration of theserver.
 type Config struct {
 	Server Server `toml:"server"`
+	TLS    TLS    `toml:"tls"`
 	Store  Store  `toml:"store"`
+	Link   Link   `toml:"link"`
 	Log    Log    `toml:"log"`
 }
 
@@ -37,6 +39,22 @@ type Config struct {
 type Server struct {
 	ListenAddr string `toml:"listen_addr"`
 	DataDir    string `toml:"data_dir"`
+}
+
+// TLS names the certificate the server presents. Both empty means the
+// certificate that theserver creates in the tls folder of the data directory.
+type TLS struct {
+	CertFile string `toml:"cert_file"`
+	KeyFile  string `toml:"key_file"`
+}
+
+// Link holds the timing of the device link.
+type Link struct {
+	AckIntervalMs int `toml:"ack_interval_ms"`
+	AckBatch      int `toml:"ack_batch"`
+	PingIntervalS int `toml:"ping_interval_s"`
+	PongTimeoutS  int `toml:"pong_timeout_s"`
+	HelloTimeoutS int `toml:"hello_timeout_s"`
 }
 
 // Store holds the database settings.
@@ -64,6 +82,13 @@ func Default() Config {
 		},
 		Store: Store{
 			BusyTimeoutMs: 5000,
+		},
+		Link: Link{
+			AckIntervalMs: 100,
+			AckBatch:      32,
+			PingIntervalS: 15,
+			PongTimeoutS:  10,
+			HelloTimeoutS: 5,
 		},
 		Log: Log{
 			Level:  "info",
@@ -129,9 +154,44 @@ var settings = []setting{
 		text:    func(c *Config) *string { return &c.Server.DataDir },
 	},
 	{
+		section: "tls", key: "cert_file", env: EnvPrefix + "TLS_CERTFILE",
+		comment: "PEM certificate to serve; empty with key_file empty uses the one created in <data_dir>/tls.",
+		text:    func(c *Config) *string { return &c.TLS.CertFile },
+	},
+	{
+		section: "tls", key: "key_file", env: EnvPrefix + "TLS_KEYFILE",
+		comment: "PEM private key of cert_file; set both or neither.",
+		text:    func(c *Config) *string { return &c.TLS.KeyFile },
+	},
+	{
 		section: "store", key: "busy_timeout_ms", env: EnvPrefix + "STORE_BUSYTIMEOUTMS",
 		comment: "Milliseconds a statement waits for a locked database.",
 		number:  func(c *Config) *int { return &c.Store.BusyTimeoutMs },
+	},
+	{
+		section: "link", key: "ack_interval_ms", env: EnvPrefix + "LINK_ACKINTERVALMS",
+		comment: "Milliseconds after which received events are stored and acknowledged.",
+		number:  func(c *Config) *int { return &c.Link.AckIntervalMs },
+	},
+	{
+		section: "link", key: "ack_batch", env: EnvPrefix + "LINK_ACKBATCH",
+		comment: "Number of received events that are stored and acknowledged at once.",
+		number:  func(c *Config) *int { return &c.Link.AckBatch },
+	},
+	{
+		section: "link", key: "ping_interval_s", env: EnvPrefix + "LINK_PINGINTERVALS",
+		comment: "Seconds between two pings to a device.",
+		number:  func(c *Config) *int { return &c.Link.PingIntervalS },
+	},
+	{
+		section: "link", key: "pong_timeout_s", env: EnvPrefix + "LINK_PONGTIMEOUTS",
+		comment: "Seconds a device has to answer a ping before it is dropped.",
+		number:  func(c *Config) *int { return &c.Link.PongTimeoutS },
+	},
+	{
+		section: "link", key: "hello_timeout_s", env: EnvPrefix + "LINK_HELLOTIMEOUTS",
+		comment: "Seconds a new connection has to send its hello.",
+		number:  func(c *Config) *int { return &c.Link.HelloTimeoutS },
 	},
 	{
 		section: "log", key: "level", env: EnvPrefix + "LOG_LEVEL", flag: "log-level",
@@ -204,8 +264,25 @@ func (c Config) Validate() error {
 	if c.Server.DataDir == "" {
 		errs = append(errs, errors.New("server.data_dir must not be empty"))
 	}
+	if (c.TLS.CertFile == "") != (c.TLS.KeyFile == "") {
+		errs = append(errs, errors.New("tls.cert_file and tls.key_file must be set together or both left empty"))
+	}
 	if c.Store.BusyTimeoutMs < 0 {
 		errs = append(errs, fmt.Errorf("store.busy_timeout_ms is %d, it must not be negative", c.Store.BusyTimeoutMs))
+	}
+	for _, positive := range []struct {
+		key   string
+		value int
+	}{
+		{"link.ack_interval_ms", c.Link.AckIntervalMs},
+		{"link.ack_batch", c.Link.AckBatch},
+		{"link.ping_interval_s", c.Link.PingIntervalS},
+		{"link.pong_timeout_s", c.Link.PongTimeoutS},
+		{"link.hello_timeout_s", c.Link.HelloTimeoutS},
+	} {
+		if positive.value <= 0 {
+			errs = append(errs, fmt.Errorf("%s is %d, it must be at least 1", positive.key, positive.value))
+		}
 	}
 	if !slices.Contains(logLevels, c.Log.Level) {
 		errs = append(errs, fmt.Errorf("log.level %q is not one of %s", c.Log.Level, strings.Join(logLevels, ", ")))

@@ -25,6 +25,14 @@ func envFrom(vars map[string]string) func(string) (string, bool) {
 	}
 }
 
+// defaultsWith returns the defaults with change applied, so a case names only
+// what it expects to differ.
+func defaultsWith(change func(c *Config)) Config {
+	c := Default()
+	change(&c)
+	return c
+}
+
 func TestLoadPrecedence(t *testing.T) {
 	dir := t.TempDir()
 	full := writeFile(t, dir, "full.toml", `
@@ -32,8 +40,19 @@ func TestLoadPrecedence(t *testing.T) {
 listen_addr = "127.0.0.1:9000"
 data_dir = "file-data"
 
+[tls]
+cert_file = "file.crt"
+key_file = "file.key"
+
 [store]
 busy_timeout_ms = 1234
+
+[link]
+ack_interval_ms = 250
+ack_batch = 8
+ping_interval_s = 30
+pong_timeout_s = 20
+hello_timeout_s = 3
 
 [log]
 level = "warn"
@@ -46,7 +65,9 @@ level = "debug"
 
 	fileConfig := Config{
 		Server: Server{ListenAddr: "127.0.0.1:9000", DataDir: "file-data"},
+		TLS:    TLS{CertFile: "file.crt", KeyFile: "file.key"},
 		Store:  Store{BusyTimeoutMs: 1234},
+		Link:   Link{AckIntervalMs: 250, AckBatch: 8, PingIntervalS: 30, PongTimeoutS: 20, HelloTimeoutS: 3},
 		Log:    Log{Level: "warn", Format: "json"},
 	}
 
@@ -69,24 +90,29 @@ level = "debug"
 		{
 			name: "partial file keeps the other defaults",
 			file: partial,
-			want: Config{
-				Server: Default().Server,
-				Store:  Default().Store,
-				Log:    Log{Level: "debug", Format: "text"},
-			},
+			want: defaultsWith(func(c *Config) { c.Log.Level = "debug" }),
 		},
 		{
 			name: "env over defaults",
 			env: map[string]string{
 				"THESERVER_SERVER_LISTENADDR":   "127.0.0.1:9100",
 				"THESERVER_SERVER_DATADIR":      "env-data",
+				"THESERVER_TLS_CERTFILE":        "env.crt",
+				"THESERVER_TLS_KEYFILE":         "env.key",
 				"THESERVER_STORE_BUSYTIMEOUTMS": "250",
+				"THESERVER_LINK_ACKINTERVALMS":  "50",
+				"THESERVER_LINK_ACKBATCH":       "16",
+				"THESERVER_LINK_PINGINTERVALS":  "5",
+				"THESERVER_LINK_PONGTIMEOUTS":   "4",
+				"THESERVER_LINK_HELLOTIMEOUTS":  "2",
 				"THESERVER_LOG_LEVEL":           "error",
 				"THESERVER_LOG_FORMAT":          "json",
 			},
 			want: Config{
 				Server: Server{ListenAddr: "127.0.0.1:9100", DataDir: "env-data"},
+				TLS:    TLS{CertFile: "env.crt", KeyFile: "env.key"},
 				Store:  Store{BusyTimeoutMs: 250},
+				Link:   Link{AckIntervalMs: 50, AckBatch: 16, PingIntervalS: 5, PongTimeoutS: 4, HelloTimeoutS: 2},
 				Log:    Log{Level: "error", Format: "json"},
 			},
 		},
@@ -95,13 +121,16 @@ level = "debug"
 			file: full,
 			env: map[string]string{
 				"THESERVER_SERVER_LISTENADDR": "127.0.0.1:9100",
+				"THESERVER_LINK_ACKBATCH":     "64",
 				"THESERVER_LOG_LEVEL":         "error",
 			},
-			want: Config{
-				Server: Server{ListenAddr: "127.0.0.1:9100", DataDir: "file-data"},
-				Store:  Store{BusyTimeoutMs: 1234},
-				Log:    Log{Level: "error", Format: "json"},
-			},
+			want: func() Config {
+				c := fileConfig
+				c.Server.ListenAddr = "127.0.0.1:9100"
+				c.Link.AckBatch = 64
+				c.Log.Level = "error"
+				return c
+			}(),
 		},
 		{
 			name: "flags over defaults",
@@ -110,11 +139,10 @@ level = "debug"
 				"data-dir":  "flag-data",
 				"log-level": "debug",
 			},
-			want: Config{
-				Server: Server{ListenAddr: "127.0.0.1:9200", DataDir: "flag-data"},
-				Store:  Default().Store,
-				Log:    Log{Level: "debug", Format: "text"},
-			},
+			want: defaultsWith(func(c *Config) {
+				c.Server = Server{ListenAddr: "127.0.0.1:9200", DataDir: "flag-data"}
+				c.Log.Level = "debug"
+			}),
 		},
 		{
 			name: "flags over env over file over defaults",
@@ -127,17 +155,17 @@ level = "debug"
 			flags: map[string]string{
 				"listen": "127.0.0.1:9200",
 			},
-			want: Config{
-				Server: Server{ListenAddr: "127.0.0.1:9200", DataDir: "env-data"},
-				Store:  Default().Store,
-				Log:    Log{Level: "error", Format: "text"},
-			},
+			want: defaultsWith(func(c *Config) {
+				c.Server = Server{ListenAddr: "127.0.0.1:9200", DataDir: "env-data"}
+				c.Log.Level = "error"
+			}),
 		},
 		{
 			name: "flags that are not settings are ignored",
 			flags: map[string]string{
 				"config":  full,
 				"version": "true",
+				"id":      "tgt-01",
 			},
 			want: Default(),
 		},
@@ -186,6 +214,11 @@ func TestLoadErrors(t *testing.T) {
 		{name: "empty data dir from env", env: map[string]string{"THESERVER_SERVER_DATADIR": ""}, wantErr: "server.data_dir"},
 		{name: "busy timeout is not a number", env: map[string]string{"THESERVER_STORE_BUSYTIMEOUTMS": "soon"}, wantErr: "is not a whole number"},
 		{name: "negative busy timeout", env: map[string]string{"THESERVER_STORE_BUSYTIMEOUTMS": "-1"}, wantErr: "store.busy_timeout_ms"},
+		{name: "only a certificate", env: map[string]string{"THESERVER_TLS_CERTFILE": "a.crt"}, wantErr: "tls.cert_file and tls.key_file"},
+		{name: "only a key", env: map[string]string{"THESERVER_TLS_KEYFILE": "a.key"}, wantErr: "tls.cert_file and tls.key_file"},
+		{name: "zero ack batch", env: map[string]string{"THESERVER_LINK_ACKBATCH": "0"}, wantErr: "link.ack_batch"},
+		{name: "negative pong timeout", env: map[string]string{"THESERVER_LINK_PONGTIMEOUTS": "-5"}, wantErr: "link.pong_timeout_s"},
+		{name: "hello timeout is not a number", env: map[string]string{"THESERVER_LINK_HELLOTIMEOUTS": "5s"}, wantErr: "is not a whole number"},
 	}
 
 	for _, tt := range tests {
