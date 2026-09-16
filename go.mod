@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/BurntSushi/toml v1.6.0
+	github.com/coder/websocket v1.8.15
 	github.com/fxamacker/cbor/v2 v2.9.4
 	modernc.org/sqlite v1.59.0
 )
