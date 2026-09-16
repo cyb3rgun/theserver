@@ -69,3 +69,61 @@ Names in S01: `time_mark {now}`, `session_start {ses, scn}`, `session_stop {ses}
 ## 7. Limits
 
 Frame size at most 4096 bytes. Payloads that do not fit are a design error, not a runtime case. Large content never uses this link; it is fetched over HTTPS.
+
+## 8. Server behaviour
+
+Added 16 September 2026 with S01-B03. This section states what theserver does, as implemented in `internal/link`; sections 1 to 7 are unchanged. The numbers in brackets are the configuration keys and their defaults.
+
+### 8.1 Before the upgrade
+
+- The server hashes the bearer token with SHA-256 and looks up the device holding that hash. The scheme `Bearer` is matched without regard to case.
+- A missing or malformed header, an unknown token, or a device whose status is not `approved` is answered with HTTP 401, `WWW-Authenticate: Bearer realm="theserver device link"`, `Content-Type: application/cbor` and an `err` message with code `unauthorized` as the body. No upgrade happens.
+- If the device registry cannot be read, or the server is shutting down, the answer is HTTP 503.
+- The server reads frames of at most 4096 bytes. A larger frame closes the connection with WebSocket status 1009.
+
+### 8.2 Handshake
+
+- The device has 5 seconds (`link.hello_timeout_s`, 5) for `hello`. Without it the connection is closed without a close frame.
+- A first frame that is not `hello` gets `bad_message`. `proto` other than 1 gets `proto_unsupported`. A `dev` other than the device of the token gets `unauthorized`. A `cls` other than `esp`, `pi` or `pc` gets `bad_message`. A known `cls` that differs from the registered class is logged and accepted.
+- `fw` is recorded as the firmware version of the device when it differs from the stored one.
+- A device has at most one connection. When a new connection passes these checks while an older one is open, the older one is closed without a close handshake, its received events are stored, and only then does the handshake of the new one go on. The server waits at most 10 seconds for the older connection.
+- The server reads its `ack`: the highest seq such that every seq from 1 to it is stored. If `hello.last` is below it, the answer is `seq_regression`, naming both numbers, and the close.
+- `welcome` carries that `ack`, `now` from the server clock, and `ses`: the running session that holds the device, the latest started if several do, or null.
+- If `hello.last` is not above `ack`, there is nothing to replay; the replay is complete at once and an `ack` with the same seq follows `welcome` immediately.
+
+### 8.3 Events and acknowledgements
+
+- Received events are stored in batches. A batch is written when its first event is 100 ms old (`link.ack_interval_ms`, 100) or when it holds 32 events (`link.ack_batch`, 32), whichever comes first. Each batch is one transaction.
+- Every stored batch is followed by an `ack` with the contiguous seq. When a seq is missing, the ack stays below it, even if later events are stored, until the gap is filled.
+- The replay is complete when the ack reaches `hello.last`. The server logs it with the number of replayed events and duplicates.
+- An event whose `id` is already stored for the same device and seq is a duplicate: it is not stored again, and the ack covers it as usual.
+- `ctl` in `d` becomes the controller of the event when it is text. `d` is stored byte for byte as it arrived. `ts_server` comes from the server clock.
+- An event is attributed to the session of its device whose start and end cover its `ts`, start inclusive and end exclusive, the latest started if several do; a running session has no end yet. Replayed events therefore land in the session they happened in, as long as the device clock follows `time_mark`.
+- An `ev` without a 16 byte `id`, with `seq` 0, without `k`, or with a `d` that is not a map gets `bad_message`. A `k` the server does not know is stored like any other.
+- A conflict gets `bad_message` with the seq in the message: a seq that another event id already holds, or an `id` already stored under another device or seq. The whole batch that contained it is not stored, events received after it on the same connection are dropped, and the connection is closed. Nothing of that batch is acknowledged, so the device still holds it and replays it after reconnecting; the conflicting event keeps failing until the operator resets the device.
+- If the journal cannot be written, the connection is closed with WebSocket status 1011 and no `err`; the device replays what was not acknowledged.
+- The last seen time of the device is updated on every frame it sends.
+
+### 8.4 Other frames from a device
+
+- `res` is matched to a waiting command by `id`; a `res` for an unknown id is logged and ignored.
+- `err` from a device is logged, and the connection is closed with status 1000.
+- `hello` after the handshake, `welcome`, `ack` or `cmd` from a device get `bad_message`.
+- An unknown `t` gets `unknown_type`. A text frame, a frame that is not a CBOR map, and a map with a repeated key get `bad_message`.
+- After an `err` the server sends nothing more and closes the connection with status 1008.
+
+### 8.5 Commands
+
+- The command `id` is an unsigned integer, counted per connection from 1. `a` is always a map, empty when a command has no arguments.
+- A `res` has to arrive within 5 seconds. Otherwise the server logs a timeout and the caller gets a timeout error.
+- Commands still waiting when a connection ends fail as device offline.
+
+### 8.6 Keepalive and write timeout
+
+- The server sends a WebSocket ping every 15 seconds (`link.ping_interval_s`, 15). Without a pong within 10 seconds (`link.pong_timeout_s`, 10) the connection is closed without a close frame and the device is offline.
+- A frame the device does not take within 5 seconds closes the connection.
+
+### 8.7 Revocation and shutdown
+
+- Every 500 ms the server looks for connected devices whose status is no longer `approved`. Such a connection gets `unauthorized` and is closed with status 1008; a new attempt gets HTTP 401.
+- On shutdown the server refuses new connections with HTTP 503, stores what every connection has received, and closes each with status 1001.

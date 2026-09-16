@@ -2,6 +2,59 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-022 theserver has subcommands
+
+- Date: 16 September 2026 (S01-B03)
+- Decision: The binary takes a subcommand. `serve` runs the server and is the default when none is given, so the usage of earlier passes keeps working. `device add`, `device list` and `device revoke` manage devices, and `db info` shows the state of the database. `--db-info` stays for this season as a deprecated alias of `db info`. Every subcommand reads the same layered configuration, so `--config` and `--data-dir` mean the same everywhere.
+- Reason: Operator tasks that must work before the admin UI exists, above all issuing device tokens, need a home that is not a growing list of flags on the server.
+- Versions: none. flag from the standard library.
+
+## D-021 Sessions get a Go API
+
+- Date: 16 September 2026 (S01-B03)
+- Decision: The store offers CreateSession, StartSession, StopSession, AddSessionDevice, GetSession and ListSessions, plus RunningSessionFor for the device link. A session moves only forward, created to running to stopped; any other move is ErrBadTransition. welcome carries the running session of the device.
+- Reason: Closes the gap from the S01-B02 handover: events referenced sessions that only raw SQL could create, and welcome needs the active session.
+- Refinement agreed with the architect during this pass: an event without a session from the caller belongs to the session of its device whose started_at and ended_at cover its ts_device, start inclusive and end exclusive, the latest started if several do. A replayed event therefore lands in the session it happened in. This relies on time_mark keeping device clocks close to the server.
+- Versions: none.
+
+## D-020 Handlers leave main
+
+- Date: 16 September 2026 (S01-B03)
+- Decision: internal/httpapi owns the router, GET /healthz and the mount of the device link at /link/v1. cmd/theserver only wires configuration, store, certificate, link and lifecycle.
+- Reason: Handlers in main could not be tested; the 503 path of the health endpoint, flagged in the S01-B02 handover, now has tests against a failing database and a closed store.
+- Versions: none.
+
+## D-019 Device tokens are issued from the command line in S01
+
+- Date: 16 September 2026 (S01-B03)
+- Decision: `theserver device add --id <id> --kind <kind> --class <class>` draws a token of 32 random bytes, stores only its SHA-256 hash, sets the device to approved and prints the token once with a warning that it cannot be shown again. Issuing tokens from the admin UI is B04 or later.
+- Reason: The device link needs authenticated devices now, and the admin UI does not exist yet.
+- Refinement agreed with the architect during this pass: the server finds the device of a bearer token through the hash of the token, before the upgrade, and the hello must then name that device, else err unauthorized. Migration 0002 adds a unique index on devices.token_hash, so no two devices share a token. The protocol keeps its single Authorization header.
+- Versions: none. crypto/rand and crypto/sha256 from the standard library.
+
+## D-018 TLS from the first start
+
+- Date: 16 September 2026 (S01-B03)
+- Decision: theserver serves HTTPS only. When `tls.cert_file` and `tls.key_file` are empty and `<data_dir>/tls/server.crt` and `server.key` do not exist, it creates a self signed certificate with the standard library: ECDSA P-256, valid for ten years, subject alternative names localhost, 127.0.0.1, ::1 and the host name. It logs the SHA-256 fingerprint on every start. Operators install a real certificate by replacing the two files or by naming others in the configuration. Devices in S01 pin the fingerprint or skip verification with an explicit flag; simtarget does the latter with `--insecure`.
+- Reason: The device link carries bearer tokens, so it must never run in the clear, and a first start has to work without an operator preparing certificates.
+- Versions: none. crypto/ecdsa, crypto/x509 and crypto/tls from the standard library.
+
+## D-017 WebSocket through github.com/coder/websocket
+
+- Date: 16 September 2026 (S01-B03)
+- Decision: The device link uses github.com/coder/websocket, on the server through a net/http handler and in simtarget as the client.
+- Reason: Pure Go, context aware, maintained, and it serves from a plain net/http handler.
+- Refinement agreed with the architect during this pass: a device has at most one connection. A newer connection of the same device replaces the older one, which is closed without a close handshake after it has flushed what it received, so a device that lost its link gets back in without waiting for the ping timeout.
+- Versions: `github.com/coder/websocket v1.8.15`, resolved with `go get github.com/coder/websocket@latest` on 16 September 2026. `go mod tidy` removed it once while nothing imported it; it was required again at exactly this version.
+
+## D-016 CBOR through github.com/fxamacker/cbor/v2
+
+- Date: 16 September 2026 (S01-B03)
+- Decision: The messages of the device link are encoded with github.com/fxamacker/cbor/v2, written in Core Deterministic encoding (RFC 8949 section 4.2.1) and decoded with duplicate map keys refused and unknown keys ignored. An event id is a byte string of exactly 16 bytes; any other length is refused rather than padded or cut.
+- Reason: Pure Go, RFC 8949, deterministic encoding, the de facto standard in Go; the same wire format is cheap to produce with tinycbor on an ESP32.
+- Refinement agreed with the architect during this pass: the command id of cmd and res is an unsigned integer, counted per connection from 1.
+- Versions: `github.com/fxamacker/cbor/v2 v2.9.4`, resolved with `go get github.com/fxamacker/cbor/v2@latest` on 16 September 2026, with the indirect module `github.com/x448/float16 v0.8.4`.
+
 ## D-015 Device tokens carry S01 authentication, stored as hashes
 
 - Date: 16 September 2026 (S01-B02)
