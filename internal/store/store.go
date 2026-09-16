@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -42,9 +43,10 @@ type Clock func() time.Time
 
 // Store owns the database connection and every statement that touches it.
 type Store struct {
-	db   *sql.DB
-	path string
-	now  Clock
+	db      *sql.DB
+	path    string
+	now     Clock
+	writeMu sync.Mutex
 }
 
 // An Option changes how Open sets the database up.
@@ -144,6 +146,16 @@ func (s *Store) Ping(ctx context.Context) error {
 	return nil
 }
 
+// writing serializes the writes of this process and returns the unlock.
+// SQLite takes one writer at a time anyway; waiting here instead of in its busy
+// handler keeps many device connections from backing off against each other.
+// Another process, such as a device command run beside the server, still
+// meets the busy timeout.
+func (s *Store) writing() func() {
+	s.writeMu.Lock()
+	return s.writeMu.Unlock
+}
+
 // nowMilli is the clock as unix milliseconds in UTC (D-014).
 func (s *Store) nowMilli() int64 {
 	return s.now().UTC().UnixMilli()
@@ -217,6 +229,7 @@ func (s *Store) migrate(ctx context.Context) error {
 }
 
 func (s *Store) apply(ctx context.Context, m migration) error {
+	defer s.writing()()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

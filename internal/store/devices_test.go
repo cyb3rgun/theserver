@@ -271,3 +271,116 @@ func TestTokenHashingAndVerify(t *testing.T) {
 		t.Errorf("VerifyToken on an unknown device returned %v, want ErrDeviceNotFound", err)
 	}
 }
+
+func TestDeviceByToken(t *testing.T) {
+	s := openTest(t)
+	ctx := t.Context()
+
+	token, err := NewDeviceToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	device := testDevice("t-1")
+	device.TokenHash = HashToken(token)
+	device.Status = StatusApproved
+	if err := s.UpsertDevice(ctx, device); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertDevice(ctx, testDevice("t-2")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.DeviceByToken(ctx, token)
+	if err != nil {
+		t.Fatalf("DeviceByToken: %v", err)
+	}
+	if got.ID != "t-1" || got.Status != StatusApproved {
+		t.Errorf("DeviceByToken found %s in status %s, want t-1 approved", got.ID, got.Status)
+	}
+
+	for _, wrong := range []string{"", "not a token", token + "x"} {
+		if _, err := s.DeviceByToken(ctx, wrong); !errors.Is(err, ErrDeviceNotFound) {
+			t.Errorf("DeviceByToken(%q) returned %v, want ErrDeviceNotFound", wrong, err)
+		}
+	}
+}
+
+func TestTokensAreUniqueAndRandom(t *testing.T) {
+	s := openTest(t)
+	ctx := t.Context()
+
+	seen := map[string]bool{}
+	for range 100 {
+		token, err := NewDeviceToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(token) != 43 {
+			t.Fatalf("token %q is %d characters, want 43", token, len(token))
+		}
+		if seen[token] {
+			t.Fatalf("token %q drawn twice", token)
+		}
+		seen[token] = true
+	}
+
+	// The unique index refuses a second device with the same token.
+	first := testDevice("t-1")
+	first.TokenHash = HashToken("shared")
+	if err := s.UpsertDevice(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	second := testDevice("t-2")
+	second.TokenHash = HashToken("shared")
+	if err := s.UpsertDevice(ctx, second); err == nil {
+		t.Error("two devices were stored with the same token")
+	}
+}
+
+func TestSetFirmwareVersion(t *testing.T) {
+	s := openTest(t)
+	ctx := t.Context()
+	if err := s.UpsertDevice(ctx, testDevice("t-1")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, version := range []string{"0.3.0", "0.3.0"} {
+		if err := s.SetFirmwareVersion(ctx, "t-1", version); err != nil {
+			t.Fatalf("SetFirmwareVersion %s: %v", version, err)
+		}
+	}
+	got, err := s.GetDevice(ctx, "t-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FirmwareVersion != "0.3.0" {
+		t.Errorf("firmware is %q, want 0.3.0", got.FirmwareVersion)
+	}
+	if err := s.SetFirmwareVersion(ctx, "nobody", "1.0"); !errors.Is(err, ErrDeviceNotFound) {
+		t.Errorf("an unknown device returned %v, want ErrDeviceNotFound", err)
+	}
+}
+
+func TestDevicesNotApproved(t *testing.T) {
+	s := openTest(t)
+	ctx := t.Context()
+	for _, id := range []string{"t-1", "t-2", "t-3"} {
+		if err := s.UpsertDevice(ctx, testDevice(id)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetStatus(ctx, "t-1", StatusApproved); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetStatus(ctx, "t-3", StatusBlocked); err != nil {
+		t.Fatal(err)
+	}
+
+	ids, err := s.DevicesNotApproved(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 || ids[0] != "t-2" || ids[1] != "t-3" {
+		t.Errorf("DevicesNotApproved returned %v, want [t-2 t-3]", ids)
+	}
+}

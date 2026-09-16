@@ -51,6 +51,9 @@ func (id EventID) String() string {
 // ControllerID is pulled out of the payload by the caller, so that rankings do
 // not have to decode payloads. Payload is the CBOR d map of the protocol,
 // stored as received.
+//
+// An empty SessionID lets the store attribute the event by device time: to the
+// session of the device whose start and end cover TsDevice (D-021).
 type Event struct {
 	ID           EventID
 	Seq          uint64
@@ -81,6 +84,23 @@ var (
 	ErrEventConflict = errors.New("event id already stored for another device or sequence number")
 )
 
+// A ConflictError names the event of a batch that contradicted the journal.
+// It unwraps to ErrSeqConflict or ErrEventConflict.
+type ConflictError struct {
+	Seq     uint64
+	EventID EventID
+	Err     error
+	Detail  string
+}
+
+func (e *ConflictError) Error() string {
+	return fmt.Sprintf("seq %d: %v: %s", e.Seq, e.Err, e.Detail)
+}
+
+func (e *ConflictError) Unwrap() error {
+	return e.Err
+}
+
 // AppendEvents writes a batch of events of one device in a single
 // transaction, and is safe to call again with the same batch: an event whose
 // id is already stored counts as a duplicate and is not written twice.
@@ -99,6 +119,7 @@ func (s *Store) AppendEvents(ctx context.Context, deviceID string, events []Even
 		}
 	}
 
+	defer s.writing()()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return AppendResult{}, err
@@ -109,6 +130,10 @@ func (s *Store) AppendEvents(ctx context.Context, deviceID string, events []Even
 	var result AppendResult
 	for _, e := range events {
 		stored, err := appendEvent(ctx, tx, deviceID, e, tsServer)
+		var conflict *ConflictError
+		if errors.As(err, &conflict) {
+			return AppendResult{}, fmt.Errorf("append events for %s: %w", deviceID, err)
+		}
 		if err != nil {
 			return AppendResult{}, fmt.Errorf("append events for %s: seq %d: %w", deviceID, e.Seq, err)
 		}
@@ -146,15 +171,33 @@ func validateEvent(e Event) error {
 	return nil
 }
 
+// insertEvent stores one event. Without a session from the caller, the
+// session is the one that holds the device and whose start and end cover the
+// device time of the event, the latest started if several do; a session that
+// is still running has no end yet.
+const insertEvent = `
+INSERT INTO events (
+  event_id, device_id, seq, kind, controller_id, session_id, ts_device, ts_server, payload
+) VALUES (?1, ?2, ?3, ?4, ?5,
+  COALESCE(?6, (
+    SELECT s.id
+      FROM sessions s
+      JOIN session_devices sd ON sd.session_id = s.id
+     WHERE sd.device_id = ?2
+       AND s.started_at IS NOT NULL
+       AND s.started_at <= ?7
+       AND (s.ended_at IS NULL OR ?7 < s.ended_at)
+     ORDER BY s.started_at DESC, s.id
+     LIMIT 1
+  )),
+  ?7, ?8, ?9)
+ON CONFLICT(event_id) DO NOTHING`
+
 // appendEvent inserts one event and reports whether it was stored. An id that
 // is already in the journal is left alone, which makes a replay cheap, but
 // only when it carries the same device and sequence number.
 func appendEvent(ctx context.Context, tx *sql.Tx, deviceID string, e Event, tsServer int64) (bool, error) {
-	result, err := tx.ExecContext(ctx, `
-INSERT INTO events (
-  event_id, device_id, seq, kind, controller_id, session_id, ts_device, ts_server, payload
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(event_id) DO NOTHING`,
+	result, err := tx.ExecContext(ctx, insertEvent,
 		e.ID[:], deviceID, int64(e.Seq), e.Kind, nullString(e.ControllerID), nullString(e.SessionID),
 		e.TsDevice, tsServer, e.Payload,
 	)
@@ -166,7 +209,10 @@ ON CONFLICT(event_id) DO NOTHING`,
 			return false, err
 		}
 		if taken != nil && *taken != e.ID {
-			return false, fmt.Errorf("%w: seq %d belongs to event %s", ErrSeqConflict, e.Seq, taken.String())
+			return false, &ConflictError{
+				Seq: e.Seq, EventID: e.ID, Err: ErrSeqConflict,
+				Detail: "held by event " + taken.String(),
+			}
 		}
 		return false, err
 	}
@@ -190,8 +236,10 @@ ON CONFLICT(event_id) DO NOTHING`,
 		return false, err
 	}
 	if storedDevice != deviceID || uint64(storedSeq) != e.Seq {
-		return false, fmt.Errorf("%w: event %s is stored for device %s seq %d",
-			ErrEventConflict, e.ID.String(), storedDevice, storedSeq)
+		return false, &ConflictError{
+			Seq: e.Seq, EventID: e.ID, Err: ErrEventConflict,
+			Detail: fmt.Sprintf("event %s is stored for device %s seq %d", e.ID, storedDevice, storedSeq),
+		}
 	}
 	return false, nil
 }

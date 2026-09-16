@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"time"
@@ -75,6 +77,7 @@ func (s *Store) UpsertDevice(ctx context.Context, d Device) error {
 	if d.Status == "" {
 		d.Status = StatusPending
 	}
+	defer s.writing()()
 	now := s.nowMilli()
 
 	_, err := s.db.ExecContext(ctx, `
@@ -145,6 +148,7 @@ func (s *Store) ListDevices(ctx context.Context) ([]Device, error) {
 // fills first_seen.
 func (s *Store) TouchLastSeen(ctx context.Context, id string, ts time.Time) error {
 	milli := ts.UTC().UnixMilli()
+	defer s.writing()()
 	result, err := s.db.ExecContext(ctx, `
 UPDATE devices
    SET last_seen  = ?,
@@ -160,12 +164,79 @@ UPDATE devices
 // SetStatus moves a device to pending, approved or blocked. An unknown status
 // is refused by the CHECK constraint on the column.
 func (s *Store) SetStatus(ctx context.Context, id, status string) error {
+	defer s.writing()()
 	result, err := s.db.ExecContext(ctx,
 		`UPDATE devices SET status = ?, updated_at = ? WHERE id = ?`, status, s.nowMilli(), id)
 	if err != nil {
 		return fmt.Errorf("set status of device %s to %q: %w", id, status, err)
 	}
 	return checkOneRow(result, id)
+}
+
+// SetFirmwareVersion records the firmware a device reported in its hello.
+func (s *Store) SetFirmwareVersion(ctx context.Context, id, version string) error {
+	defer s.writing()()
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE devices SET firmware_version = ?, updated_at = ? WHERE id = ? AND firmware_version <> ?`,
+		version, s.nowMilli(), id, version)
+	if err != nil {
+		return fmt.Errorf("set firmware of device %s: %w", id, err)
+	}
+	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
+		// Either the version did not change or the device is unknown.
+		if _, err := s.GetDevice(ctx, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DevicesNotApproved lists the ids of every device whose status is not
+// approved. The device link closes their connections.
+func (s *Store) DevicesNotApproved(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id FROM devices WHERE status <> ? ORDER BY id`, StatusApproved)
+	if err != nil {
+		return nil, fmt.Errorf("list devices that are not approved: %w", err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// NewDeviceToken draws a device token: 32 bytes from crypto/rand, written as
+// unpadded URL safe base64. Only its hash is ever stored.
+func NewDeviceToken() (string, error) {
+	var secret [32]byte
+	if _, err := rand.Read(secret[:]); err != nil {
+		return "", fmt.Errorf("new device token: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(secret[:]), nil
+}
+
+// DeviceByToken finds the device a bearer token belongs to, through the hash
+// of the token (D-019). An empty token or one that no device holds returns
+// ErrDeviceNotFound.
+func (s *Store) DeviceByToken(ctx context.Context, token string) (Device, error) {
+	if token == "" {
+		return Device{}, fmt.Errorf("empty token: %w", ErrDeviceNotFound)
+	}
+	row := s.db.QueryRowContext(ctx, `SELECT `+deviceColumns+` FROM devices WHERE token_hash = ?`, HashToken(token))
+	d, err := scanDevice(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Device{}, fmt.Errorf("token: %w", ErrDeviceNotFound)
+	}
+	if err != nil {
+		return Device{}, fmt.Errorf("device by token: %w", err)
+	}
+	return d, nil
 }
 
 // HashToken is how a device token is stored: the SHA-256 of the token, never

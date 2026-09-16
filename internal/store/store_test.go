@@ -13,6 +13,16 @@ func testClock(at time.Time) Clock {
 	return func() time.Time { return at }
 }
 
+// latestMigration is the version a fresh database ends up at.
+func latestMigration(t *testing.T) (version, count int) {
+	t.Helper()
+	migrations, err := loadMigrations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return migrations[len(migrations)-1].version, len(migrations)
+}
+
 // openTest opens a store in a fresh directory with a standing clock.
 func openTest(t *testing.T, opts ...Option) *Store {
 	t.Helper()
@@ -55,8 +65,8 @@ func TestOpenCreatesDirectoryAndSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Errorf("schema version is %d, want 1", version)
+	if latest, _ := latestMigration(t); version != latest {
+		t.Errorf("schema version is %d, want %d", version, latest)
 	}
 	if err := s.Ping(t.Context()); err != nil {
 		t.Errorf("Ping: %v", err)
@@ -83,8 +93,8 @@ func TestOpenAgainAppliesNothing(t *testing.T) {
 	if err := second.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM schema_migrations").Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
-	if rows != 1 {
-		t.Errorf("schema_migrations holds %d rows, want 1", rows)
+	if _, count := latestMigration(t); rows != count {
+		t.Errorf("schema_migrations holds %d rows, want %d", rows, count)
 	}
 	var again int64
 	row = second.db.QueryRowContext(t.Context(), "SELECT applied_at FROM schema_migrations WHERE version = 1")
@@ -142,8 +152,9 @@ func TestInfoReportsEmptyDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Info: %v", err)
 	}
-	if info.SchemaVersion != 1 {
-		t.Errorf("schema version is %d, want 1", info.SchemaVersion)
+	latest, count := latestMigration(t)
+	if info.SchemaVersion != latest {
+		t.Errorf("schema version is %d, want %d", info.SchemaVersion, latest)
 	}
 	if info.JournalMode != "wal" {
 		t.Errorf("journal mode is %q, want wal", info.JournalMode)
@@ -154,7 +165,7 @@ func TestInfoReportsEmptyDatabase(t *testing.T) {
 	if info.BusyTimeoutMs != int(DefaultBusyTimeout.Milliseconds()) {
 		t.Errorf("busy timeout is %d, want %d", info.BusyTimeoutMs, DefaultBusyTimeout.Milliseconds())
 	}
-	want := map[string]int64{"devices": 0, "events": 0, "schema_migrations": 1, "session_devices": 0, "sessions": 0}
+	want := map[string]int64{"devices": 0, "events": 0, "schema_migrations": int64(count), "session_devices": 0, "sessions": 0}
 	if len(info.Tables) != len(want) {
 		t.Fatalf("Info lists %d tables, want %d", len(info.Tables), len(want))
 	}

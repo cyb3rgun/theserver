@@ -429,3 +429,80 @@ func TestAppendTenThousandEvents(t *testing.T) {
 	t.Logf("appended %d events in one transaction in %s (%.0f events per second)",
 		count, elapsed.Round(time.Millisecond), float64(count)/elapsed.Seconds())
 }
+
+// TestConflictErrorNamesTheEvent lets the device link tell the device which
+// sequence number it contradicted.
+func TestConflictErrorNamesTheEvent(t *testing.T) {
+	s := journalStore(t)
+	ctx := t.Context()
+	if _, err := s.AppendEvents(ctx, "t-1", []Event{testEvent(1, 1), testEvent(2, 2)}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := s.AppendEvents(ctx, "t-1", []Event{testEvent(3, 3), testEvent(2, 42)})
+	var conflict *ConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("the error %v carries no ConflictError", err)
+	}
+	if conflict.Seq != 2 || conflict.EventID != eventID(42) || !errors.Is(err, ErrSeqConflict) {
+		t.Errorf("conflict names seq %d, event %s, error %v", conflict.Seq, conflict.EventID, conflict.Err)
+	}
+
+	_, err = s.AppendEvents(ctx, "t-1", []Event{testEvent(5, 1)})
+	if !errors.As(err, &conflict) || conflict.Seq != 5 || !errors.Is(err, ErrEventConflict) {
+		t.Errorf("a moved event id returned %v", err)
+	}
+}
+
+// TestConcurrentAppendsFromManyDevices is the load of the device link in
+// small: many connections append at once and none of them fails with a busy
+// database.
+func TestConcurrentAppendsFromManyDevices(t *testing.T) {
+	s := openTest(t)
+	ctx := t.Context()
+
+	const devices, batches, perBatch = 20, 10, 8
+	for d := range devices {
+		if err := s.UpsertDevice(ctx, testDevice(deviceName(d))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	errs := make(chan error, devices)
+	for d := range devices {
+		go func() {
+			seq := uint64(0)
+			for range batches {
+				batch := make([]Event, 0, perBatch)
+				for range perBatch {
+					seq++
+					e := testEvent(seq, 0)
+					e.ID[0] = byte(d)
+					e.ID[1] = byte(seq)
+					batch = append(batch, e)
+				}
+				if _, err := s.AppendEvents(ctx, deviceName(d), batch); err != nil {
+					errs <- err
+					return
+				}
+				if err := s.TouchLastSeen(ctx, deviceName(d), time.Now()); err != nil {
+					errs <- err
+					return
+				}
+			}
+			errs <- nil
+		}()
+	}
+	for range devices {
+		if err := <-errs; err != nil {
+			t.Errorf("a concurrent append failed: %v", err)
+		}
+	}
+	if rows := countEvents(t, s); rows != devices*batches*perBatch {
+		t.Errorf("the journal holds %d events, want %d", rows, devices*batches*perBatch)
+	}
+}
+
+func deviceName(n int) string {
+	return "t-" + string(rune('a'+n))
+}
