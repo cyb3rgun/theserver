@@ -83,6 +83,10 @@ type lockData struct {
 	Take      string
 	Release   string
 	Confirm   string
+	// At is the stamp of the lock this page holds. The release carries it,
+	// so a page that leaves after a newer page of the same person took the
+	// lock releases nothing.
+	At int64
 	alert
 }
 
@@ -239,6 +243,7 @@ func lockOf(lang string, draft httpapi.Draft) lockData {
 		Mine:      draft.Lock.Mine,
 		Name:      draft.Lock.Name,
 		RefreshMs: draft.Lock.TTLMs / 3,
+		At:        draft.Lock.At,
 		Take:      "/admin/editor/" + id + "/lock",
 		Release:   "/admin/editor/" + id + "/unlock",
 		Confirm:   i18n.T(lang, "admin.editor.confirm_take_over"),
@@ -452,7 +457,11 @@ func (a *Admin) editorLock(w http.ResponseWriter, r *http.Request, s session) {
 // this with sendBeacon, which is a POST nobody waits for, so the answer is
 // an empty 204.
 func (a *Admin) editorUnlock(w http.ResponseWriter, r *http.Request, s session) {
-	err := a.call(r, s, http.MethodDelete, "/drafts/"+url.PathEscape(r.PathValue("id"))+"/lock", nil, nil)
+	path := "/drafts/" + url.PathEscape(r.PathValue("id")) + "/lock"
+	if at := r.URL.Query().Get("at"); at != "" {
+		path += "?at=" + url.QueryEscape(at)
+	}
+	err := a.call(r, s, http.MethodDelete, path, nil, nil)
 	if err != nil && !errors.Is(err, errSessionEnded) {
 		var ae *apiError
 		if !errors.As(err, &ae) || ae.Status != http.StatusNotFound {

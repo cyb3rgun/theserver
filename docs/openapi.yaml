@@ -571,9 +571,18 @@ paths:
       description: |
         The editor releases the lock when the page is left. Releasing a
         draft somebody else holds changes nothing, so a browser that leaves
-        late cannot open the draft of the person who took it over.
+        late cannot open the draft of the person who took it over. With the
+        query parameter at, the lock is released only while it still carries
+        that stamp, which keeps a reload inside the editor from taking away
+        the lock the new page has just taken.
       operationId: unlockDraft
-      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      parameters:
+        - {$ref: "#/components/parameters/DraftID"}
+        - name: at
+          in: query
+          required: false
+          description: The locked_at the caller believes the lock carries.
+          schema: {type: integer, format: int64}
       responses:
         "200":
           description: The draft without the lock.

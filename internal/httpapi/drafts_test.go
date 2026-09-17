@@ -440,6 +440,14 @@ func TestDraftLockHoldsTakesOverAndReleases(t *testing.T) {
 	expectError(t, h.call(http.MethodPatch, Prefix+"/drafts/"+draft, `{"rules":{"lives":4}}`),
 		http.StatusConflict, codeDraftLocked)
 
+	// A release that names a stamp the lock no longer carries changes
+	// nothing, which is what keeps a reload inside the editor from taking
+	// away the lock the new page has just taken.
+	if lock := decode[Draft](t, as(http.MethodDelete, Prefix+"/drafts/"+draft+"/lock?at=1", "", secondToken),
+		http.StatusOK).Lock; !lock.Held {
+		t.Errorf("a stale release took the lock away: %+v", lock)
+	}
+
 	// Releasing. A release by somebody who does not hold it changes nothing.
 	if lock := decode[Draft](t, h.call(http.MethodDelete, Prefix+"/drafts/"+draft+"/lock", ""), http.StatusOK).Lock; !lock.Held {
 		t.Errorf("the admin without the lock released it: %+v", lock)

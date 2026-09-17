@@ -418,10 +418,13 @@ func (s *Server) lockDraft(w http.ResponseWriter, r *http.Request) {
 }
 
 // unlockDraft releases a lock this token holds, which the editor does when
-// the page is left.
+// the page is left. The query parameter at is the stamp the page believes the
+// lock carries; with it, a page that leaves after another page of the same
+// person took the lock releases nothing.
 func (s *Server) unlockDraft(w http.ResponseWriter, r *http.Request) {
 	token, _ := AdminFrom(r.Context())
-	d, err := s.opts.Store.UnlockDraft(r.Context(), r.PathValue("id"), token.ID)
+	at, _ := strconv.ParseInt(r.URL.Query().Get("at"), 10, 64)
+	d, err := s.opts.Store.UnlockDraft(r.Context(), r.PathValue("id"), token.ID, at)
 	if err != nil {
 		s.fail(w, r, err)
 		return

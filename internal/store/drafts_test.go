@@ -133,7 +133,7 @@ func TestDraftLock(t *testing.T) {
 	}
 
 	// A release by the wrong token changes nothing.
-	d, err := s.UnlockDraft(ctx, "d-01", "at-2")
+	d, err := s.UnlockDraft(ctx, "d-01", "at-2", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,8 +166,19 @@ func TestDraftLock(t *testing.T) {
 		t.Errorf("the lock reads %+v", free)
 	}
 
+	// A release that names a stamp the lock no longer carries changes
+	// nothing: that is a page of the same person that was opened before the
+	// one holding it now, leaving late.
+	d, err = s.UnlockDraft(ctx, "d-01", "at-1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Lock.By != "at-1" {
+		t.Errorf("a stale release took the lock away: %+v", d.Lock)
+	}
+
 	// Releasing it by its holder empties it.
-	d, err = s.UnlockDraft(ctx, "d-01", "at-1")
+	d, err = s.UnlockDraft(ctx, "d-01", "at-1", d.Lock.At)
 	if err != nil {
 		t.Fatal(err)
 	}

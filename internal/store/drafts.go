@@ -296,11 +296,19 @@ func (s *Store) LockDraft(ctx context.Context, id, by, name string, ttl time.Dur
 // UnlockDraft releases the lock of a draft when by holds it. Releasing a
 // draft somebody else holds changes nothing, so a browser that leaves late
 // cannot open the draft of the person who took it over.
-func (s *Store) UnlockDraft(ctx context.Context, id, by string) (Draft, error) {
+//
+// at, when it is not zero, is the stamp the caller believes the lock carries,
+// and the lock is released only while it still carries it. A page of the same
+// person that was opened in the meantime has moved the stamp on, and the page
+// that is leaving must not take its lock away: a reload inside the editor is
+// exactly that, the new page taking the lock and the old one leaving after
+// it.
+func (s *Store) UnlockDraft(ctx context.Context, id, by string, at int64) (Draft, error) {
 	defer s.writing()()
-	if _, err := s.db.ExecContext(ctx,
-		`UPDATE scenario_drafts SET locked_by = '', locked_name = '', locked_at = 0 WHERE id = ? AND locked_by = ?`,
-		id, by); err != nil {
+	if _, err := s.db.ExecContext(ctx, `
+UPDATE scenario_drafts SET locked_by = '', locked_name = '', locked_at = 0
+WHERE id = ? AND locked_by = ? AND (? = 0 OR locked_at = ?)`,
+		id, by, at, at); err != nil {
 		return Draft{}, fmt.Errorf("unlock draft %s: %w", id, err)
 	}
 	return getDraft(ctx, s.db, id)

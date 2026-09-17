@@ -25,6 +25,7 @@
      data-history="{{.History.List}}"
      data-lock="{{.Lock.Take}}"
      data-unlock="{{.Lock.Release}}"
+     data-lock-at="{{.Lock.At}}"
      data-lock-every="{{.Lock.RefreshMs}}"
      {{if not .Lock.Mine}}data-readonly="1"{{end}}
      data-words="{{.Words}}">

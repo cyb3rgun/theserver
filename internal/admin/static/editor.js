@@ -18,6 +18,10 @@
   // change to it anyway; the page stops sending, so nobody types into a
   // draft that will not keep it.
   let readOnly = root.dataset.readonly === '1';
+  // lockAt is the stamp of the lock this page holds; the release carries it,
+  // so a page that leaves after a newer page of the same person took the lock
+  // does not take that lock away.
+  let lockAt = root.dataset.lockAt || '';
 
   const video = document.getElementById('stage-video');
   const canvas = document.getElementById('stage-canvas');
@@ -995,6 +999,10 @@
           headers: { 'Accept': 'application/json' },
         });
         ok = answer.ok;
+        if (ok) {
+          const lock = await answer.json();
+          if (lock && lock.locked_at) lockAt = String(lock.locked_at);
+        }
       } catch (err) {
         ok = true; // a network hiccup is not somebody else at the draft
       }
@@ -1011,8 +1019,9 @@
   // the lock stopped being refreshed.
   function releaseLock() {
     if (!urls.unlock || readOnly) return;
-    if (navigator.sendBeacon) navigator.sendBeacon(urls.unlock, new Blob([], { type: 'text/plain' }));
-    else fetch(urls.unlock, { method: 'POST', keepalive: true }).catch(() => {});
+    const url = urls.unlock + (lockAt ? '?at=' + encodeURIComponent(lockAt) : '');
+    if (navigator.sendBeacon) navigator.sendBeacon(url, new Blob([], { type: 'text/plain' }));
+    else fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
   }
 
   window.addEventListener('pagehide', releaseLock);
