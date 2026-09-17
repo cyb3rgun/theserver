@@ -281,7 +281,7 @@ func shortcutsIn(lang string, zonesMove bool) []shortcut {
 // the script holds no text of its own.
 func editorWords(lang string) template.JS {
 	words := map[string]string{}
-	for _, key := range []string{"zone", "appearance", "keyframe"} {
+	for _, key := range []string{"zone", "appearance", "keyframe", "lost"} {
 		words[key] = i18n.T(lang, "admin.editor.js."+key)
 	}
 	encoded, err := json.Marshal(words)
@@ -424,6 +424,9 @@ func (a *Admin) editorRestore(w http.ResponseWriter, r *http.Request, s session)
 		a.render(w, s.Lang, http.StatusOK, "editor", "editor-history", data)
 		return
 	}
+	// The manifest behind the canvas is another one now, and the way back is
+	// the newest entry of the history, not the undo stack of this browser.
+	w.Header().Set("HX-Trigger", "draft-restored")
 	a.render(w, s.Lang, http.StatusOK, "editor", "editor-history", a.historyOf(r, s, changed.Draft))
 }
 

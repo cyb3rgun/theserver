@@ -344,8 +344,13 @@ func TestKeyframeControlFollowsTheTier(t *testing.T) {
 			t.Errorf("the interactive editor lacks %s", button)
 		}
 	}
-	// The hint stands in their place, in the language of the page.
+	// The hint stands in their place, in the language of the page, and the
+	// sentence about keyframes is gone from the hint above the canvas.
 	contains(t, video, `id="keyframe-hint"`, i18n.T("en", "admin.editor.keyframe_fixed"))
+	if strings.Contains(video, i18n.T("en", "admin.editor.stage_hint_moving")) {
+		t.Error("the video editor explains keyframes over the canvas")
+	}
+	contains(t, moving, i18n.T("en", "admin.editor.stage_hint_moving"))
 	if strings.Contains(moving, `id="keyframe-hint"`) {
 		t.Error("the interactive editor shows the hint for a tier without keyframes")
 	}
@@ -406,6 +411,9 @@ func TestEditorLockNoticeAndTakeOver(t *testing.T) {
 	if strings.Contains(mine, `id="editor-lock"`) || strings.Contains(mine, `data-readonly="1"`) {
 		t.Error("the page of the holder shows the lock notice")
 	}
+	// The script says what happened in the language of the page, so the word
+	// for a lock that is gone is on the page as well.
+	contains(t, mine, i18n.T("en", "admin.editor.js.lost"))
 	contains(t, mine, `data-lock="/admin/editor/`+id+`/lock"`, `data-unlock="/admin/editor/`+id+`/unlock"`,
 		`data-lock-every="`+strconv.FormatInt(httpapi.DraftLockTTL.Milliseconds()/3, 10)+`"`)
 
@@ -510,11 +518,19 @@ func TestEditorHistoryAndRestore(t *testing.T) {
 	if len(versions) < 2 {
 		t.Fatalf("the history holds %d versions", len(versions))
 	}
-	restored := h.html("POST", "/admin/editor/"+id+"/history/"+versions[0][1]+"/restore", nil)
-	contains(t, restored, i18n.T("en", "admin.editor.restore"))
+	rec := h.do(http.MethodPost, "/admin/editor/"+id+"/history/"+versions[0][1]+"/restore", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the restore answered %d: %s", rec.Code, rec.Body.String())
+	}
+	// The page reads the draft again on this trigger; without it the canvas
+	// would keep drawing the state that was just replaced.
+	if got := rec.Header().Get("HX-Trigger"); got != "draft-restored" {
+		t.Errorf("the restore triggers %q", got)
+	}
+	contains(t, rec.Body.String(), i18n.T("en", "admin.editor.restore"))
 	var draft httpapi.Draft
-	rec := h.do(http.MethodGet, "/admin/editor/"+id+"/draft", nil, true)
-	if err := json.Unmarshal(rec.Body.Bytes(), &draft); err != nil {
+	read := h.do(http.MethodGet, "/admin/editor/"+id+"/draft", nil, true)
+	if err := json.Unmarshal(read.Body.Bytes(), &draft); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(draft.Manifest), "z-gong") {

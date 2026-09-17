@@ -1027,9 +1027,9 @@
   window.addEventListener('pagehide', releaseLock);
 
   // The property panel changes the manifest through HTMX, not through patch,
-  // so the state before such a change is put on the undo stack here and the
-  // draft is read again after it. Without this, a field or a delete from the
-  // panel would be the one change undo could not take back.
+  // so the state before such a change is put on the undo stack when its form
+  // goes. Without this, a field or a delete from the panel would be the one
+  // change undo could not take back.
   function remember() {
     if (readOnly || !state.manifest) return;
     state.past.push(JSON.parse(JSON.stringify(state.manifest)));
@@ -1037,29 +1037,6 @@
     state.future = [];
     setUndo();
   }
-
-  document.body.addEventListener('htmx:beforeRequest', (event) => {
-    const el = event.target;
-    if (el && el.closest && el.closest('#panel')) remember();
-  });
-
-  // A restore from the history panel goes through HTMX as well and changes
-  // the manifest behind the canvas, so the page reads the draft again and
-  // starts its undo stack over: what is on the screen is the state that was
-  // restored, and the way back is the newest entry of the history.
-  document.body.addEventListener('htmx:afterSwap', (event) => {
-    if (!event.target) return;
-    if (event.target.id === 'history') {
-      state.past = [];
-      state.future = [];
-      load();
-      return;
-    }
-    if (event.target.id === 'panel') {
-      load();
-      refreshHistory();
-    }
-  });
 
   // --- events ----------------------------------------------------------
 
@@ -1137,11 +1114,26 @@
     }
     const button = event.submitter;
     const question = (button && button.dataset.confirm) || form.dataset.confirm;
-    if (question && !window.confirm(question)) event.preventDefault();
+    if (question && !window.confirm(question)) {
+      event.preventDefault();
+      return;
+    }
+    if (form.closest && form.closest('#panel')) remember();
   });
 
   // HTMX swapped a form in; the draft it changed is read again.
   document.body.addEventListener('draft-changed', () => {
+    load();
+    readReady();
+    refreshHistory();
+  });
+
+  // A version was restored: what is on the screen is that state, and the way
+  // back is the newest entry of the history, not the stack of this browser.
+  document.body.addEventListener('draft-restored', () => {
+    state.past = [];
+    state.future = [];
+    setUndo();
     load();
     readReady();
   });

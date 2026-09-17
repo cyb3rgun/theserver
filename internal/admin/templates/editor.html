@@ -71,7 +71,8 @@
           <button type="button" class="button" data-act="cover">{{t "admin.editor.cover"}}</button>
         </span>
       </div>
-      <p class="muted" id="stage-hint">{{t "admin.editor.stage_hint"}}</p>
+      <p class="muted" id="stage-hint">{{t "admin.editor.stage_hint"}}
+        {{if .ZonesMove}}{{t "admin.editor.stage_hint_moving"}}{{end}}</p>
       {{if not .ZonesMove}}<p class="muted" id="keyframe-hint">{{t "admin.editor.keyframe_fixed"}}</p>{{end}}
     </section>
 
