@@ -523,28 +523,11 @@ ack_batch = 8
 	if len(sources.Keys) != len(settings.All()) {
 		t.Errorf("%d sources for %d settings", len(sources.Keys), len(settings.All()))
 	}
-
-	described := Describe(cfg, sources)
-	if len(described) != len(settings.All()) {
-		t.Fatalf("Describe listed %d settings, want %d", len(described), len(settings.All()))
+	if cfg.Link.AckBatch != 16 || cfg.Server.ListenAddr != "127.0.0.1:9000" || cfg.Log.Level != "debug" {
+		t.Errorf("loaded %+v", cfg)
 	}
-	byKey := map[string]Setting{}
-	for _, s := range described {
-		byKey[s.Key] = s
-	}
-	batch := byKey["link.ack_batch"]
-	if batch.Value != int64(16) || batch.Default != int64(32) || batch.Source != SourceEnv || batch.Env != "THESERVER_LINK_ACKBATCH" || batch.Flag != "" || batch.Comment == "" {
-		t.Errorf("link.ack_batch is described as %+v", batch)
-	}
-	listen := byKey["server.listen_addr"]
-	if listen.Value != "127.0.0.1:9000" || listen.Default != ":8443" || listen.Flag != "--listen" {
-		t.Errorf("server.listen_addr is described as %+v", listen)
-	}
-	if described[0].Key != "server.listen_addr" {
-		t.Errorf("Describe starts with %s, want the registry order", described[0].Key)
-	}
-	if got := Describe(Default(), Sources{}); got[0].Source != SourceDefault {
-		t.Errorf("without sources a setting reads %q", got[0].Source)
+	if (Sources{}).Of("server.listen_addr") != SourceDefault {
+		t.Error("without sources a setting does not read as default")
 	}
 }
 

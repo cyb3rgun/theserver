@@ -152,7 +152,7 @@ func serve(ctx context.Context, cfg config.Config, sources config.Sources, logge
 	router := httpapi.New(httpapi.Options{
 		Store:    db,
 		Link:     deviceLink,
-		Settings: func() []config.Setting { return config.Describe(runtime.Config(), runtime.Sources()) },
+		Settings: runtime,
 		Logger:   logger,
 	})
 	key, err := admin.LoadOrCreateKey(filepath.Join(cfg.Server.DataDir, admin.KeyFileName))

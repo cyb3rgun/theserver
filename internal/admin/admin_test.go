@@ -25,6 +25,7 @@ import (
 	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/protocol"
+	"github.com/cyb3rgun/theserver/internal/settings"
 	"github.com/cyb3rgun/theserver/internal/store"
 )
 
@@ -38,6 +39,10 @@ type harness struct {
 	cookie *http.Cookie
 	// lang, when set, is sent as the language cookie.
 	lang string
+
+	// settings is the configuration behind the API, kept in configPath.
+	settings   *config.Runtime
+	configPath string
 
 	// Set by newLinkedHarness: a device link on a test server.
 	link    *link.Server
@@ -87,9 +92,21 @@ func buildHarness(t *testing.T, withLink bool) *harness {
 			linkSrv.Close()
 		})
 	}
+	configPath := filepath.Join(t.TempDir(), "theserver.toml")
+	if err := config.Write(configPath, nil); err != nil {
+		t.Fatal(err)
+	}
+	cfg, sources, err := config.LoadWithSources(configPath, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := config.NewRuntime(cfg, sources)
+	if err != nil {
+		t.Fatal(err)
+	}
 	opts := httpapi.Options{
 		Store:    st,
-		Settings: func() []config.Setting { return config.Describe(config.Default(), config.Sources{}) },
+		Settings: runtime,
 		Logger:   quiet(),
 	}
 	if deviceLink != nil {
@@ -105,6 +122,7 @@ func buildHarness(t *testing.T, withLink bool) *harness {
 		t: t, st: st, admin: a, key: key, token: token, id: row.ID,
 		cookie: NewSessionCookie(key, row.ID, time.Now()),
 		link:   deviceLink, linkSrv: linkSrv,
+		settings: runtime, configPath: configPath,
 	}
 	if linkSrv != nil {
 		h.linkURL = "wss" + strings.TrimPrefix(linkSrv.URL, "https") + link.Path
@@ -450,8 +468,8 @@ func TestRankingFragmentRendersSeededData(t *testing.T) {
 func TestSettingsPage(t *testing.T) {
 	h := newHarness(t)
 	page := h.html("GET", "/admin/settings", nil)
-	for _, s := range config.Describe(config.Default(), config.Sources{}) {
-		contains(t, page, "<code>"+s.Key+"</code>", s.Env)
+	for _, s := range settings.All() {
+		contains(t, page, "<code>"+s.Key+"</code>", s.Env())
 	}
 	contains(t, page, "source-default", "--listen", "Precedence, highest first", "Listen address", "Address and port the HTTPS server listens on.")
 }

@@ -268,23 +268,85 @@ paths:
         "403": {$ref: "#/components/responses/Forbidden"}
   /settings:
     get:
-      summary: Read the effective configuration, every setting with its source.
-      description: Read only in S01. Added in S01-B04 for the settings page.
-      operationId: settings
+      summary: Read every setting with its value, source, range and texts.
+      description: |
+        The settings come from the registry (D-030) in its order, with the
+        label, description and why in the requested language (D-031).
+        restart_pending lists the settings whose new value waits for a
+        restart (D-032).
+      operationId: listSettings
+      parameters:
+        - name: lang
+          in: query
+          description: The language of the texts; en when empty.
+          schema: {type: string, enum: [en, de]}
       responses:
         "200":
-          description: Every setting in the order of the default file.
+          description: Every setting of the registry.
           content:
             application/json:
-              schema:
-                type: object
-                required: [settings]
-                properties:
-                  settings:
-                    type: array
-                    items: {$ref: "#/components/schemas/Setting"}
+              schema: {$ref: "#/components/schemas/SettingsList"}
+        "400": {$ref: "#/components/responses/BadRequest"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
+    put:
+      summary: Change settings, all or none.
+      description: |
+        The body maps setting keys to new values. Every value is checked
+        through the registry; one refused value refuses the whole change,
+        with a field error per setting. Accepted values are written to the
+        configuration file the server was started with (D-032); settings
+        that allow it take effect at once, the others after a restart. A
+        setting that an environment variable or a flag sets cannot be
+        changed here. Every change is logged with the admin token, the old
+        and the new value (D-033). A value equal to the configured one is
+        written but reported as no change.
+      operationId: changeSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {description: A string, a number or a boolean, as the kind of the setting needs.}
+              example: {"log.level": "debug", "link.ack_batch": 64}
+      responses:
+        "200":
+          description: The changes and what they need.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SettingsChanged"}
+        "400": {$ref: "#/components/responses/SettingsRefused"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/NoConfigFile"}
+  /settings/reset:
+    post:
+      summary: Set settings back to their defaults, all or none.
+      description: The settings are removed from the configuration file, otherwise as PUT /settings.
+      operationId: resetSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [keys]
+              additionalProperties: false
+              properties:
+                keys:
+                  type: array
+                  items: {type: string}
+      responses:
+        "200":
+          description: The changes and what they need.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SettingsChanged"}
+        "400": {$ref: "#/components/responses/SettingsRefused"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/NoConfigFile"}
   /openapi.yaml:
     get:
       summary: This document.
@@ -339,6 +401,16 @@ components:
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
+    SettingsRefused:
+      description: One or more settings were refused; error.fields names each with its reason. Nothing was changed.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    NoConfigFile:
+      description: The server runs without a configuration file, so a change has nowhere to go.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
   schemas:
     Error:
       type: object
@@ -350,8 +422,28 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal]
+              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal, invalid_settings, no_config_file]
             message: {type: string}
+            fields:
+              type: array
+              description: With invalid_settings, one entry per refused setting.
+              items: {$ref: "#/components/schemas/FieldError"}
+    FieldError:
+      type: object
+      required: [key, code, message]
+      properties:
+        key: {type: string}
+        code:
+          type: string
+          enum: [unknown_setting, out_of_range, not_allowed, bad_address, bad_duration, bad_number, bad_bool, empty, bad_type, overridden, cert_key_pair]
+        message: {type: string, description: The reason in English; a page translates the code instead.}
+        min: {type: integer}
+        max: {type: integer}
+        unit: {type: string}
+        allowed:
+          type: array
+          items: {type: string}
+        name: {type: string, description: With overridden, the environment variable or flag that sets the setting.}
     Device:
       type: object
       properties:
@@ -448,9 +540,55 @@ components:
       type: object
       properties:
         key: {type: string, description: section.key as in the TOML file.}
-        value: {description: The effective value, a string or an integer.}
+        section: {type: string}
+        kind: {type: string, enum: [string, int, bool, duration, enum, path, addr]}
+        value: {description: The value in effect, a string, an integer or a boolean.}
         default: {description: The built in default.}
         source: {type: string, enum: [default, file, env, flag]}
+        pending: {description: The value after the next restart; only present while one waits.}
+        unit: {type: string, description: The unit of a duration, such as ms, s or h.}
+        min: {type: integer}
+        max: {type: integer}
+        enum:
+          type: array
+          items: {type: string}
+        empty: {type: boolean, description: An empty value is allowed.}
+        restart: {type: boolean, description: A change takes effect after a restart.}
         env: {type: string}
         flag: {type: string}
-        comment: {type: string}
+        label: {type: string}
+        description: {type: string}
+        why: {type: string}
+    SettingsList:
+      type: object
+      required: [language, file, restart_pending, settings]
+      properties:
+        language: {type: string}
+        file: {type: string, description: The configuration file in use; empty without one.}
+        restart_pending:
+          type: array
+          items: {type: string}
+        settings:
+          type: array
+          items: {$ref: "#/components/schemas/Setting"}
+    SettingsChanged:
+      type: object
+      required: [changes, applied, restart_pending]
+      properties:
+        changes:
+          type: array
+          items:
+            type: object
+            properties:
+              key: {type: string}
+              old: {description: The value configured before.}
+              new: {description: The value configured now.}
+              restart: {type: boolean}
+        applied:
+          type: array
+          description: The settings that took effect at once.
+          items: {type: string}
+        restart_pending:
+          type: array
+          description: Every setting that waits for a restart.
+          items: {type: string}

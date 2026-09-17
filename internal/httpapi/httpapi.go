@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/cyb3rgun/theserver/internal/config"
 	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/store"
 	"github.com/cyb3rgun/theserver/internal/version"
@@ -52,8 +51,9 @@ type Options struct {
 	Health Pinger
 	// Link serves /link/v1 and tells the API who is online. It may be nil.
 	Link DeviceLink
-	// Settings returns the effective configuration for /api/v1/settings.
-	Settings func() []config.Setting
+	// Settings is the configuration of the running server, read and changed
+	// through /api/v1/settings. It may be nil.
+	Settings Settings
 	Logger   *slog.Logger
 }
 
@@ -138,7 +138,9 @@ func (s *Server) routes() []struct {
 		{Route{http.MethodGet, "/rankings", true}, s.rankings},
 		{Route{http.MethodGet, "/events", true}, s.events},
 		{Route{http.MethodGet, "/online", true}, s.online},
-		{Route{http.MethodGet, "/settings", true}, s.settings},
+		{Route{http.MethodGet, "/settings", true}, s.settingsList},
+		{Route{http.MethodPut, "/settings", true}, s.settingsChange},
+		{Route{http.MethodPost, "/settings/reset", true}, s.settingsReset},
 		{Route{http.MethodGet, "/openapi.yaml", false}, s.openAPI},
 	}
 }
@@ -220,6 +222,8 @@ const (
 	codeConflict         = "conflict"
 	codeBadTransition    = "bad_transition"
 	codeInternal         = "internal"
+	codeInvalidSettings  = "invalid_settings"
+	codeNoConfigFile     = "no_config_file"
 )
 
 // ErrorBody is the shape of every error answer of API v1.
@@ -227,10 +231,12 @@ type ErrorBody struct {
 	Error ErrorDetail `json:"error"`
 }
 
-// ErrorDetail names what went wrong.
+// ErrorDetail names what went wrong. Fields lists the refused settings of a
+// settings change.
 type ErrorDetail struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code    string       `json:"code"`
+	Message string       `json:"message"`
+	Fields  []FieldError `json:"fields,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {

@@ -1,13 +1,11 @@
 package httpapi
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
-	"github.com/cyb3rgun/theserver/internal/config"
 	"github.com/cyb3rgun/theserver/internal/scoring"
 	"github.com/cyb3rgun/theserver/internal/store"
 )
@@ -130,12 +128,4 @@ func (s *Server) online(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{"devices": out})
-}
-
-func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
-	if s.opts.Settings == nil {
-		s.fail(w, r, errors.New("settings are not wired"))
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string][]config.Setting{"settings": s.opts.Settings()})
 }

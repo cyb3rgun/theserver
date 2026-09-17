@@ -11,10 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cyb3rgun/theserver/internal/config"
 	"github.com/cyb3rgun/theserver/internal/httpapi"
 	"github.com/cyb3rgun/theserver/internal/i18n"
-	"github.com/cyb3rgun/theserver/internal/settings"
 )
 
 // errSessionEnded is an API answer of 401 or 403: the admin token behind the
@@ -359,31 +357,15 @@ func (a *Admin) rankingTable(w http.ResponseWriter, r *http.Request, s session) 
 
 type settingsData struct {
 	layout
-	Settings []settingRow
-}
-
-// settingRow is one setting with its texts in the language of the page.
-type settingRow struct {
-	config.Setting
-	Label       string
-	Description string
+	Settings []httpapi.SettingView
 }
 
 func (a *Admin) settingsPage(w http.ResponseWriter, r *http.Request, s session) {
 	data := settingsData{layout: a.layout("admin.settings.title", "settings", s)}
-	var list struct {
-		Settings []config.Setting `json:"settings"`
-	}
-	if a.failed(w, r, a.call(r, s, http.MethodGet, "/settings", nil, &list), &data.Error) {
+	var list httpapi.SettingsList
+	if a.failed(w, r, a.call(r, s, http.MethodGet, "/settings?lang="+url.QueryEscape(s.Lang), nil, &list), &data.Error) {
 		return
 	}
-	for _, setting := range list.Settings {
-		row := settingRow{Setting: setting}
-		if described, ok := settings.Get(setting.Key); ok {
-			text := described.TextIn(s.Lang)
-			row.Label, row.Description = text.Label, text.Description
-		}
-		data.Settings = append(data.Settings, row)
-	}
+	data.Settings = list.Settings
 	a.render(w, s.Lang, http.StatusOK, "settings", "layout", data)
 }

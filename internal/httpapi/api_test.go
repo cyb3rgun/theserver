@@ -8,13 +8,19 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/cyb3rgun/theserver/internal/config"
 	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/protocol"
+	"github.com/cyb3rgun/theserver/internal/settings"
 	"github.com/cyb3rgun/theserver/internal/simtarget"
 	"github.com/cyb3rgun/theserver/internal/store"
 )
@@ -26,6 +32,33 @@ type apiHarness struct {
 	srv   *Server
 	token string
 	admin store.AdminToken
+	// settings runs on configPath, a file that sets nothing.
+	settings   *config.Runtime
+	configPath string
+	logs       *syncBuffer
+}
+
+// newRuntime writes a configuration file that sets nothing and starts a
+// Runtime on it with env as the environment.
+func newRuntime(t *testing.T, env map[string]string) (*config.Runtime, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "theserver.toml")
+	if err := config.Write(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	lookup := func(key string) (string, bool) {
+		value, ok := env[key]
+		return value, ok
+	}
+	cfg, sources, err := config.LoadWithSources(path, lookup, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := config.NewRuntime(cfg, sources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rt, path
 }
 
 func newAPI(t *testing.T) *apiHarness {
@@ -40,13 +73,15 @@ func newAPI(t *testing.T) *apiHarness {
 		t.Fatal(err)
 	}
 	fl := &fakeLink{}
+	rt, path := newRuntime(t, nil)
+	logs := &syncBuffer{}
 	srv := New(Options{
 		Store:    st,
 		Link:     fl,
-		Settings: func() []config.Setting { return config.Describe(config.Default(), config.Sources{}) },
-		Logger:   quiet(),
+		Settings: rt,
+		Logger:   slog.New(slog.NewTextHandler(logs, nil)),
 	})
-	return &apiHarness{t: t, st: st, link: fl, srv: srv, token: token, admin: admin}
+	return &apiHarness{t: t, st: st, link: fl, srv: srv, token: token, admin: admin, settings: rt, configPath: path, logs: logs}
 }
 
 // call sends a request with the harness token and returns the recorder.
@@ -95,12 +130,31 @@ func decode[T any](t *testing.T, rec *httptest.ResponseRecorder, want int) T {
 	return v
 }
 
-func expectError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) {
+func expectError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) ErrorBody {
 	t.Helper()
 	body := decode[ErrorBody](t, rec, status)
 	if body.Error.Code != code || body.Error.Message == "" {
 		t.Errorf("error body is %+v, want code %s with a message", body, code)
 	}
+	return body
+}
+
+// syncBuffer collects the log of the API.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // concrete turns a route pattern into a path that reaches it.
@@ -409,21 +463,184 @@ func TestOnlineRoute(t *testing.T) {
 
 func TestSettingsRoute(t *testing.T) {
 	h := newAPI(t)
-	got := decode[struct{ Settings []config.Setting }](t, h.call("GET", Prefix+"/settings", ""), 200)
-	if len(got.Settings) != len(config.Describe(config.Default(), config.Sources{})) {
-		t.Fatalf("GET /settings listed %d settings", len(got.Settings))
+	got := decode[SettingsList](t, h.call("GET", Prefix+"/settings", ""), 200)
+	if len(got.Settings) != len(settings.All()) || got.Language != "en" || got.File != h.configPath {
+		t.Fatalf("GET /settings answered %d settings in %q from %q", len(got.Settings), got.Language, got.File)
 	}
-	first := got.Settings[0]
-	if first.Key != "server.listen_addr" || first.Value != ":8443" || first.Source != config.SourceDefault || first.Flag != "--listen" {
-		t.Errorf("the first setting is %+v", first)
+	if got.RestartPending == nil || len(got.RestartPending) != 0 {
+		t.Errorf("restart_pending is %v", got.RestartPending)
+	}
+	for i, s := range settings.All() {
+		view := got.Settings[i]
+		if view.Key != s.Key || view.Section != s.Section || view.Kind != s.Kind.String() || view.Restart != s.Restart ||
+			view.Env != s.Env() || view.Label != s.Text["en"].Label || view.Why != s.Text["en"].Why || view.Source != "default" {
+			t.Errorf("setting %d is %+v, want %s", i, view, s.Key)
+		}
+	}
+	batch := got.Settings[slices.IndexFunc(got.Settings, func(v SettingView) bool { return v.Key == "link.ack_batch" })]
+	if batch.Value != float64(32) || batch.Default != float64(32) || *batch.Min != 1 || *batch.Max != 1024 || batch.Unit != "" {
+		t.Errorf("link.ack_batch is %+v", batch)
+	}
+	level := got.Settings[slices.IndexFunc(got.Settings, func(v SettingView) bool { return v.Key == "log.level" })]
+	if strings.Join(level.Enum, ",") != "debug,info,warn,error" || level.Flag != "--log-level" || level.Min != nil {
+		t.Errorf("log.level is %+v", level)
 	}
 
+	german := decode[SettingsList](t, h.call("GET", Prefix+"/settings?lang=de", ""), 200)
+	if german.Language != "de" || german.Settings[0].Label != "Adresse und Port" {
+		t.Errorf("German settings start with %+v", german.Settings[0])
+	}
+	expectError(t, h.call("GET", Prefix+"/settings?lang=fr", ""), http.StatusBadRequest, codeBadRequest)
+
 	bare := New(Options{Store: h.st, Logger: quiet()})
-	req := httptest.NewRequest("GET", Prefix+"/settings", nil)
-	req.Header.Set("Authorization", "Bearer "+h.token)
-	rec := httptest.NewRecorder()
-	bare.ServeHTTP(rec, req)
-	expectError(t, rec, http.StatusInternalServerError, codeInternal)
+	for _, c := range []struct{ method, path, body string }{
+		{"GET", "/settings", ""},
+		{"PUT", "/settings", "{}"},
+		{"POST", "/settings/reset", `{"keys":[]}`},
+	} {
+		req := httptest.NewRequest(c.method, Prefix+c.path, strings.NewReader(c.body))
+		req.Header.Set("Authorization", "Bearer "+h.token)
+		rec := httptest.NewRecorder()
+		bare.ServeHTTP(rec, req)
+		expectError(t, rec, http.StatusInternalServerError, codeInternal)
+	}
+}
+
+func TestSettingsChange(t *testing.T) {
+	h := newAPI(t)
+	rec := h.call("PUT", Prefix+"/settings", `{"log.level": "debug", "link.ack_batch": 64, "server.listen_addr": "127.0.0.1:9000"}`)
+	got := decode[SettingsChanged](t, rec, 200)
+	if strings.Join(got.Applied, ",") != "link.ack_batch,log.level" || strings.Join(got.RestartPending, ",") != "server.listen_addr" {
+		t.Errorf("applied %v, restart pending %v", got.Applied, got.RestartPending)
+	}
+	if len(got.Changes) != 3 || got.Changes[0].Key != "server.listen_addr" || got.Changes[0].Old != ":8443" ||
+		got.Changes[0].New != "127.0.0.1:9000" || !got.Changes[0].Restart || got.Changes[1].New != float64(64) {
+		t.Errorf("changes are %+v", got.Changes)
+	}
+	cfg := h.settings.Config()
+	if cfg.Log.Level != "debug" || cfg.Link.AckBatch != 64 || cfg.Server.ListenAddr != ":8443" {
+		t.Errorf("in effect: %+v", cfg)
+	}
+	data, err := os.ReadFile(h.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{"\nack_batch = 64\n", "\nlevel = \"debug\"\n", "\nlisten_addr = \"127.0.0.1:9000\"\n"} {
+		if !strings.Contains(string(data), line) {
+			t.Errorf("the file lacks %q", line)
+		}
+	}
+
+	list := decode[SettingsList](t, h.call("GET", Prefix+"/settings", ""), 200)
+	if strings.Join(list.RestartPending, ",") != "server.listen_addr" || list.Settings[0].Pending != "127.0.0.1:9000" || list.Settings[0].Value != ":8443" {
+		t.Errorf("the list shows %v, %+v", list.RestartPending, list.Settings[0])
+	}
+
+	logs := h.logs.String()
+	for _, part := range []string{
+		`msg="setting changed" component=api action=set key=link.ack_batch old=32 new=64 takes_effect=now admin_token=` + h.admin.ID + " admin_name=tests",
+		`key=server.listen_addr old=:8443 new=127.0.0.1:9000 takes_effect="after restart"`,
+	} {
+		if !strings.Contains(logs, part) {
+			t.Errorf("the log lacks %q:\n%s", part, logs)
+		}
+	}
+
+	// The same values again change nothing and log nothing new.
+	count := strings.Count(h.logs.String(), "setting changed")
+	again := decode[SettingsChanged](t, h.call("PUT", Prefix+"/settings", `{"log.level": "debug"}`), 200)
+	if len(again.Changes) != 0 || strings.Count(h.logs.String(), "setting changed") != count {
+		t.Errorf("an unchanged value was reported: %+v", again)
+	}
+}
+
+func TestSettingsRefusedWithFieldErrors(t *testing.T) {
+	h := newAPI(t)
+	before, _ := os.ReadFile(h.configPath)
+	rec := h.call("PUT", Prefix+"/settings", `{"log.level": "loud", "link.ack_batch": 0, "link.ping_interval_s": "soon",
+		"server.listen_addr": "nowhere", "no.such": 1, "tls.cert_file": "a.crt", "log.format": "json"}`)
+	body := expectError(t, rec, http.StatusBadRequest, codeInvalidSettings)
+	codes := map[string]string{}
+	for _, f := range body.Error.Fields {
+		codes[f.Key] = f.Code
+		if f.Message == "" {
+			t.Errorf("field %s has no message", f.Key)
+		}
+		if f.Key == "link.ack_batch" && (f.Min == nil || *f.Min != 1 || *f.Max != 1024) {
+			t.Errorf("the range is missing: %+v", f)
+		}
+		if f.Key == "log.level" && strings.Join(f.Allowed, ",") != "debug,info,warn,error" {
+			t.Errorf("the allowed values are missing: %+v", f)
+		}
+		if f.Key == "link.ping_interval_s" && f.Unit != "s" {
+			t.Errorf("the unit is missing: %+v", f)
+		}
+	}
+	want := map[string]string{
+		"log.level": "not_allowed", "link.ack_batch": "out_of_range", "link.ping_interval_s": "bad_duration",
+		"server.listen_addr": "bad_address", "no.such": "unknown_setting",
+	}
+	if !reflect.DeepEqual(codes, want) {
+		t.Errorf("fields are %v, want %v", codes, want)
+	}
+	after, _ := os.ReadFile(h.configPath)
+	if string(before) != string(after) || h.settings.Config() != config.Default() {
+		t.Error("a refused change changed something")
+	}
+
+	pair := expectError(t, h.call("PUT", Prefix+"/settings", `{"tls.cert_file": "a.crt"}`), http.StatusBadRequest, codeInvalidSettings)
+	if len(pair.Error.Fields) != 2 || pair.Error.Fields[0].Code != FieldCertKeyPair || pair.Error.Fields[1].Key != "tls.key_file" {
+		t.Errorf("a lone certificate gives %+v", pair.Error.Fields)
+	}
+
+	for _, body := range []string{``, `[]`, `{"a": 1} {"b": 2}`, `"text"`, `{"log.level":`} {
+		expectError(t, h.call("PUT", Prefix+"/settings", body), http.StatusBadRequest, codeBadRequest)
+	}
+	expectError(t, h.call("POST", Prefix+"/settings/reset", `{"key": ["log.level"]}`), http.StatusBadRequest, codeBadRequest)
+}
+
+func TestSettingsOverriddenAndWithoutFile(t *testing.T) {
+	h := newAPI(t)
+	rt, _ := newRuntime(t, map[string]string{"THESERVER_LOG_LEVEL": "warn"})
+	h.srv = New(Options{Store: h.st, Settings: rt, Logger: quiet()})
+	body := expectError(t, h.call("PUT", Prefix+"/settings", `{"log.level": "debug"}`), http.StatusBadRequest, codeInvalidSettings)
+	if len(body.Error.Fields) != 1 || body.Error.Fields[0].Code != FieldOverridden || body.Error.Fields[0].Name != "THESERVER_LOG_LEVEL" {
+		t.Errorf("an overridden setting gives %+v", body.Error.Fields)
+	}
+	list := decode[SettingsList](t, h.call("GET", Prefix+"/settings", ""), 200)
+	if list.Settings[slices.IndexFunc(list.Settings, func(v SettingView) bool { return v.Key == "log.level" })].Source != "env" {
+		t.Error("the source of log.level is not env")
+	}
+
+	noFile, err := config.NewRuntime(config.Default(), config.Sources{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.srv = New(Options{Store: h.st, Settings: noFile, Logger: quiet()})
+	expectError(t, h.call("PUT", Prefix+"/settings", `{"log.level": "debug"}`), http.StatusConflict, codeNoConfigFile)
+	expectError(t, h.call("POST", Prefix+"/settings/reset", `{"keys": ["log.level"]}`), http.StatusConflict, codeNoConfigFile)
+	if list := decode[SettingsList](t, h.call("GET", Prefix+"/settings", ""), 200); list.File != "" {
+		t.Errorf("the file is %q", list.File)
+	}
+}
+
+func TestSettingsReset(t *testing.T) {
+	h := newAPI(t)
+	decode[SettingsChanged](t, h.call("PUT", Prefix+"/settings", `{"link.ack_batch": 8, "log.format": "json"}`), 200)
+	got := decode[SettingsChanged](t, h.call("POST", Prefix+"/settings/reset", `{"keys": ["link.ack_batch", "log.format", "log.level"]}`), 200)
+	if len(got.Changes) != 2 || strings.Join(got.Applied, ",") != "link.ack_batch" || len(got.RestartPending) != 0 {
+		t.Errorf("reset answered %+v", got)
+	}
+	if h.settings.Config().Link.AckBatch != 32 {
+		t.Error("the batch is not back to its default")
+	}
+	if !strings.Contains(h.logs.String(), `action=reset key=link.ack_batch old=8 new=32`) {
+		t.Errorf("the reset is not logged:\n%s", h.logs.String())
+	}
+	bad := expectError(t, h.call("POST", Prefix+"/settings/reset", `{"keys": ["no.such"]}`), http.StatusBadRequest, codeInvalidSettings)
+	if len(bad.Error.Fields) != 1 || bad.Error.Fields[0].Code != "unknown_setting" {
+		t.Errorf("an unknown key gives %+v", bad.Error.Fields)
+	}
 }
 
 func TestUnknownAndWrongMethod(t *testing.T) {

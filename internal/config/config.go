@@ -348,37 +348,3 @@ func (c Config) LogValue() slog.Value {
 	}
 	return slog.GroupValue(groups...)
 }
-
-// A Setting describes one setting with its effective value, for the API and
-// the admin page.
-type Setting struct {
-	Key     string `json:"key"`
-	Value   any    `json:"value"`
-	Default any    `json:"default"`
-	Source  Source `json:"source"`
-	Env     string `json:"env"`
-	Flag    string `json:"flag,omitempty"`
-	Comment string `json:"comment"`
-}
-
-// Describe lists every setting of c in registry order. A setting missing
-// from sources is reported as coming from its default.
-func Describe(c Config, sources Sources) []Setting {
-	described := make([]Setting, 0, len(settings.All()))
-	for _, s := range settings.All() {
-		flag := ""
-		if s.Flag != "" {
-			flag = "--" + s.Flag
-		}
-		described = append(described, Setting{
-			Key:     s.Key,
-			Value:   c.Get(s.Key),
-			Default: s.Default,
-			Source:  sources.Of(s.Key),
-			Env:     s.Env(),
-			Flag:    flag,
-			Comment: s.TextIn(settings.FallbackLanguage).Description,
-		})
-	}
-	return described
-}
