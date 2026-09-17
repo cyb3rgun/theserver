@@ -1,7 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"errors"
+	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,11 +24,15 @@ func startRuntime(t *testing.T, content string, env map[string]string, flags map
 	if err != nil {
 		t.Fatalf("LoadWithSources: %v", err)
 	}
-	r, err := NewRuntime(cfg, sources)
+	r, err := NewRuntime(cfg, sources, discard())
 	if err != nil {
 		t.Fatalf("NewRuntime: %v", err)
 	}
 	return r, path
+}
+
+func discard() *slog.Logger {
+	return slog.New(slog.DiscardHandler)
 }
 
 func reload(t *testing.T, path string) (Config, Sources) {
@@ -194,16 +201,117 @@ func TestOverriddenSettingsCannotBeChanged(t *testing.T) {
 	}
 }
 
-func TestChangesNeedAFile(t *testing.T) {
-	r, err := NewRuntime(Default(), Sources{})
+// Without --config the first change creates theserver.toml in the data
+// directory, logs where, and the next start without --config reads it.
+func TestFirstChangeCreatesTheFileInTheDataDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "data")
+	flags := map[string]string{"data-dir": dir}
+	cfg, sources, err := LoadWithSources("", nil, flags)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := r.Apply(map[string]any{"log.level": "debug"}); !errors.Is(err, ErrNoConfigFile) {
-		t.Errorf("Apply without a file = %v", err)
+	if sources.File != "" {
+		t.Fatalf("a file is in use before there is one: %q", sources.File)
 	}
-	if r.File() != "" || r.Config() != Default() {
-		t.Error("the runtime without a file changed")
+	var logs bytes.Buffer
+	r, err := NewRuntime(cfg, sources, slog.New(slog.NewTextHandler(&logs, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(dir, FileName)
+	if r.File() != want || r.FileExists() {
+		t.Errorf("before the first change the file is %q, exists %v", r.File(), r.FileExists())
+	}
+	if _, err := os.Stat(want); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the file is there before the first change: %v", err)
+	}
+
+	if _, _, err := r.Apply(map[string]any{"log.level": "debug", "link.ack_batch": 16}); err != nil {
+		t.Fatalf("the first change: %v", err)
+	}
+	if !r.FileExists() || r.Sources().File != want {
+		t.Errorf("after the first change the file in use is %q", r.Sources().File)
+	}
+	if r.Config().Log.Level != "debug" || r.Sources().Of("link.ack_batch") != SourceFile {
+		t.Errorf("the change did not take effect: %+v", r.Config())
+	}
+	if n := strings.Count(logs.String(), `msg="configuration file created"`); n != 1 || !strings.Contains(logs.String(), FileName) {
+		t.Errorf("the creation is logged %d times:\n%s", n, logs.String())
+	}
+
+	next, nextSources, err := LoadWithSources("", nil, flags)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nextSources.File != want || next.Log.Level != "debug" || next.Link.AckBatch != 16 || nextSources.Of("log.level") != SourceFile {
+		t.Errorf("the next start reads %q: %+v", nextSources.File, next)
+	}
+	byEnv, envSources, err := LoadWithSources("", envFrom(map[string]string{"THESERVER_SERVER_DATADIR": dir}), nil)
+	if err != nil || envSources.File != want || byEnv.Link.AckBatch != 16 {
+		t.Errorf("a data directory from the environment finds %q, %v", envSources.File, err)
+	}
+	other := writeFile(t, t.TempDir(), "other.toml", "")
+	_, named, err := LoadWithSources(other, nil, flags)
+	if err != nil || named.File != other {
+		t.Errorf("--config is not the file in use: %q, %v", named.File, err)
+	}
+
+	if _, _, err := r.Apply(map[string]any{"log.level": "warn"}); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(logs.String(), `msg="configuration file created"`); n != 1 {
+		t.Errorf("a later change logs the creation again, %d lines", n)
+	}
+	if cfg, _ := reload(t, want); cfg.Log.Level != "warn" || cfg.Link.AckBatch != 16 {
+		t.Errorf("the file holds %+v", cfg)
+	}
+}
+
+// A file that appears where the first change would create it holds settings
+// the server never read, so the change is refused and the file kept.
+func TestFileThatAppearedIsNotOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	cfg, sources, err := LoadWithSources("", nil, map[string]string{"data-dir": dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewRuntime(cfg, sources, discard())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := `[link]
+ack_batch = 8
+`
+	path := writeFile(t, dir, FileName, content)
+	_, err = r.Change(map[string]any{"log.level": "debug"})
+	if !errors.Is(err, ErrFileAppeared) || !strings.Contains(err.Error(), path) {
+		t.Fatalf("the change gave %v", err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != content {
+		t.Errorf("the file changed:\n%s", data)
+	}
+	if r.FileExists() || r.Config().Log.Level != "info" {
+		t.Error("the refused change left traces")
+	}
+
+	if _, err := NewRuntime(Config{}, Sources{}, nil); err == nil {
+		t.Error("a runtime without a file and without a data directory was accepted")
+	}
+}
+
+// A data directory that the registry refuses finds no file and fails as an
+// override, and a directory in the place of the file is an error.
+func TestDataDirectoryFileErrors(t *testing.T) {
+	_, _, err := LoadWithSources("", envFrom(map[string]string{"THESERVER_SERVER_DATADIR": ""}), nil)
+	if err == nil || !strings.Contains(err.Error(), "THESERVER_SERVER_DATADIR") {
+		t.Errorf("an empty data directory gave %v", err)
+	}
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, FileName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadWithSources("", nil, map[string]string{"data-dir": dir}); err == nil || !strings.Contains(err.Error(), "is a directory") {
+		t.Errorf("a directory named %s gave %v", FileName, err)
 	}
 }
 
@@ -270,7 +378,7 @@ func TestSameValueIsNoChangeButLandsInTheFile(t *testing.T) {
 
 func TestNewRuntimeReadsTheFileLayer(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing.toml")
-	if _, err := NewRuntime(Default(), Sources{File: path}); err == nil {
+	if _, err := NewRuntime(Default(), Sources{File: path}, discard()); err == nil {
 		t.Error("NewRuntime accepted a missing file")
 	}
 	r, path := startRuntime(t, "[link]\nack_batch = 8\n", nil, nil)

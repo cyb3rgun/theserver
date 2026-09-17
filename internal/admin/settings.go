@@ -23,6 +23,7 @@ import (
 type settingsData struct {
 	layout
 	File          string
+	FileExists    bool
 	Sections      []settingsSection
 	RestartLabels []string
 	Script        string // integrity of static/settings.js
@@ -55,7 +56,7 @@ type settingField struct {
 func (a *Admin) loadSettings(w http.ResponseWriter, r *http.Request, s session, data *settingsData) (httpapi.SettingsList, bool) {
 	var list httpapi.SettingsList
 	err := a.call(r, s, http.MethodGet, "/settings?lang="+url.QueryEscape(s.Lang), nil, &list)
-	if a.failed(w, r, err, &data.Error) {
+	if a.failed(w, r, err, &data.alert) {
 		return list, false
 	}
 	return list, true
@@ -140,7 +141,7 @@ func (a *Admin) saveSettings(w http.ResponseWriter, r *http.Request, s session) 
 		a.fillSettings(&data, s.Lang, list, submitted, fieldErrors)
 		a.render(w, s.Lang, http.StatusBadRequest, "settings", "layout", data)
 	default:
-		if a.failed(w, r, err, &data.Error) {
+		if a.failed(w, r, err, &data.alert) {
 			return
 		}
 		a.fillSettings(&data, s.Lang, list, submitted, nil)
@@ -164,7 +165,7 @@ func (a *Admin) resetSetting(w http.ResponseWriter, r *http.Request, s session) 
 			fieldErrors[f.Key] = fieldMessage(s.Lang, f)
 		}
 		data.Error = i18n.T(s.Lang, "admin.settings.refused")
-	} else if a.failed(w, r, err, &data.Error) {
+	} else if a.failed(w, r, err, &data.alert) {
 		return
 	}
 	list, ok := a.loadSettings(w, r, s, &data)
@@ -178,10 +179,7 @@ func (a *Admin) resetSetting(w http.ResponseWriter, r *http.Request, s session) 
 // fillSettings turns the API list into the sections of the page. submitted
 // holds the values of a refused save, which the controls show again.
 func (a *Admin) fillSettings(data *settingsData, lang string, list httpapi.SettingsList, submitted, fieldErrors map[string]string) {
-	data.File = list.File
-	if data.File == "" && data.Error == "" {
-		data.Error = i18n.T(lang, "admin.settings.no_file")
-	}
+	data.File, data.FileExists = list.File, list.FileExists
 	byKey := map[string]httpapi.SettingView{}
 	for _, view := range list.Settings {
 		byKey[view.Key] = view

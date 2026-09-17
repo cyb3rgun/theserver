@@ -19,6 +19,7 @@ type Settings interface {
 	Config() config.Config
 	Sources() config.Sources
 	File() string
+	FileExists() bool
 	RestartPending() []string
 	Pending(key string) (any, bool)
 	Change(values map[string]any) ([]config.Change, error)
@@ -53,8 +54,12 @@ type SettingView struct {
 
 // SettingsList is the body of GET /api/v1/settings.
 type SettingsList struct {
-	Language       string        `json:"language"`
+	Language string `json:"language"`
+	// File is the configuration file changes are written to. FileExists is
+	// false until the first change creates it, for a server started
+	// without --config.
 	File           string        `json:"file"`
+	FileExists     bool          `json:"file_exists"`
 	RestartPending []string      `json:"restart_pending"`
 	Settings       []SettingView `json:"settings"`
 }
@@ -122,6 +127,7 @@ func (s *Server) settingsList(w http.ResponseWriter, r *http.Request) {
 	list := SettingsList{
 		Language:       lang,
 		File:           rt.File(),
+		FileExists:     rt.FileExists(),
 		RestartPending: nonNil(rt.RestartPending()),
 		Settings:       []SettingView{},
 	}
@@ -208,11 +214,12 @@ func (s *Server) answerChanges(w http.ResponseWriter, r *http.Request, action st
 	writeJSON(w, http.StatusOK, out)
 }
 
-// failSettings answers a refused change: 409 without a configuration file,
-// 400 with one field error per refused setting, 500 otherwise.
+// failSettings answers a refused change: 400 with one field error per
+// refused setting, 409 when a configuration file appeared after the start,
+// 500 otherwise.
 func (s *Server) failSettings(w http.ResponseWriter, r *http.Request, err error) {
-	if errors.Is(err, config.ErrNoConfigFile) {
-		writeError(w, http.StatusConflict, codeNoConfigFile, err.Error())
+	if errors.Is(err, config.ErrFileAppeared) {
+		writeError(w, http.StatusConflict, codeConflict, err.Error())
 		return
 	}
 	fields := fieldErrors(err)

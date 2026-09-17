@@ -295,8 +295,11 @@ paths:
         The body maps setting keys to new values. Every value is checked
         through the registry; one refused value refuses the whole change,
         with a field error per setting. Accepted values are written to the
-        configuration file the server was started with (D-032); settings
-        that allow it take effect at once, the others after a restart. A
+        configuration file the server was started with (D-032); a server
+        started without --config creates theserver.toml in its data
+        directory with the first change and reads it at every later start
+        without --config. Settings that allow it take effect at once, the
+        others after a restart. A
         setting that an environment variable or a flag sets cannot be
         changed here. Every change is logged with the admin token, the old
         and the new value (D-033). A value equal to the configured one is
@@ -319,7 +322,7 @@ paths:
         "400": {$ref: "#/components/responses/SettingsRefused"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
-        "409": {$ref: "#/components/responses/NoConfigFile"}
+        "409": {$ref: "#/components/responses/FileAppeared"}
   /settings/reset:
     post:
       summary: Set settings back to their defaults, all or none.
@@ -346,7 +349,7 @@ paths:
         "400": {$ref: "#/components/responses/SettingsRefused"}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
-        "409": {$ref: "#/components/responses/NoConfigFile"}
+        "409": {$ref: "#/components/responses/FileAppeared"}
   /openapi.yaml:
     get:
       summary: This document.
@@ -406,8 +409,11 @@ components:
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
-    NoConfigFile:
-      description: The server runs without a configuration file, so a change has nowhere to go.
+    FileAppeared:
+      description: |
+        The server started without a configuration file, and a file appeared
+        where the first change would create it; code conflict. Restart the
+        server to read it.
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -422,7 +428,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal, invalid_settings, no_config_file]
+              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal, invalid_settings]
             message: {type: string}
             fields:
               type: array
@@ -561,10 +567,13 @@ components:
         why: {type: string}
     SettingsList:
       type: object
-      required: [language, file, restart_pending, settings]
+      required: [language, file, file_exists, restart_pending, settings]
       properties:
         language: {type: string}
-        file: {type: string, description: The configuration file in use; empty without one.}
+        file: {type: string, description: The configuration file changes are written to.}
+        file_exists:
+          type: boolean
+          description: False for a server started without --config until the first change creates the file.
         restart_pending:
           type: array
           items: {type: string}

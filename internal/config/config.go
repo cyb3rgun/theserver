@@ -11,7 +11,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -23,6 +26,17 @@ import (
 
 // EnvPrefix is the prefix of every environment variable that Load reads.
 const EnvPrefix = settings.EnvPrefix
+
+// FileName is the configuration file that a server started without --config
+// keeps in its data directory: the first saved change creates it, and every
+// later start without --config reads it.
+const FileName = "theserver.toml"
+
+// DataDirFile is the configuration file of a server started without
+// --config whose data directory is dataDir.
+func DataDirFile(dataDir string) string {
+	return filepath.Join(dataDir, FileName)
+}
 
 // Config is the complete configuration of theserver. Every field is a
 // setting of the registry, found by its section and key tags.
@@ -137,11 +151,13 @@ func Default() Config {
 }
 
 // Load builds the effective configuration. It starts from the built in
-// defaults, applies the TOML file at path unless path is empty, then the
-// environment variables found by lookupEnv, then flags. flags holds the flags
-// that were set on the command line, keyed by flag name without dashes; flags
-// that are not settings are ignored. A file that is named but missing, an
-// unknown key in a section of theserver and an invalid value are errors.
+// defaults, applies the TOML file at path, then the environment variables
+// found by lookupEnv, then flags. flags holds the flags that were set on the
+// command line, keyed by flag name without dashes; flags that are not
+// settings are ignored. With an empty path the file is FileName in the data
+// directory that the defaults, the environment and the flags give, when it
+// exists. A file that is named but missing, an unknown key in a section of
+// theserver and an invalid value are errors.
 func Load(path string, lookupEnv func(string) (string, bool), flags map[string]string) (Config, error) {
 	cfg, _, err := LoadWithSources(path, lookupEnv, flags)
 	return cfg, err
@@ -161,7 +177,8 @@ const (
 // Sources tells where the configuration came from: the file in use and, per
 // setting written section.key, the layer of its value.
 type Sources struct {
-	// File is the TOML file in use, empty when the server runs without one.
+	// File is the TOML file in use, empty when the server runs without one:
+	// the file named by --config, or FileName found in the data directory.
 	File string
 	// Keys maps a setting to the source of its value.
 	Keys map[string]Source
@@ -190,11 +207,36 @@ func (s Sources) clone() Sources {
 // from.
 func LoadWithSources(path string, lookupEnv func(string) (string, bool), flags map[string]string) (Config, Sources, error) {
 	cfg := Default()
-	sources := Sources{File: path, Keys: map[string]Source{}}
+	sources := Sources{Keys: map[string]Source{}}
 	for _, s := range settings.All() {
 		sources.Keys[s.Key] = SourceDefault
 	}
 
+	// An environment variable replaces the file, a flag replaces both. Only
+	// the value that wins is checked, so a flag can stand in for a variable
+	// that holds something unusable.
+	overrides := map[string]override{}
+	for _, s := range settings.All() {
+		if lookupEnv != nil {
+			if raw, ok := lookupEnv(s.Env()); ok {
+				overrides[s.Key] = override{raw, "environment " + s.Env(), SourceEnv}
+			}
+		}
+		if s.Flag != "" {
+			if raw, ok := flags[s.Flag]; ok {
+				overrides[s.Key] = override{raw, "flag --" + s.Flag, SourceFlag}
+			}
+		}
+	}
+
+	if path == "" {
+		found, err := dataDirFileOf(cfg, overrides)
+		if err != nil {
+			return Config{}, Sources{}, err
+		}
+		path = found
+	}
+	sources.File = path
 	if path != "" {
 		layer, foreign, err := readFile(path)
 		if err != nil {
@@ -210,27 +252,6 @@ func LoadWithSources(path string, lookupEnv func(string) (string, bool), flags m
 		slices.Sort(sources.Foreign)
 	}
 
-	// An environment variable replaces the file, a flag replaces both. Only
-	// the value that wins is checked, so a flag can stand in for a variable
-	// that holds something unusable.
-	type override struct {
-		raw    string
-		origin string
-		source Source
-	}
-	overrides := map[string]override{}
-	for _, s := range settings.All() {
-		if lookupEnv != nil {
-			if raw, ok := lookupEnv(s.Env()); ok {
-				overrides[s.Key] = override{raw, "environment " + s.Env(), SourceEnv}
-			}
-		}
-		if s.Flag != "" {
-			if raw, ok := flags[s.Flag]; ok {
-				overrides[s.Key] = override{raw, "flag --" + s.Flag, SourceFlag}
-			}
-		}
-	}
 	for _, s := range settings.All() {
 		o, ok := overrides[s.Key]
 		if !ok {
@@ -248,6 +269,40 @@ func LoadWithSources(path string, lookupEnv func(string) (string, bool), flags m
 		return Config{}, Sources{}, err
 	}
 	return cfg, sources, nil
+}
+
+// An override is the value an environment variable or a flag gives a
+// setting.
+type override struct {
+	raw    string
+	origin string
+	source Source
+}
+
+// dataDirFileOf returns FileName in the data directory that cfg and the
+// overrides give, or "" when there is no such file. A data directory that an
+// override gives but the registry refuses finds no file; LoadWithSources
+// reports it with the other overrides.
+func dataDirFileOf(cfg Config, overrides map[string]override) (string, error) {
+	dir := cfg.Server.DataDir
+	if o, ok := overrides["server.data_dir"]; ok {
+		value, err := settings.Parse("server.data_dir", o.raw)
+		if err != nil {
+			return "", nil
+		}
+		dir = value.(string)
+	}
+	path := DataDirFile(dir)
+	info, err := os.Stat(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", nil
+	case err != nil:
+		return "", fmt.Errorf("config file %s: %w", path, err)
+	case info.IsDir():
+		return "", fmt.Errorf("config file %s is a directory", path)
+	}
+	return path, nil
 }
 
 // readFile reads the settings a configuration file sets, checked through

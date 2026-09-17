@@ -41,7 +41,6 @@ bad_transition = "This is not possible in the current state."
 method_not_allowed = "This action is not available here."
 internal = "The server could not complete this. The log has the details."
 invalid_settings = "Some settings were refused."
-no_config_file = "theserver runs without a configuration file, so the change has nowhere to go."
 unknown = "The server answered with an error."
 
 [admin.login]
@@ -150,7 +149,7 @@ footer_all = "All sessions, computed %s"
 [admin.settings]
 title = "Settings"
 intro = "Every setting of the server, grouped by area. Saving writes the changes to %s. A setting marked with a restart note takes effect when theserver starts again, every other one at once."
-no_file = "theserver was started without a configuration file, so changes cannot be saved. Start it with --config and the path of a file."
+intro_new = "Every setting of the server, grouped by area. theserver runs without a configuration file so far: the first save creates %s, and every start without --config reads it. A setting marked with a restart note takes effect when theserver starts again, every other one at once."
 needs_restart = "Needs a restart"
 current = "Current value"
 after_restart = "After the restart"

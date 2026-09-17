@@ -197,16 +197,23 @@ func (a *Admin) lang(r *http.Request) string {
 	return i18n.Resolve(chosen, def)
 }
 
+// alert is an error shown on a page: the translated text and, below it in a
+// smaller line, the detail the API gave.
+type alert struct {
+	Error       string
+	ErrorDetail string
+}
+
 // layout is what every page template gets besides its own data.
 type layout struct {
-	Lang         string
-	Title        string
-	Active       string
-	Admin        string
-	Integrity    string
-	Version      string
-	Notice       string
-	Error        string
+	Lang      string
+	Title     string
+	Active    string
+	Admin     string
+	Integrity string
+	Version   string
+	Notice    string
+	alert
 	SessionHours int
 	// Back is where the language switch returns to.
 	Back string

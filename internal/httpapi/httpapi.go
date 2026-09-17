@@ -223,7 +223,6 @@ const (
 	codeBadTransition    = "bad_transition"
 	codeInternal         = "internal"
 	codeInvalidSettings  = "invalid_settings"
-	codeNoConfigFile     = "no_config_file"
 )
 
 // ErrorBody is the shape of every error answer of API v1.

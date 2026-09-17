@@ -99,7 +99,7 @@ func buildHarness(t *testing.T, withLink bool) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := config.NewRuntime(cfg, sources)
+	runtime, err := config.NewRuntime(cfg, sources, quiet())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,11 +368,40 @@ func TestDevicesPageAndActions(t *testing.T) {
 	}
 
 	missing := h.html("POST", "/admin/devices/nobody/reset", url.Values{})
-	contains(t, missing, `class="error"`, "Not found.")
+	contains(t, missing, `<p class="error" role="alert">Not found.<small class="detail">nobody: device not found</small></p>`)
 	unknown := h.html("POST", "/admin/devices/tgt-01/explode", url.Values{})
 	contains(t, unknown, "Unknown action explode")
 	noToken := h.html("POST", "/admin/devices/nobody/token", url.Values{})
-	contains(t, noToken, "No new token", "Not found.")
+	contains(t, noToken, "No new token", `<p class="error" role="alert">Not found.<small class="detail">nobody: device not found</small></p>`)
+}
+
+// A translated error shows the detail the API gave as a second, smaller
+// line, in every language; an error the page makes itself has none.
+func TestErrorsShowTheAPIDetail(t *testing.T) {
+	h := newHarness(t)
+	h.device("tgt-01", store.StatusApproved)
+	if err := h.st.CreateSession(context.Background(), store.Session{ID: "s-1"}); err != nil {
+		t.Fatal(err)
+	}
+	h.lang = "de"
+	again := h.html("POST", "/admin/sessions", url.Values{"id": {"s-1"}})
+	contains(t, again, `<p class="error" role="alert">Das gibt es schon.<small class="detail">`, `s-1`, `</small></p>`)
+	detail := regexp.MustCompile(`<small class="detail">([^<]+)</small>`).FindStringSubmatch(again)
+	if detail == nil || !strings.Contains(detail[1], "exists") {
+		t.Errorf("the detail line is %v", detail)
+	}
+	missing := h.html("POST", "/admin/devices/nobody/block", url.Values{})
+	contains(t, missing, `<p class="error" role="alert">Nicht gefunden.<small class="detail">nobody: device not found</small></p>`)
+
+	unknown := h.html("POST", "/admin/devices/tgt-01/explode", url.Values{})
+	contains(t, unknown, `class="error"`)
+	if strings.Contains(unknown, `class="detail"`) {
+		t.Error("an error without an API answer shows a detail line")
+	}
+	css := h.do("GET", "/admin/static/admin.css", nil, false).Body.String()
+	if !strings.Contains(css, ".error .detail {") {
+		t.Error("the stylesheet does not set the detail line apart")
+	}
 }
 
 func TestSessionsPageAndActions(t *testing.T) {

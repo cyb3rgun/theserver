@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -284,7 +285,7 @@ func TestLanguageSwitchChangesTheLabels(t *testing.T) {
 	}
 }
 
-func TestLockedSettingsAndMissingFile(t *testing.T) {
+func TestLockedSettingsAndTheFirstSave(t *testing.T) {
 	h := newHarness(t)
 	path := h.configPath
 	cfg, sources, err := config.LoadWithSources(path,
@@ -295,7 +296,7 @@ func TestLockedSettingsAndMissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, err := config.NewRuntime(cfg, sources)
+	rt, err := config.NewRuntime(cfg, sources, quiet())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,16 +318,30 @@ func TestLockedSettingsAndMissingFile(t *testing.T) {
 		t.Errorf("in effect: %+v", got)
 	}
 
-	noFile, err := config.NewRuntime(config.Default(), config.Sources{})
+	// Started without --config, the first save creates the file in the data
+	// directory.
+	dir := t.TempDir()
+	cfg = config.Default()
+	cfg.Server.DataDir = dir
+	noFile, err := config.NewRuntime(cfg, config.Sources{}, quiet())
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.withSettings(noFile)
 	h.lang = "de"
+	want := filepath.Join(dir, config.FileName)
 	page = h.html("GET", "/admin/settings", nil)
-	contains(t, page, "theserver wurde ohne Konfigurationsdatei gestartet", `id="save-button" type="submit" disabled>`)
-	rec := h.do("POST", "/admin/settings", url.Values{"link.ack_batch": {"16"}}, true)
-	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "theserver läuft ohne Konfigurationsdatei") {
-		t.Errorf("a save without a file answered %d", rec.Code)
+	contains(t, page, "theserver läuft bisher ohne Konfigurationsdatei: Das erste Speichern legt "+template.HTMLEscapeString(want)+" an",
+		`id="save-button" type="submit">`)
+	if to := h.post("/admin/settings", url.Values{"link.ack_batch": {"16"}}); to != "/admin/settings?saved=1&now=1&later=0" {
+		t.Errorf("the first save goes to %s", to)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("the first save created no file: %v", err)
+	}
+	page = h.html("GET", "/admin/settings?saved=1&now=1&later=0", nil)
+	contains(t, page, "Speichern schreibt die Änderungen nach "+template.HTMLEscapeString(want)+".", "Gespeichert")
+	if strings.Contains(page, "bisher ohne Konfigurationsdatei") {
+		t.Error("the page still says there is no file")
 	}
 }

@@ -56,7 +56,7 @@
 <dialog open class="dialog" aria-labelledby="token-title">
   {{if .Error}}
   <h2 id="token-title">{{t "admin.devices.token_failed"}}</h2>
-  <p class="error" role="alert">{{.Error}}</p>
+  {{template "error" .}}
   {{else}}
   <h2 id="token-title">{{t "admin.devices.token_title" .Token.DeviceID}}</h2>
   <p class="warning">{{t "admin.devices.token_warning"}}</p>

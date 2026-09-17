@@ -3,7 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"maps"
+	"os"
 	"reflect"
 	"slices"
 	"sync"
@@ -18,19 +21,28 @@ type Runtime struct {
 	mu      sync.Mutex
 	current Config
 	sources Sources
+	target  string         // the file changes are written to
 	file    map[string]any // the settings the file sets, canonical
 	pending map[string]any // restart settings whose next value differs
 	hooks   []func(Config)
+	log     *slog.Logger
 }
 
 // NewRuntime starts a Runtime from the configuration a server was started
 // with. With a file in use, the file is read to know which settings it sets.
-func NewRuntime(cfg Config, sources Sources) (*Runtime, error) {
+// Without one, the first change creates FileName in the data directory, and
+// logger names it; nil logs to slog.Default().
+func NewRuntime(cfg Config, sources Sources, logger *slog.Logger) (*Runtime, error) {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	r := &Runtime{
 		current: cfg,
 		sources: sources.clone(),
+		target:  sources.File,
 		file:    map[string]any{},
 		pending: map[string]any{},
+		log:     logger,
 	}
 	if r.sources.Keys == nil {
 		r.sources.Keys = map[string]Source{}
@@ -41,7 +53,12 @@ func NewRuntime(cfg Config, sources Sources) (*Runtime, error) {
 			return nil, err
 		}
 		r.file = layer
+		return r, nil
 	}
+	if cfg.Server.DataDir == "" {
+		return nil, errors.New("config: a runtime without a configuration file needs a data directory")
+	}
+	r.target = DataDirFile(cfg.Server.DataDir)
 	return r, nil
 }
 
@@ -59,9 +76,18 @@ func (r *Runtime) Sources() Sources {
 	return r.sources.clone()
 }
 
-// File is the configuration file in use, empty when there is none.
+// File is the configuration file changes are written to: the file in use,
+// or for a server started without one, the file the first change creates.
 func (r *Runtime) File() string {
-	return r.sources.File
+	return r.target
+}
+
+// FileExists reports whether the server uses File, which is false until the
+// first change creates it.
+func (r *Runtime) FileExists() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sources.File != ""
 }
 
 // OnChange registers fn, which is called with the values in effect after a
@@ -104,9 +130,10 @@ type Change struct {
 	Restart bool
 }
 
-// ErrNoConfigFile refuses a change when the server was started without a
-// configuration file, which is where changes are kept.
-var ErrNoConfigFile = errors.New("the server runs without a configuration file; start it with --config to change settings")
+// ErrFileAppeared refuses the change that would create the configuration
+// file when a file of that name appeared after the start: writing it would
+// drop the settings it holds, which the server never read.
+var ErrFileAppeared = errors.New("a configuration file appeared after the start")
 
 // ErrOverridden refuses a change to a setting that an environment variable
 // or a flag sets; an *OverrideError wraps it.
@@ -180,11 +207,6 @@ func (r *Runtime) ResetKeys(keys []string) ([]Change, error) {
 
 func (r *Runtime) update(values map[string]any, reset []string) ([]Change, error) {
 	r.mu.Lock()
-	if r.sources.File == "" {
-		r.mu.Unlock()
-		return nil, ErrNoConfigFile
-	}
-
 	next := map[string]any{}
 	var errs []error
 	check := func(key string) (settings.Setting, bool) {
@@ -242,11 +264,25 @@ func (r *Runtime) update(values map[string]any, reset []string) ([]Change, error
 	for _, key := range reset {
 		delete(file, key)
 	}
-	if err := Write(r.sources.File, file); err != nil {
+	created := r.sources.File == ""
+	if created {
+		if _, err := os.Stat(r.target); !errors.Is(err, fs.ErrNotExist) {
+			r.mu.Unlock()
+			if err == nil {
+				return nil, fmt.Errorf("%w: %s; restart theserver to read it", ErrFileAppeared, r.target)
+			}
+			return nil, err
+		}
+	}
+	if err := Write(r.target, file); err != nil {
 		r.mu.Unlock()
 		return nil, err
 	}
 	r.file = file
+	if created {
+		r.sources.File = r.target
+		r.log.Info("configuration file created", "path", r.target)
+	}
 
 	var done []Change
 	live := false

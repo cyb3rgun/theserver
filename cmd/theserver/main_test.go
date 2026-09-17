@@ -278,6 +278,36 @@ func TestDeviceReset(t *testing.T) {
 	}
 }
 
+// Without --config every command reads theserver.toml in the data directory,
+// the file the first saved change of a server without --config creates.
+func TestCommandsReadTheFileInTheDataDirectory(t *testing.T) {
+	c := newCLI(t)
+	if code, _, errOut := c.run("db", "info"); code != 0 {
+		t.Fatalf("db info exited %d: %s", code, errOut)
+	}
+	if _, err := os.Stat(filepath.Join(c.dir, "theserver.toml")); err == nil {
+		t.Fatal("a command created the configuration file")
+	}
+	content := `[store]
+busy_timeout_ms = 1234
+`
+	if err := os.WriteFile(filepath.Join(c.dir, "theserver.toml"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut := c.run("db", "info")
+	if code != 0 || !strings.Contains(out, "busy timeout:   1234 ms") {
+		t.Errorf("db info exited %d without the file's busy timeout:\n%s%s", code, out, errOut)
+	}
+	named := filepath.Join(t.TempDir(), "named.toml")
+	if err := os.WriteFile(named, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errOut = c.run("db", "info", "--config", named)
+	if code != 0 || !strings.Contains(out, "busy timeout:   5000 ms") {
+		t.Errorf("with --config the file in the data directory still counts: %d\n%s%s", code, out, errOut)
+	}
+}
+
 // docs/settings.md is what theserver settings doc writes; a changed registry
 // without a new reference fails here. Refresh it with:
 // go run ./cmd/theserver settings doc --out docs/settings.md

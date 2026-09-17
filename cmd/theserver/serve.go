@@ -110,9 +110,12 @@ func serve(ctx context.Context, cfg config.Config, sources config.Sources, logge
 		logger.Info("the configuration file holds tables that are not theserver settings; they are kept",
 			"tables", sources.Foreign)
 	}
-	runtime, err := config.NewRuntime(cfg, sources)
+	runtime, err := config.NewRuntime(cfg, sources, logger.With("component", "config"))
 	if err != nil {
 		return err
+	}
+	if sources.File == "" {
+		logger.Info("no configuration file yet; the first saved change creates it", "path", runtime.File())
 	}
 
 	db, err := openStore(ctx, cfg)

@@ -1,6 +1,6 @@
 {{define "content"}}
 <h1>{{t "admin.settings.title"}}</h1>
-{{with .File}}<p class="muted">{{t "admin.settings.intro" .}}</p>{{end}}
+{{if .FileExists}}<p class="muted" id="settings-file">{{t "admin.settings.intro" .File}}</p>{{else}}<p class="muted" id="settings-file">{{t "admin.settings.intro_new" .File}}</p>{{end}}
 {{template "messages" .}}
 {{if .RestartLabels}}
 <section class="banner restart" role="status" id="restart-banner">
@@ -36,7 +36,7 @@
         <input type="text" id="{{.ID}}" name="{{.Key}}" value="{{.Input}}" data-initial="{{.Initial}}" spellcheck="false"{{if .Locked}} disabled{{end}}>
         {{end}}
         {{with .Unit}}<span class="unit">{{.}}</span>{{end}}
-        <button class="button quiet" type="submit" formaction="/admin/settings/reset" name="reset" value="{{.Key}}"{{if or .Locked (eq .Source "default") (not $.File)}} disabled{{end}}>{{t "admin.settings.reset"}}</button>
+        <button class="button quiet" type="submit" formaction="/admin/settings/reset" name="reset" value="{{.Key}}"{{if or .Locked (eq .Source "default")}} disabled{{end}}>{{t "admin.settings.reset"}}</button>
       </div>
       {{with .Error}}<p class="field-error" role="alert">{{.}}</p>{{end}}
       {{with .LockedNote}}<p class="muted">{{.}}</p>{{end}}
@@ -55,7 +55,7 @@
   <div class="savebar">
     <span id="unsaved-count" data-singular="{{t "admin.settings.unsaved_one"}}" data-plural="{{t "admin.settings.unsaved_many"}}">{{t "admin.settings.unsaved_many" 0}}</span>
     <button class="button quiet" type="reset">{{t "admin.settings.discard"}}</button>
-    <button class="button primary" id="save-button" type="submit"{{if not .File}} disabled{{end}}>{{t "admin.settings.save"}}</button>
+    <button class="button primary" id="save-button" type="submit">{{t "admin.settings.save"}}</button>
   </div>
 </form>
 <script src="/admin/static/settings.js" integrity="{{.Script}}" defer></script>

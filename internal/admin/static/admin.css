@@ -279,6 +279,13 @@ select {
   color: var(--danger);
 }
 
+.error .detail {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.85em;
+  opacity: 0.85;
+}
+
 .warning {
   background: #fff4dc;
   color: var(--warn);

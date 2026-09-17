@@ -94,9 +94,9 @@ func (a *Admin) call(r *http.Request, s session, method, path string, body, out 
 }
 
 // failed handles an error of call. It reports whether the handler has to
-// stop; otherwise the message is shown on the page, in the language of the
-// request.
-func (a *Admin) failed(w http.ResponseWriter, r *http.Request, err error, message *string) bool {
+// stop; otherwise out holds the message for the page, in the language of the
+// request, with the detail the API gave.
+func (a *Admin) failed(w http.ResponseWriter, r *http.Request, err error, out *alert) bool {
 	var ae *apiError
 	lang := a.lang(r)
 	switch {
@@ -111,11 +111,11 @@ func (a *Admin) failed(w http.ResponseWriter, r *http.Request, err error, messag
 			key = "admin.api_error.unknown"
 		}
 		a.log.Debug("api refused an admin request", "path", r.URL.Path, "status", ae.Status, "code", ae.Code, "message", ae.Message)
-		*message = i18n.T(lang, key)
+		*out = alert{Error: i18n.T(lang, key), ErrorDetail: ae.Message}
 		return false
 	default:
 		a.log.Error("admin request failed", "path", r.URL.Path, "error", err)
-		*message = i18n.T(lang, "admin.error_generic")
+		*out = alert{Error: i18n.T(lang, "admin.error_generic")}
 		return false
 	}
 }
@@ -137,7 +137,7 @@ type devicesData struct {
 // at once.
 type tokenData struct {
 	Token httpapi.NewToken
-	Error string
+	alert
 	Table devicesData
 }
 
@@ -145,7 +145,7 @@ func (a *Admin) loadDevices(w http.ResponseWriter, r *http.Request, s session, d
 	var list struct {
 		Devices []httpapi.Device `json:"devices"`
 	}
-	if a.failed(w, r, a.call(r, s, http.MethodGet, "/devices", nil, &list), &data.Error) {
+	if a.failed(w, r, a.call(r, s, http.MethodGet, "/devices", nil, &list), &data.alert) {
 		return false
 	}
 	data.Devices = list.Devices
@@ -181,7 +181,7 @@ func (a *Admin) deviceAction(w http.ResponseWriter, r *http.Request, s session) 
 	if action == "token" {
 		var data tokenData
 		err := a.call(r, s, http.MethodPost, path, nil, &data.Token)
-		if a.failed(w, r, err, &data.Error) {
+		if a.failed(w, r, err, &data.alert) {
 			return
 		}
 		data.Table = devicesData{layout: a.layout("admin.devices.title", "devices", s)}
@@ -200,7 +200,7 @@ func (a *Admin) deviceAction(w http.ResponseWriter, r *http.Request, s session) 
 		data.Error = i18n.T(s.Lang, "admin.unknown_action", action)
 	} else {
 		var device httpapi.Device
-		if a.failed(w, r, a.call(r, s, http.MethodPost, path, nil, &device), &data.Error) {
+		if a.failed(w, r, a.call(r, s, http.MethodPost, path, nil, &device), &data.alert) {
 			return
 		}
 		if data.Error == "" {
@@ -231,10 +231,10 @@ func (a *Admin) loadSessions(w http.ResponseWriter, r *http.Request, s session, 
 	var devices struct {
 		Devices []httpapi.Device `json:"devices"`
 	}
-	if a.failed(w, r, a.call(r, s, http.MethodGet, "/sessions", nil, &sessions), &data.Error) {
+	if a.failed(w, r, a.call(r, s, http.MethodGet, "/sessions", nil, &sessions), &data.alert) {
 		return false
 	}
-	if a.failed(w, r, a.call(r, s, http.MethodGet, "/devices", nil, &devices), &data.Error) {
+	if a.failed(w, r, a.call(r, s, http.MethodGet, "/devices", nil, &devices), &data.alert) {
 		return false
 	}
 	data.Sessions, data.Devices = sessions.Sessions, devices.Devices
@@ -256,7 +256,7 @@ func (a *Admin) createSession(w http.ResponseWriter, r *http.Request, s session)
 		Room:     strings.TrimSpace(r.PostFormValue("room")),
 	}
 	var created httpapi.Session
-	if a.failed(w, r, a.call(r, s, http.MethodPost, "/sessions", body, &created), &data.Error) {
+	if a.failed(w, r, a.call(r, s, http.MethodPost, "/sessions", body, &created), &data.alert) {
 		return
 	}
 	if data.Error == "" {
@@ -288,7 +288,7 @@ func (a *Admin) sessionAction(w http.ResponseWriter, r *http.Request, s session)
 	default:
 		data.Error = i18n.T(s.Lang, "admin.unknown_action", action)
 	}
-	if a.failed(w, r, err, &data.Error) {
+	if a.failed(w, r, err, &data.alert) {
 		return
 	}
 	if data.Error != "" {
@@ -318,7 +318,7 @@ func (a *Admin) loadRanking(w http.ResponseWriter, r *http.Request, s session, d
 	if data.Selected != "" {
 		path += "?session=" + url.QueryEscape(data.Selected)
 	}
-	if a.failed(w, r, a.call(r, s, http.MethodGet, path, nil, &data.Ranking), &data.Error) {
+	if a.failed(w, r, a.call(r, s, http.MethodGet, path, nil, &data.Ranking), &data.alert) {
 		return false
 	}
 	for _, e := range data.Ranking.Entries {
@@ -337,7 +337,7 @@ func (a *Admin) rankingPage(w http.ResponseWriter, r *http.Request, s session) {
 	var sessions struct {
 		Sessions []httpapi.Session `json:"sessions"`
 	}
-	if a.failed(w, r, a.call(r, s, http.MethodGet, "/sessions", nil, &sessions), &data.Error) {
+	if a.failed(w, r, a.call(r, s, http.MethodGet, "/sessions", nil, &sessions), &data.alert) {
 		return
 	}
 	data.Sessions = sessions.Sessions

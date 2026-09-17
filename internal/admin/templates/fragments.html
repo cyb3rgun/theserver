@@ -1,4 +1,8 @@
 {{define "messages"}}
 {{with .Notice}}<p class="notice" role="status">{{.}}</p>{{end}}
-{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{template "error" .}}
+{{end}}
+
+{{define "error"}}
+{{if .Error}}<p class="error" role="alert">{{.Error}}{{with .ErrorDetail}}<small class="detail">{{.}}</small>{{end}}</p>{{end}}
 {{end}}

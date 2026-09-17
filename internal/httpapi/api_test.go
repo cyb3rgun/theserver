@@ -54,7 +54,7 @@ func newRuntime(t *testing.T, env map[string]string) (*config.Runtime, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, err := config.NewRuntime(cfg, sources)
+	rt, err := config.NewRuntime(cfg, sources, quiet())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +599,7 @@ func TestSettingsRefusedWithFieldErrors(t *testing.T) {
 	expectError(t, h.call("POST", Prefix+"/settings/reset", `{"key": ["log.level"]}`), http.StatusBadRequest, codeBadRequest)
 }
 
-func TestSettingsOverriddenAndWithoutFile(t *testing.T) {
+func TestSettingsOverriddenAndFileCreated(t *testing.T) {
 	h := newAPI(t)
 	rt, _ := newRuntime(t, map[string]string{"THESERVER_LOG_LEVEL": "warn"})
 	h.srv = New(Options{Store: h.st, Settings: rt, Logger: quiet()})
@@ -612,15 +612,43 @@ func TestSettingsOverriddenAndWithoutFile(t *testing.T) {
 		t.Error("the source of log.level is not env")
 	}
 
-	noFile, err := config.NewRuntime(config.Default(), config.Sources{})
-	if err != nil {
+	// Without --config the first change creates the file in the data
+	// directory.
+	withoutFile := func(dir string) *config.Runtime {
+		cfg := config.Default()
+		cfg.Server.DataDir = dir
+		rt, err := config.NewRuntime(cfg, config.Sources{}, quiet())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rt
+	}
+	dir := t.TempDir()
+	want := filepath.Join(dir, config.FileName)
+	h.srv = New(Options{Store: h.st, Settings: withoutFile(dir), Logger: quiet()})
+	if list := decode[SettingsList](t, h.call("GET", Prefix+"/settings", ""), 200); list.File != want || list.FileExists {
+		t.Errorf("before the first change the file is %q, exists %v", list.File, list.FileExists)
+	}
+	changed := decode[SettingsChanged](t, h.call("PUT", Prefix+"/settings", `{"log.level": "debug"}`), 200)
+	if len(changed.Changes) != 1 || strings.Join(changed.Applied, ",") != "log.level" {
+		t.Errorf("the first change answered %+v", changed)
+	}
+	if list := decode[SettingsList](t, h.call("GET", Prefix+"/settings", ""), 200); list.File != want || !list.FileExists {
+		t.Errorf("after the first change the file is %q, exists %v", list.File, list.FileExists)
+	}
+	if cfg, err := config.Load(want, nil, nil); err != nil || cfg.Log.Level != "debug" {
+		t.Errorf("the created file reads %+v, %v", cfg.Log, err)
+	}
+
+	// A file that appeared after the start is not overwritten.
+	late := t.TempDir()
+	h.srv = New(Options{Store: h.st, Settings: withoutFile(late), Logger: quiet()})
+	if err := os.WriteFile(filepath.Join(late, config.FileName), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	h.srv = New(Options{Store: h.st, Settings: noFile, Logger: quiet()})
-	expectError(t, h.call("PUT", Prefix+"/settings", `{"log.level": "debug"}`), http.StatusConflict, codeNoConfigFile)
-	expectError(t, h.call("POST", Prefix+"/settings/reset", `{"keys": ["log.level"]}`), http.StatusConflict, codeNoConfigFile)
-	if list := decode[SettingsList](t, h.call("GET", Prefix+"/settings", ""), 200); list.File != "" {
-		t.Errorf("the file is %q", list.File)
+	refused := expectError(t, h.call("POST", Prefix+"/settings/reset", `{"keys": ["log.level"]}`), http.StatusConflict, codeConflict)
+	if !strings.Contains(refused.Error.Message, "restart theserver to read it") {
+		t.Errorf("the refusal says %q", refused.Error.Message)
 	}
 }
 

@@ -42,7 +42,6 @@ bad_transition = "Das ist im aktuellen Zustand nicht möglich."
 method_not_allowed = "Diese Aktion ist hier nicht verfügbar."
 internal = "Der Server konnte das nicht ausführen. Einzelheiten stehen im Protokoll."
 invalid_settings = "Einige Einstellungen wurden abgelehnt."
-no_config_file = "theserver läuft ohne Konfigurationsdatei, daher kann die Änderung nirgends gespeichert werden."
 unknown = "Der Server hat mit einem Fehler geantwortet."
 
 [admin.login]
@@ -151,7 +150,7 @@ footer_all = "Alle Sitzungen, berechnet %s"
 [admin.settings]
 title = "Einstellungen"
 intro = "Alle Einstellungen des Servers, nach Bereichen geordnet. Speichern schreibt die Änderungen nach %s. Eine Einstellung mit Neustart-Hinweis wird wirksam, wenn theserver neu startet, alle anderen sofort."
-no_file = "theserver wurde ohne Konfigurationsdatei gestartet, daher lassen sich Änderungen nicht speichern. Starten Sie ihn mit --config und dem Pfad einer Datei."
+intro_new = "Alle Einstellungen des Servers, nach Bereichen geordnet. theserver läuft bisher ohne Konfigurationsdatei: Das erste Speichern legt %s an, und jeder Start ohne --config liest sie. Eine Einstellung mit Neustart-Hinweis wird wirksam, wenn theserver neu startet, alle anderen sofort."
 needs_restart = "Braucht einen Neustart"
 current = "Aktueller Wert"
 after_restart = "Nach dem Neustart"
