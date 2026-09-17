@@ -42,6 +42,25 @@ type editorData struct {
 	// exist and a hint stands in their place, instead of a button that
 	// writes a keyframe the check then refuses as not_in_tier.
 	ZonesMove bool
+	Lock      lockData
+}
+
+// lockData is the notice about who holds a draft (D-050). Mine is the
+// ordinary case: this page took the lock when it opened and refreshes it
+// while it stays open. Held with Mine false is somebody else at work, and
+// then the page only reads and offers to take the draft over.
+type lockData struct {
+	Held   bool
+	Mine   bool
+	Name   string
+	Notice string
+	// RefreshMs is how often the page knocks, a third of the life of a lock,
+	// so two refreshes may be lost before anybody else walks in.
+	RefreshMs int64
+	Take      string
+	Release   string
+	Confirm   string
+	alert
 }
 
 // panelData is the property panel for one selected object.
@@ -175,6 +194,7 @@ func (a *Admin) newEditorData(s session, draft httpapi.Draft) editorData {
 		Script: a.scripts["editor.js"],
 	}
 	data.ZonesMove = zonesMove(draft.Tier)
+	data.Lock = lockOf(s.Lang, draft)
 	data.Title = i18n.T(s.Lang, "admin.editor.title")
 	data.Preview = "/admin/editor/" + url.PathEscape(draft.ID) + "/preview"
 	data.Shortcuts = shortcutsIn(s.Lang, data.ZonesMove)
@@ -186,6 +206,27 @@ func (a *Admin) newEditorData(s session, draft httpapi.Draft) editorData {
 // keyframes in the interactive and the layered tier and nowhere else.
 func zonesMove(tier string) bool {
 	return tier == scenario.TierInteractive || tier == scenario.TierLayered
+}
+
+// lockOf is the lock notice of a draft in the language of the page (D-050).
+func lockOf(lang string, draft httpapi.Draft) lockData {
+	id := url.PathEscape(draft.ID)
+	lock := lockData{
+		Held:      draft.Lock.Held,
+		Mine:      draft.Lock.Mine,
+		Name:      draft.Lock.Name,
+		RefreshMs: draft.Lock.TTLMs / 3,
+		Take:      "/admin/editor/" + id + "/lock",
+		Release:   "/admin/editor/" + id + "/unlock",
+		Confirm:   i18n.T(lang, "admin.editor.confirm_take_over"),
+	}
+	switch {
+	case lock.Mine:
+		lock.Notice = i18n.T(lang, "admin.editor.lock_mine")
+	case lock.Held:
+		lock.Notice = i18n.T(lang, "admin.editor.locked", lock.Name)
+	}
+	return lock
 }
 
 // shortcutsIn lists the keyboard shortcuts of the editor, documented on the
@@ -246,17 +287,83 @@ func (a *Admin) notFound(w http.ResponseWriter, r *http.Request, s session) {
 	http.Redirect(w, r, "/admin/scenarios?draft_gone=1", http.StatusSeeOther)
 }
 
-// editorPage renders the editor for a draft.
+// editorPage renders the editor for a draft. Opening it takes the lock
+// (D-050); when somebody else holds the draft the page reads only and says
+// who has it.
 func (a *Admin) editorPage(w http.ResponseWriter, r *http.Request, s session) {
 	draft, ok := a.draftOf(w, r, s)
 	if !ok {
 		return
 	}
+	if locked, err := a.takeLock(r, s, draft.ID, false); err == nil {
+		draft = locked
+	} else if !isLocked(err) {
+		a.log.Error("the editor could not take a lock", "draft", draft.ID, "error", err)
+	}
 	data := a.newEditorData(s, draft)
+	if r.URL.Query().Get("taken_failed") != "" {
+		data.Lock.alert = alert{Error: i18n.T(s.Lang, "admin.editor.take_over_failed")}
+	}
 	data.Panel = a.panelOf(s, draft, r.URL.Query().Get("select"))
 	data.Media = a.mediaOf(s, draft)
 	data.Problems = problemsData{Problems: editorProblems(s.Lang, draft), Ready: len(draft.Problems) == 0}
 	a.render(w, s.Lang, http.StatusOK, "editor", "layout", data)
+}
+
+// takeLock asks API v1 for the lock of a draft and answers with the draft as
+// it now stands. A refused lock comes back as an apiError with draft_locked,
+// which isLocked reads.
+func (a *Admin) takeLock(r *http.Request, s session, id string, takeOver bool) (httpapi.Draft, error) {
+	var draft httpapi.Draft
+	err := a.call(r, s, http.MethodPost, "/drafts/"+url.PathEscape(id)+"/lock",
+		httpapi.TakeLock{TakeOver: takeOver}, &draft)
+	return draft, err
+}
+
+// isLocked says an error is the refusal of a draft somebody else holds.
+func isLocked(err error) bool {
+	var ae *apiError
+	return errors.As(err, &ae) && ae.Code == "draft_locked"
+}
+
+// editorLock is the minute refresh of editor.js and the take over button.
+// The script wants JSON, the button a page it can land on.
+func (a *Admin) editorLock(w http.ResponseWriter, r *http.Request, s session) {
+	id := r.PathValue("id")
+	takeOver := r.FormValue("take_over") != ""
+	draft, err := a.takeLock(r, s, id, takeOver)
+	if !takeOver {
+		if err != nil {
+			a.editorError(w, r, s, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, draft.Lock)
+		return
+	}
+	if err != nil {
+		if errors.Is(err, errSessionEnded) {
+			a.sessionEnded(w, r)
+			return
+		}
+		a.log.Error("a draft was not taken over", "draft", id, "error", err)
+		http.Redirect(w, r, "/admin/editor/"+url.PathEscape(id)+"?taken_failed=1", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/admin/editor/"+url.PathEscape(id)+"?taken=1", http.StatusSeeOther)
+}
+
+// editorUnlock releases the lock when the page is left. The browser sends
+// this with sendBeacon, which is a POST nobody waits for, so the answer is
+// an empty 204.
+func (a *Admin) editorUnlock(w http.ResponseWriter, r *http.Request, s session) {
+	err := a.call(r, s, http.MethodDelete, "/drafts/"+url.PathEscape(r.PathValue("id"))+"/lock", nil, nil)
+	if err != nil && !errors.Is(err, errSessionEnded) {
+		var ae *apiError
+		if !errors.As(err, &ae) || ae.Status != http.StatusNotFound {
+			a.log.Error("a draft lock was not released", "draft", r.PathValue("id"), "error", err)
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // previewData is the preview page.

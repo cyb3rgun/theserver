@@ -10,6 +10,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/cyb3rgun/theserver/internal/content"
 	"github.com/cyb3rgun/theserver/internal/mediakind"
@@ -44,6 +45,34 @@ type Draft struct {
 	PublishedVersion int                `json:"published_version"`
 	NextVersion      int                `json:"next_version"`
 	Problems         []scenario.Problem `json:"problems"`
+	Lock             DraftLock          `json:"lock"`
+}
+
+// DraftLock says who is editing a draft right now (D-050). Held is false for
+// a draft nobody holds and for a lock that stopped being refreshed; Mine
+// says the lock belongs to the admin token of this request, which is what
+// the editor asks before it writes.
+type DraftLock struct {
+	Held bool   `json:"held"`
+	Mine bool   `json:"mine"`
+	By   string `json:"locked_by"`
+	Name string `json:"locked_name"`
+	At   int64  `json:"locked_at"`
+	// TTLMs is how long a lock lives without a refresh, so the editor knows
+	// how often to knock without the number being written twice.
+	TTLMs int64 `json:"ttl_ms"`
+}
+
+// DraftLockTTL is how long the lock of a draft lives after its last refresh
+// (D-050). The editor refreshes every minute, so a lock falls away a few
+// refreshes after a browser stops answering.
+const DraftLockTTL = 5 * time.Minute
+
+// TakeLock is the body of POST /drafts/{id}/lock.
+type TakeLock struct {
+	// TakeOver walks in on a lock somebody else holds; the server writes
+	// both names into the log.
+	TakeOver bool `json:"take_over"`
 }
 
 // DraftMedia is one file in the media directory of a draft. Use is what the
@@ -123,6 +152,7 @@ func (s *Server) draftJSON(r *http.Request, d store.Draft, withManifest bool) Dr
 		UpdatedAt: d.UpdatedAt, UpdatedBy: d.UpdatedBy,
 		PublishedVersion: d.PublishedVersion, Title: map[string]string{},
 		Problems: []scenario.Problem{},
+		Lock:     s.lockJSON(r, d.Lock),
 	}
 	if m, err := content.DecodeManifest(d.Manifest); err == nil {
 		out.Tier = m.Scenario.Tier
@@ -242,6 +272,10 @@ func (s *Server) createDraft(w http.ResponseWriter, r *http.Request) {
 // patchDraft changes the manifest of a draft with a JSON merge patch and
 // answers with the draft and the problems of the fields it touched.
 func (s *Server) patchDraft(w http.ResponseWriter, r *http.Request) {
+	if err := s.heldByAnother(r, r.PathValue("id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	drafts, err := s.content()
 	if err != nil {
 		s.fail(w, r, err)
@@ -282,6 +316,10 @@ func touchedProblems(patch []byte, problems []scenario.Problem) []scenario.Probl
 }
 
 func (s *Server) deleteDraft(w http.ResponseWriter, r *http.Request) {
+	if err := s.heldByAnother(r, r.PathValue("id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	drafts, err := s.content()
 	if err != nil {
 		s.fail(w, r, err)
@@ -296,9 +334,85 @@ func (s *Server) deleteDraft(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// heldByAnother refuses a change to a draft somebody else is holding
+// (D-050). A draft nobody holds and a lock that stopped being refreshed let
+// everybody through; the lock only ever stands between two people who are
+// both at work, and the one who arrives second takes it over.
+func (s *Server) heldByAnother(r *http.Request, id string) error {
+	d, err := s.opts.Store.GetDraft(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	token, _ := AdminFrom(r.Context())
+	if lock := d.Lock; lock.By != token.ID && lock.Held(s.opts.Store.Now(), DraftLockTTL) {
+		return fmt.Errorf("%s is held by %s: %w", id, lock.Name, store.ErrDraftLocked)
+	}
+	return nil
+}
+
+// lockJSON shapes the lock of a draft for the admin token of the request.
+func (s *Server) lockJSON(r *http.Request, lock store.DraftLock) DraftLock {
+	token, _ := AdminFrom(r.Context())
+	held := lock.Held(s.opts.Store.Now(), DraftLockTTL)
+	out := DraftLock{Held: held, Mine: held && lock.By == token.ID, TTLMs: DraftLockTTL.Milliseconds()}
+	if held {
+		out.By, out.Name, out.At = lock.By, lock.Name, lock.At
+	}
+	return out
+}
+
+// lockDraft takes the lock of a draft or refreshes the one this token holds
+// (D-050). A draft somebody else holds is a 409 draft_locked with the holder
+// in the message, until the caller asks to take it over.
+func (s *Server) lockDraft(w http.ResponseWriter, r *http.Request) {
+	var body TakeLock
+	if r.ContentLength > 0 {
+		if err := decodeBody(r, &body); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	token, _ := AdminFrom(r.Context())
+	id := r.PathValue("id")
+	before, err := s.opts.Store.GetDraft(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	d, _, err := s.opts.Store.LockDraft(r.Context(), id, token.ID, token.Name, DraftLockTTL, body.TakeOver)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	// A takeover is the one thing here worth a line in the log, and it names
+	// both people, as D-050 asks.
+	if body.TakeOver && before.Lock.By != "" && before.Lock.By != token.ID {
+		s.audit(r, "draft lock taken over", "draft", id, "from", before.Lock.Name, "to", token.Name)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, s.draftJSON(r, d, false))
+}
+
+// unlockDraft releases a lock this token holds, which the editor does when
+// the page is left.
+func (s *Server) unlockDraft(w http.ResponseWriter, r *http.Request) {
+	token, _ := AdminFrom(r.Context())
+	d, err := s.opts.Store.UnlockDraft(r.Context(), r.PathValue("id"), token.ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, s.draftJSON(r, d, false))
+}
+
 // uploadDraftMedia takes one media file into the draft. The container and
 // the codec decide whether it is taken at all (D-045).
 func (s *Server) uploadDraftMedia(w http.ResponseWriter, r *http.Request) {
+	if err := s.heldByAnother(r, r.PathValue("id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	drafts, err := s.content()
 	if err != nil {
 		s.fail(w, r, err)
@@ -414,6 +528,10 @@ func mediaType(container string) string {
 // measureDraftMedia keeps what the browser measured on a clip, the second
 // call of an upload (D-045).
 func (s *Server) measureDraftMedia(w http.ResponseWriter, r *http.Request) {
+	if err := s.heldByAnother(r, r.PathValue("id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	drafts, err := s.content()
 	if err != nil {
 		s.fail(w, r, err)
@@ -439,6 +557,10 @@ func (s *Server) measureDraftMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteDraftMedia(w http.ResponseWriter, r *http.Request) {
+	if err := s.heldByAnother(r, r.PathValue("id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	drafts, err := s.content()
 	if err != nil {
 		s.fail(w, r, err)
@@ -507,6 +629,10 @@ func (s *Server) validateDraft(w http.ResponseWriter, r *http.Request) {
 // publishDraft writes the package of the draft and publishes it through the
 // chain of B07 (D-042); a draft with problems publishes nothing.
 func (s *Server) publishDraft(w http.ResponseWriter, r *http.Request) {
+	if err := s.heldByAnother(r, r.PathValue("id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
 	drafts, err := s.content()
 	if err != nil {
 		s.fail(w, r, err)

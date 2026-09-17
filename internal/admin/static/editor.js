@@ -14,6 +14,10 @@
   // the drag of a shape follow the same rule, so nothing here writes a
   // keyframe the check would refuse as not_in_tier.
   const zonesMove = tier === 'interactive' || tier === 'layered';
+  // readOnly is a draft somebody else holds (D-050). The server refuses a
+  // change to it anyway; the page stops sending, so nobody types into a
+  // draft that will not keep it.
+  let readOnly = root.dataset.readonly === '1';
 
   const video = document.getElementById('stage-video');
   const canvas = document.getElementById('stage-canvas');
@@ -104,8 +108,10 @@
     }
   }
 
-  // patch sends a JSON merge patch on the manifest and takes the answer.
+  // patch sends a JSON merge patch on the manifest and takes the answer. A
+  // draft this page does not hold takes none.
   async function patch(body, keepPanel) {
+    if (readOnly) return false;
     const answer = await send(urls.patch, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -894,6 +900,43 @@
     await load();
   }
 
+  // --- the lock --------------------------------------------------------
+
+  // The page took the lock when it was rendered (D-050) and keeps it alive
+  // while it is open. A refusal means somebody took the draft over: the page
+  // stops writing and says so, and a reload shows who has it now.
+  function keepLock() {
+    const every = parseInt(root.dataset.lockEvery || '0', 10);
+    if (!urls.lock || readOnly || !(every > 0)) return;
+    window.setInterval(async () => {
+      let ok = false;
+      try {
+        const answer = await fetch(urls.lock, {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' },
+        });
+        ok = answer.ok;
+      } catch (err) {
+        ok = true; // a network hiccup is not somebody else at the draft
+      }
+      if (ok) return;
+      readOnly = true;
+      stateBox.textContent = words.lost || stateBox.dataset.failed;
+      stateBox.classList.add('failed');
+    }, every);
+  }
+
+  // The lock is released when the page goes. sendBeacon survives a closing
+  // tab, which fetch does not; without it the draft would stay locked until
+  // the lock stopped being refreshed.
+  function releaseLock() {
+    if (!urls.unlock || readOnly) return;
+    if (navigator.sendBeacon) navigator.sendBeacon(urls.unlock, new Blob([], { type: 'text/plain' }));
+    else fetch(urls.unlock, { method: 'POST', keepalive: true }).catch(() => {});
+  }
+
+  window.addEventListener('pagehide', releaseLock);
+
   // --- events ----------------------------------------------------------
 
   document.addEventListener('click', (event) => {
@@ -1036,5 +1079,6 @@
   // The rules engine of the preview reads this state as well.
   window.cyb3rgunEditor = state;
 
+  keepLock();
   load();
 })();

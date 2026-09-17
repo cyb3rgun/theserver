@@ -609,6 +609,24 @@ form.settings.dirty .savebar #unsaved-count {
   gap: 1rem;
 }
 
+/* The notice of a draft somebody else is holding (D-050). */
+.lock {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+  border-radius: 6px;
+  background: #fdf0e2;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.lock p {
+  margin: 0;
+}
+
 .editor-bar {
   display: flex;
   align-items: center;

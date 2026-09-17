@@ -151,6 +151,8 @@ func New(opts Options) (*Admin, error) {
 	mux.Handle("POST /admin/editor", a.page(a.newDraft))
 	mux.Handle("GET /admin/editor/{id}", a.page(a.editorPage))
 	mux.Handle("GET /admin/editor/{id}/draft", a.page(a.editorDraft))
+	mux.Handle("POST /admin/editor/{id}/lock", a.page(a.editorLock))
+	mux.Handle("POST /admin/editor/{id}/unlock", a.page(a.editorUnlock))
 	mux.Handle("POST /admin/editor/{id}/patch", a.page(a.editorPatch))
 	mux.Handle("GET /admin/editor/{id}/panel", a.page(a.editorPanel))
 	mux.Handle("POST /admin/editor/{id}/field", a.page(a.editorField))

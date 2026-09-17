@@ -478,6 +478,55 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+  /drafts/{id}/lock:
+    post:
+      summary: Take or refresh the lock of a draft (D-050).
+      description: |
+        Opening the editor takes the lock; the page refreshes it every
+        minute. A draft nobody holds, a draft this admin token already holds
+        and a draft whose lock stopped being refreshed are taken without a
+        word. A draft somebody else is holding answers 409 draft_locked with
+        the holder in the message, until the body says take_over, which
+        walks in and writes both names into the log.
+      operationId: lockDraft
+      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TakeLock"}
+      responses:
+        "200":
+          description: The draft with the lock it now carries.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Draft"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409":
+          description: Somebody else holds this draft; code draft_locked.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+    delete:
+      summary: Release the lock of a draft.
+      description: |
+        The editor releases the lock when the page is left. Releasing a
+        draft somebody else holds changes nothing, so a browser that leaves
+        late cannot open the draft of the person who took it over.
+      operationId: unlockDraft
+      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      responses:
+        "200":
+          description: The draft without the lock.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Draft"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
   /drafts/{id}/trace:
     post:
       summary: Play shots against a draft with the rule engine of section 7 (D-044).
@@ -1012,6 +1061,24 @@ components:
         problems:
           type: array
           items: {$ref: "#/components/schemas/Problem"}
+        lock: {$ref: "#/components/schemas/DraftLock"}
+      additionalProperties: false
+    DraftLock:
+      type: object
+      description: Who is editing this draft right now (D-050).
+      required: [held, mine, ttl_ms]
+      properties:
+        held: {type: boolean, description: "False for a draft nobody holds and for a lock that stopped being refreshed."}
+        mine: {type: boolean, description: The lock belongs to the admin token of this request.}
+        locked_by: {type: string, description: "The id of the admin token that holds it, empty when nobody does."}
+        locked_name: {type: string, description: The name that token carried when the lock was taken.}
+        locked_at: {type: integer, description: The last refresh in unix milliseconds.}
+        ttl_ms: {type: integer, description: How long a lock lives without a refresh.}
+      additionalProperties: false
+    TakeLock:
+      type: object
+      properties:
+        take_over: {type: boolean, description: Walk in on a lock somebody else holds; the server logs both names.}
       additionalProperties: false
     DraftMedia:
       type: object
@@ -1126,7 +1193,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal, invalid_settings, invalid_package, too_large, published, has_problems, version_taken, not_published, age_rating]
+              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal, invalid_settings, invalid_package, too_large, published, has_problems, version_taken, not_published, age_rating, bad_media, bad_manifest, draft_locked]
             message: {type: string}
             fields:
               type: array

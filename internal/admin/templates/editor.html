@@ -2,6 +2,16 @@
 <h1>{{t "admin.editor.title"}} <span class="muted">{{.Name}}</span></h1>
 <p class="muted" id="editor-intro">{{t "admin.editor.intro" .Draft.ScenarioID (word "admin.tier" .Draft.Tier) .Draft.NextVersion}}</p>
 {{template "messages" .}}
+{{template "error" .Lock}}
+{{if and .Lock.Held (not .Lock.Mine)}}
+<div class="lock" id="editor-lock" role="alert">
+  <p>{{.Lock.Notice}}</p>
+  <form method="post" action="{{.Lock.Take}}" class="inline" data-confirm="{{.Lock.Confirm}}">
+    <input type="hidden" name="take_over" value="1">
+    <button class="button danger" type="submit">{{t "admin.editor.take_over"}}</button>
+  </form>
+</div>
+{{end}}
 <div class="editor" id="editor"
      data-draft="/admin/editor/{{path .Draft.ID}}/draft"
      data-patch="/admin/editor/{{path .Draft.ID}}/patch"
@@ -12,6 +22,10 @@
      data-validate="/admin/editor/{{path .Draft.ID}}/validate"
      data-publish="/admin/editor/{{path .Draft.ID}}/publish"
      data-tier="{{.Draft.Tier}}"
+     data-lock="{{.Lock.Take}}"
+     data-unlock="{{.Lock.Release}}"
+     data-lock-every="{{.Lock.RefreshMs}}"
+     {{if not .Lock.Mine}}data-readonly="1"{{end}}
      data-words="{{.Words}}">
   <div class="editor-bar">
     <span id="editor-state" class="state" role="status"

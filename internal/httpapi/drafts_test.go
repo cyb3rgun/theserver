@@ -361,3 +361,92 @@ func TestDraftManifestIsNormalized(t *testing.T) {
 		t.Errorf("the fit is still %q", m.Display.Fit)
 	}
 }
+
+// Two people on one draft (D-050). The first to open it holds it; the second
+// is told who has it and is refused every change, until they take it over,
+// which puts both names into the log. A release hands the draft back.
+func TestDraftLockHoldsTakesOverAndReleases(t *testing.T) {
+	h := newAPI(t)
+	second, secondToken, err := h.st.AddAdminToken(t.Context(), "mausi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	as := func(method, path, body, token string) *httptest.ResponseRecorder {
+		t.Helper()
+		return h.callAs(method, path, body, "Bearer "+token)
+	}
+
+	draft := decode[Draft](t, h.call(http.MethodPost, Prefix+"/drafts",
+		`{"id": "shared-range", "tier": "video", "title": {"en": "Shared", "de": "Geteilt"}}`), http.StatusCreated).ID
+	if lock := draft; lock == "" {
+		t.Fatal("no draft")
+	}
+	// A fresh draft is held by nobody.
+	if lock := decode[Draft](t, h.call(http.MethodGet, Prefix+"/drafts/"+draft, ""), http.StatusOK).Lock; lock.Held {
+		t.Errorf("a fresh draft is held: %+v", lock)
+	}
+
+	// Taking it. The holder sees mine, the other sees the name.
+	taken := decode[Draft](t, h.call(http.MethodPost, Prefix+"/drafts/"+draft+"/lock", ""), http.StatusOK).Lock
+	if !taken.Held || !taken.Mine || taken.Name != h.admin.Name || taken.At == 0 || taken.TTLMs == 0 {
+		t.Fatalf("the lock reads %+v", taken)
+	}
+	seen := decode[Draft](t, as(http.MethodGet, Prefix+"/drafts/"+draft, "", secondToken), http.StatusOK).Lock
+	if !seen.Held || seen.Mine || seen.Name != "tests" || seen.By != h.admin.ID {
+		t.Errorf("the other admin sees %+v", seen)
+	}
+
+	// Refreshing. The same token takes it again without a word, and the
+	// stamp moves forward.
+	again := decode[Draft](t, h.call(http.MethodPost, Prefix+"/drafts/"+draft+"/lock", ""), http.StatusOK).Lock
+	if !again.Mine || again.At < taken.At || again.By != taken.By {
+		t.Errorf("the refresh reads %+v after %+v", again, taken)
+	}
+
+	// The other admin is refused: the lock, and every change behind it.
+	expectError(t, as(http.MethodPost, Prefix+"/drafts/"+draft+"/lock", "", secondToken),
+		http.StatusConflict, codeDraftLocked)
+	for _, c := range []struct{ method, path, body string }{
+		{http.MethodPatch, Prefix + "/drafts/" + draft, `{"rules":{"lives":5}}`},
+		{http.MethodDelete, Prefix + "/drafts/" + draft, ""},
+		{http.MethodPost, Prefix + "/drafts/" + draft + "/publish", ""},
+	} {
+		expectError(t, as(c.method, c.path, c.body, secondToken), http.StatusConflict, codeDraftLocked)
+	}
+	// Reading is not a change, and neither is the check.
+	if rec := as(http.MethodPost, Prefix+"/drafts/"+draft+"/validate", "", secondToken); rec.Code != http.StatusOK {
+		t.Errorf("the check answered %d for the admin without the lock", rec.Code)
+	}
+	// The holder still writes.
+	if rec := h.call(http.MethodPatch, Prefix+"/drafts/"+draft, `{"rules":{"lives":5}}`); rec.Code != http.StatusOK {
+		t.Errorf("the holder was refused with %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Taking over. Both names go into the log, as D-050 asks.
+	over := decode[Draft](t, as(http.MethodPost, Prefix+"/drafts/"+draft+"/lock",
+		`{"take_over": true}`, secondToken), http.StatusOK).Lock
+	if !over.Mine || over.By != second.ID || over.Name != "mausi" {
+		t.Fatalf("after the takeover the lock reads %+v", over)
+	}
+	line := h.logs.String()
+	if !strings.Contains(line, "draft lock taken over") || !strings.Contains(line, "from=tests") ||
+		!strings.Contains(line, "to=mausi") {
+		t.Errorf("the log of the takeover reads %q", line)
+	}
+	// Now the first admin is the one outside.
+	expectError(t, h.call(http.MethodPatch, Prefix+"/drafts/"+draft, `{"rules":{"lives":4}}`),
+		http.StatusConflict, codeDraftLocked)
+
+	// Releasing. A release by somebody who does not hold it changes nothing.
+	if lock := decode[Draft](t, h.call(http.MethodDelete, Prefix+"/drafts/"+draft+"/lock", ""), http.StatusOK).Lock; !lock.Held {
+		t.Errorf("the admin without the lock released it: %+v", lock)
+	}
+	if lock := decode[Draft](t, as(http.MethodDelete, Prefix+"/drafts/"+draft+"/lock", "", secondToken),
+		http.StatusOK).Lock; lock.Held {
+		t.Errorf("the draft is still held after its holder left: %+v", lock)
+	}
+	// With nobody on it, everybody writes again.
+	if rec := h.call(http.MethodPatch, Prefix+"/drafts/"+draft, `{"rules":{"lives":4}}`); rec.Code != http.StatusOK {
+		t.Errorf("a free draft refused a change with %d", rec.Code)
+	}
+}

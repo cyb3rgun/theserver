@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"crypto/sha512"
 	"encoding/base64"
+	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cyb3rgun/theserver/internal/editor"
 	"github.com/cyb3rgun/theserver/internal/httpapi"
@@ -19,6 +22,23 @@ import (
 	"github.com/cyb3rgun/theserver/internal/mediakind/mediakindtest"
 	"github.com/cyb3rgun/theserver/internal/scenario"
 )
+
+// otherAdmin adds a second admin token and returns its id, so a test can
+// put two people on one draft.
+func (h *harness) otherAdmin(name string) string {
+	h.t.Helper()
+	row, _, err := h.st.AddAdminToken(h.t.Context(), name)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return row.ID
+}
+
+// as sends the next requests as the admin token id, in the language lang.
+func (h *harness) as(id, lang string) {
+	h.cookie = NewSessionCookie(h.key, id, time.Now())
+	h.lang = lang
+}
 
 // draft opens a draft through the catalogue form and returns its id.
 func (h *harness) draft(id, tier string) string {
@@ -112,12 +132,12 @@ func TestEveryDraftEndpointIsReachableFromThePage(t *testing.T) {
 	catalogue := h.html("GET", "/admin/scenarios", nil)
 	preview := h.html("GET", "/admin/editor/"+id+"/preview", nil)
 
-	attributes := regexp.MustCompile(`data-(draft|patch|panel|media|file|measure|validate|publish|trace)="([^"]*)"`)
+	attributes := regexp.MustCompile(`data-(draft|patch|panel|media|file|measure|validate|publish|trace|lock|unlock)="([^"]*)"`)
 	found := map[string]string{}
 	for _, m := range attributes.FindAllStringSubmatch(page+preview, -1) {
 		found[m[1]] = m[2]
 	}
-	for _, name := range []string{"draft", "patch", "panel", "media", "file", "measure", "validate", "publish", "trace"} {
+	for _, name := range []string{"draft", "patch", "panel", "media", "file", "measure", "validate", "publish", "trace", "lock", "unlock"} {
 		if found[name] == "" {
 			t.Fatalf("the page carries no address for %s", name)
 		}
@@ -138,6 +158,8 @@ func TestEveryDraftEndpointIsReachableFromThePage(t *testing.T) {
 		{"GET /drafts/{id}", "data-draft", found["draft"], http.MethodGet, found["draft"], ""},
 		{"PATCH /drafts/{id}", "data-patch", found["patch"], http.MethodPost, found["patch"], `{"rules":{"lives":4}}`},
 		{"DELETE /drafts/{id}", "the delete form", "/admin/editor/" + id + "/delete", http.MethodPost, "/admin/editor/" + id + "/delete", ""},
+		{"POST /drafts/{id}/lock", "data-lock", found["lock"], http.MethodPost, found["lock"], ""},
+		{"DELETE /drafts/{id}/lock", "data-unlock", found["unlock"], http.MethodPost, found["unlock"], ""},
 		{"POST /drafts/{id}/media", "the upload form", found["media"], http.MethodPost, found["media"], ""},
 		{"GET /drafts/{id}/media/{name}", "data-file", found["file"], http.MethodGet, found["file"] + "clip.mp4", ""},
 		{"PATCH /drafts/{id}/media/{name}", "data-measure", found["measure"], http.MethodPost, found["measure"] + "clip.mp4/measure", `{"duration_ms":1000,"width":64,"height":64}`},
@@ -350,4 +372,79 @@ func TestKeyframeControlFollowsTheTier(t *testing.T) {
 	}
 	problems := h.html("POST", "/admin/editor/"+id+"/validate", nil)
 	contains(t, problems, i18n.T("en", "scenario.problem."+scenario.CodeNotInTier))
+}
+
+// The editor takes the lock when it opens (D-050). A second admin sees who
+// holds the draft, in the language of their page, cannot change it, and
+// takes it over with a confirmation; the first page then holds nothing.
+func TestEditorLockNoticeAndTakeOver(t *testing.T) {
+	h := newHarness(t)
+	id := h.draft("shared-range", "video")
+
+	// The page that opened the draft holds it and says nothing about a lock.
+	mine := h.html("GET", "/admin/editor/"+id, nil)
+	if strings.Contains(mine, `id="editor-lock"`) || strings.Contains(mine, `data-readonly="1"`) {
+		t.Error("the page of the holder shows the lock notice")
+	}
+	contains(t, mine, `data-lock="/admin/editor/`+id+`/lock"`, `data-unlock="/admin/editor/`+id+`/unlock"`,
+		`data-lock-every="`+strconv.FormatInt(httpapi.DraftLockTTL.Milliseconds()/3, 10)+`"`)
+
+	// The refresh of the script answers the lock itself.
+	rec := h.do(http.MethodPost, "/admin/editor/"+id+"/lock", nil, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the refresh answered %d: %s", rec.Code, rec.Body.String())
+	}
+	var refreshed httpapi.DraftLock
+	if err := json.Unmarshal(rec.Body.Bytes(), &refreshed); err != nil {
+		t.Fatal(err)
+	}
+	if !refreshed.Held || !refreshed.Mine {
+		t.Errorf("the refresh reads %+v", refreshed)
+	}
+
+	// A second admin, in German and in English.
+	other := h.otherAdmin("mausi")
+	for _, lang := range []string{"en", "de"} {
+		h.as(other, lang)
+		page := h.html("GET", "/admin/editor/"+id, nil)
+		contains(t, page, `id="editor-lock"`, `data-readonly="1"`,
+			i18n.T(lang, "admin.editor.locked", "founder"),
+			i18n.T(lang, "admin.editor.take_over"),
+			`data-confirm="`+i18n.T(lang, "admin.editor.confirm_take_over")+`"`)
+	}
+	// They are refused every change while the other holds it.
+	if rec := h.json(http.MethodPost, "/admin/editor/"+id+"/patch", `{"rules":{"lives":5}}`); rec.Code != http.StatusConflict {
+		t.Errorf("a change without the lock answered %d", rec.Code)
+	}
+	if rec := h.do(http.MethodPost, "/admin/editor/"+id+"/lock", nil, true); rec.Code != http.StatusConflict {
+		t.Errorf("a refresh without the lock answered %d", rec.Code)
+	}
+
+	// Taking over lands on the editor, which now holds the draft.
+	taken := h.do(http.MethodPost, "/admin/editor/"+id+"/lock", url.Values{"take_over": {"1"}}, true)
+	if target := redirected(t, taken); target != "/admin/editor/"+id+"?taken=1" {
+		t.Fatalf("the takeover led to %q", target)
+	}
+	page := h.html("GET", "/admin/editor/"+id, nil)
+	if strings.Contains(page, `id="editor-lock"`) || strings.Contains(page, `data-readonly="1"`) {
+		t.Error("the page of the new holder still shows the lock notice")
+	}
+	if rec := h.json(http.MethodPost, "/admin/editor/"+id+"/patch", `{"rules":{"lives":5}}`); rec.Code != http.StatusOK {
+		t.Errorf("the new holder was refused with %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// The first admin is now the one outside, and sees the new name.
+	h.as(h.id, "en")
+	contains(t, h.html("GET", "/admin/editor/"+id, nil), i18n.T("en", "admin.editor.locked", "mausi"))
+
+	// Leaving releases the lock; a page that opens afterwards holds it.
+	h.as(other, "en")
+	if rec := h.do(http.MethodPost, "/admin/editor/"+id+"/unlock", nil, true); rec.Code != http.StatusNoContent {
+		t.Fatalf("the release answered %d", rec.Code)
+	}
+	h.as(h.id, "en")
+	free := h.html("GET", "/admin/editor/"+id, nil)
+	if strings.Contains(free, `id="editor-lock"`) {
+		t.Error("a released draft still shows the lock notice")
+	}
 }
