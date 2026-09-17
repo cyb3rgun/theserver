@@ -2,7 +2,6 @@ package simtarget
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -38,6 +37,12 @@ type Options struct {
 	DrainWait   time.Duration // how long to wait for the last acks
 	Seed        uint64
 	Logger      *slog.Logger
+	// Holdings are scenario versions the target reports as held besides
+	// the packages in ContentDir.
+	Holdings []protocol.Holding
+	// ContentDir keeps the installed packages, <id>/<version>/package.zip.
+	// Without it the target refuses content_available.
+	ContentDir string
 }
 
 func (o *Options) defaults() {
@@ -83,6 +88,10 @@ type Stats struct {
 	LastAck     uint64 // highest ack received
 	Unacked     int    // events still pending at the end
 	Commands    int    // commands answered
+	Installs    int    // scenario versions installed after an announcement
+	// InstallsFailed counts announcements whose package did not install.
+	InstallsFailed int
+	Held           []protocol.Holding // scenario versions held at the end
 }
 
 // Run drives the simulated target until the duration is over and every event
@@ -90,13 +99,24 @@ type Stats struct {
 // server refuses the token.
 func Run(ctx context.Context, opts Options, journal *Journal) (Stats, error) {
 	opts.defaults()
+	base, err := httpBase(opts.Server)
+	if err != nil {
+		return Stats{}, err
+	}
 	d := &device{
-		opts:    opts,
-		journal: journal,
-		gen:     NewGenerator(opts.Controllers, opts.Seed, time.Now()),
-		log:     opts.Logger.With("device", opts.DeviceID),
-		fresh:   make(chan struct{}, 1),
-		stopped: make(chan struct{}),
+		opts:       opts,
+		journal:    journal,
+		gen:        NewGenerator(opts.Controllers, opts.Seed, time.Now()),
+		log:        opts.Logger.With("device", opts.DeviceID),
+		fresh:      make(chan struct{}, 1),
+		stopped:    make(chan struct{}),
+		baseURL:    base,
+		client:     httpClient(opts.Insecure),
+		held:       map[protocol.Holding]bool{},
+		installing: map[protocol.Holding]bool{},
+	}
+	for _, h := range append(append([]protocol.Holding{}, opts.Holdings...), installed(opts.ContentDir)...) {
+		d.held[h] = true
 	}
 	return d.run(ctx)
 }
@@ -104,11 +124,20 @@ func Run(ctx context.Context, opts Options, journal *Journal) (Stats, error) {
 type device struct {
 	opts    Options
 	journal *Journal
-	gen     *Generator
 	log     *slog.Logger
+	baseURL string // the API, https://host:port
+	client  *http.Client
+
+	genMu sync.Mutex // the generator serves the generator loop and the connections
+	gen   *Generator
 
 	fresh   chan struct{} // a new event is in the journal
 	stopped chan struct{} // generation is over
+
+	heldMu     sync.Mutex
+	held       map[protocol.Holding]bool
+	installing map[protocol.Holding]bool
+	installs   sync.WaitGroup
 
 	mu    sync.Mutex
 	stats Stats
@@ -167,12 +196,15 @@ loop:
 	if err := <-generating; err != nil && runErr == nil {
 		runErr = err
 	}
+	d.installs.Wait()
 
+	held := d.holdings()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.stats.LastSeq = d.journal.LastSeq()
 	d.stats.Unacked = d.journal.Pending()
 	d.stats.Epoch = d.journal.Epoch()
+	d.stats.Held = held
 	return d.stats, runErr
 }
 
@@ -201,25 +233,43 @@ func (d *device) generate(ctx context.Context) error {
 			d.log.Info("duration reached, no more events")
 			return nil
 		case now := <-health.C:
-			draft = d.gen.Health(now)
+			draft = d.healthDraft(now)
 		case <-ticker.C:
+			d.genMu.Lock()
 			draft = d.gen.Next()
+			d.genMu.Unlock()
 		}
-		event, err := d.journal.Append(draft, time.Now().UnixMilli())
-		if err != nil {
+		if err := d.appendDraft(draft); err != nil {
 			return err
 		}
-		d.mu.Lock()
-		d.stats.Generated++
-		if d.stats.FirstSeq == 0 {
-			d.stats.FirstSeq = event.Seq
-		}
-		d.mu.Unlock()
-		select {
-		case d.fresh <- struct{}{}:
-		default:
-		}
 	}
+}
+
+// healthDraft is a health report with what the target holds.
+func (d *device) healthDraft(now time.Time) Draft {
+	held := d.holdings()
+	d.genMu.Lock()
+	defer d.genMu.Unlock()
+	return d.gen.Health(now, held)
+}
+
+// appendDraft journals an event and wakes the connection that sends it.
+func (d *device) appendDraft(draft Draft) error {
+	event, err := d.journal.Append(draft, time.Now().UnixMilli())
+	if err != nil {
+		return err
+	}
+	d.mu.Lock()
+	d.stats.Generated++
+	if d.stats.FirstSeq == 0 {
+		d.stats.FirstSeq = event.Seq
+	}
+	d.mu.Unlock()
+	select {
+	case d.fresh <- struct{}{}:
+	default:
+	}
+	return nil
 }
 
 // session runs one connection.
@@ -276,6 +326,11 @@ func (d *device) session(ctx context.Context) (sessionEnd, error) {
 	}
 	d.log.Info("connected", "epoch", welcome.Ep, "journal_last", helloLast, "server_ack", welcome.Ack,
 		"to_replay", len(d.journal.After(welcome.Ack)), "session", session)
+	// A target reports its health, and with it what it holds, as soon as
+	// it is connected.
+	if err := d.appendDraft(d.healthDraft(time.Now())); err != nil {
+		return endError, err
+	}
 
 	readerDone := make(chan error, 1)
 	reboot := make(chan struct{}, 1)
@@ -388,7 +443,13 @@ func (d *device) readLoop(ctx context.Context, ws *websocket.Conn, sendMu *sync.
 			d.stats.LastAck = max(d.stats.LastAck, m.Seq)
 			d.mu.Unlock()
 		case protocol.Command:
-			result, restart := answer(m)
+			var result protocol.Result
+			restart := false
+			if m.N == protocol.CommandContentAvailable {
+				result = d.announced(ctx, m)
+			} else {
+				result, restart = answer(m)
+			}
 			sendMu.Lock()
 			err := write(ctx, ws, result)
 			sendMu.Unlock()
@@ -436,18 +497,13 @@ func (d *device) dial(ctx context.Context) (*websocket.Conn, error) {
 	if !strings.HasSuffix(url, "/link/v1") {
 		url += "/link/v1"
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: d.opts.Insecure,
-	}
 	header := http.Header{}
 	header.Set("Authorization", "Bearer "+d.opts.Token)
 
 	dialCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	ws, resp, err := websocket.Dial(dialCtx, url, &websocket.DialOptions{
-		HTTPClient: &http.Client{Transport: transport},
+		HTTPClient: d.client,
 		HTTPHeader: header,
 	})
 	if resp != nil && resp.StatusCode == http.StatusUnauthorized {

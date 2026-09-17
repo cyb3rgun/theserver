@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"slices"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/cyb3rgun/theserver/internal/protocol"
+	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
 )
 
@@ -71,6 +73,8 @@ var (
 	// ErrCommandTimeout is returned when a device does not answer a command in
 	// time.
 	ErrCommandTimeout = errors.New("device did not answer the command in time")
+	// ErrRefused is a command the device answered with ok false.
+	ErrRefused = errors.New("device refused the command")
 	// errShutdown refuses connections while the server stops.
 	errShutdown = errors.New("server is shutting down")
 )
@@ -226,6 +230,22 @@ func (s *Server) SendCommand(ctx context.Context, deviceID, name string, args ma
 		return protocol.Result{}, fmt.Errorf("%s: %w", deviceID, ErrDeviceOffline)
 	}
 	return c.command(ctx, name, args)
+}
+
+// Announce sends content_available to a connected device (protocol section
+// 8.10). The device takes the announcement and fetches the package itself; a
+// device that refuses it gives ErrRefused with its reason.
+func (s *Server) Announce(ctx context.Context, deviceID string, content protocol.ContentAvailable) error {
+	result, err := s.SendCommand(ctx, deviceID, protocol.CommandContentAvailable, content.Args())
+	if err != nil {
+		return err
+	}
+	if !result.OK {
+		return fmt.Errorf("%s: %s version %d: %w: %s", deviceID, content.ID, content.Ver, ErrRefused, result.E)
+	}
+	s.log.Info("content announced", "device", deviceID, "scenario", content.ID, "version", content.Ver,
+		"sha256", content.Sha, "size", content.Size)
+	return nil
 }
 
 // A DisconnectReason says why the server ends a live connection on behalf of
@@ -440,6 +460,11 @@ type deviceConn struct {
 	received    int
 	stored      int
 	duplicates  int
+
+	// holdingsKey is the list of versions last recorded from a health
+	// report of this connection; only the batch loop uses it.
+	holdingsKey   string
+	holdingsKnown bool
 }
 
 type outFrame struct {
@@ -779,7 +804,86 @@ func (c *deviceConn) flush(batch []store.Event) bool {
 		c.log.Info("replay complete", "replayed", total, "duplicates", duplicates, "ack", result.AckSeq)
 	}
 	c.send(protocol.Ack{Seq: result.AckSeq})
+	c.recordHoldings(ctx, batch)
 	return true
+}
+
+// recordHoldings applies what the events of a stored batch say the device
+// holds, in their order (protocol section 8.10): a health report with scn
+// replaces the versions held, a content report adds or removes one. An
+// unusable report stays in the journal and changes nothing.
+func (c *deviceConn) recordHoldings(ctx context.Context, batch []store.Event) {
+	for _, event := range batch {
+		switch event.Kind {
+		case protocol.KindHealth:
+			c.healthHoldings(ctx, event)
+		case protocol.KindContent:
+			c.contentReport(ctx, event)
+		}
+	}
+}
+
+func (c *deviceConn) healthHoldings(ctx context.Context, event store.Event) {
+	var health struct {
+		Scn *[]protocol.Holding `cbor:"scn"`
+	}
+	if err := protocol.DecodeData(event.Payload, &health); err != nil {
+		c.log.Warn("health report with unreadable holdings", "seq", event.Seq, "error", err)
+		return
+	}
+	if health.Scn == nil {
+		return
+	}
+	var holdings []store.Holding
+	var names []string
+	for _, h := range *health.Scn {
+		if !usableVersion(h.ID, h.Ver) {
+			c.log.Warn("health report names an unusable scenario version", "seq", event.Seq, "scenario", h.ID, "version", h.Ver)
+			continue
+		}
+		holdings = append(holdings, store.Holding{ScenarioID: h.ID, Version: int(h.Ver)})
+		names = append(names, fmt.Sprintf("%s@%d", h.ID, h.Ver))
+	}
+	slices.Sort(names)
+	key := strings.Join(names, ",")
+	if c.holdingsKnown && key == c.holdingsKey {
+		return
+	}
+	if err := c.srv.store.RecordDeviceScenarios(ctx, c.deviceID, holdings); err != nil {
+		c.log.Warn("could not record the holdings", "error", err)
+		return
+	}
+	c.holdingsKey, c.holdingsKnown = key, true
+	c.log.Info("device holdings", "scenarios", key)
+}
+
+func (c *deviceConn) contentReport(ctx context.Context, event store.Event) {
+	var report protocol.ContentData
+	if err := protocol.DecodeData(event.Payload, &report); err != nil || !usableVersion(report.ID, report.Ver) {
+		c.log.Warn("unusable content report", "seq", event.Seq, "scenario", report.ID, "version", report.Ver, "error", err)
+		return
+	}
+	attrs := []any{"scenario", report.ID, "version", report.Ver, "state", report.St}
+	switch report.St {
+	case protocol.ContentInstalled, protocol.ContentRemoved:
+		if err := c.srv.store.SetDeviceScenario(ctx, c.deviceID, report.ID, int(report.Ver), report.St == protocol.ContentInstalled); err != nil {
+			c.log.Warn("could not record the content report", append(attrs, "error", err)...)
+			return
+		}
+		// The next health report is recorded again, whatever it says.
+		c.holdingsKnown = false
+		c.log.Info("content reported", attrs...)
+	case protocol.ContentInstalling:
+		c.log.Info("content reported", attrs...)
+	case protocol.ContentFailed:
+		c.log.Warn("content reported", append(attrs, "reason", report.E)...)
+	default:
+		c.log.Warn("content report with an unknown state", attrs...)
+	}
+}
+
+func usableVersion(id string, version uint64) bool {
+	return scenario.ValidID(id) && version >= 1 && version <= math.MaxInt32
 }
 
 // writeLoop sends the queued frames in order.

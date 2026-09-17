@@ -167,9 +167,10 @@ func TestGeneratorProducesValidFrames(t *testing.T) {
 		t.Errorf("controllers used %v, want all of %v", sortedKeys(used), gen.Controllers())
 	}
 
-	health := gen.Health(time.Now())
+	health := gen.Health(time.Now(), []protocol.Holding{{ID: "night-range", Ver: 1}})
 	var data protocol.HealthData
-	if health.Kind != protocol.KindHealth || protocol.DecodeData(health.Data, &data) != nil || data.Up < 59 {
+	if health.Kind != protocol.KindHealth || protocol.DecodeData(health.Data, &data) != nil || data.Up < 59 ||
+		len(data.Scn) != 1 || data.Scn[0].ID != "night-range" {
 		t.Errorf("health draft is %s with %+v", health.Kind, data)
 	}
 }

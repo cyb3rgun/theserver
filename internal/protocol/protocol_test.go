@@ -293,3 +293,74 @@ func TestEncodeRejectsForeignTypes(t *testing.T) {
 		t.Error("Encode accepted a type that is not a protocol message")
 	}
 }
+
+// A health report says nothing about holdings without scn, and that the
+// device holds none with an empty scn (protocol section 8.10).
+func TestHealthHoldings(t *testing.T) {
+	cases := []struct {
+		scn  []Holding
+		hex  string
+		held int // -1: no report
+	}{
+		{nil, "a1 62 7570 01", -1},
+		{[]Holding{}, "a2 62 7570 01 63 73636e 80", 0},
+		{[]Holding{{ID: "night-range", Ver: 2}}, "a2 62 7570 01 63 73636e 81 a2 62 6964 6b 6e696768742d72616e6765 63 766572 02", 1},
+	}
+	for _, c := range cases {
+		raw, err := EncodeData(struct {
+			Up  uint64    `cbor:"up"`
+			Scn []Holding `cbor:"scn,omitzero"`
+		}{Up: 1, Scn: c.scn})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(raw, mustHex(t, c.hex)) {
+			t.Errorf("scn %v encodes as %x", c.scn, raw)
+		}
+		var probe struct {
+			Scn *[]Holding `cbor:"scn"`
+		}
+		if err := DecodeData(raw, &probe); err != nil {
+			t.Fatal(err)
+		}
+		switch {
+		case c.held < 0 && probe.Scn != nil, c.held >= 0 && (probe.Scn == nil || len(*probe.Scn) != c.held):
+			t.Errorf("scn %v reads back as %v", c.scn, probe.Scn)
+		}
+	}
+
+	full := mustData(t, HealthData{Up: 9, RSSI: -50, Temp: 40.5, Free: 1000, Scn: []Holding{{ID: "zombie-alley", Ver: 1}}})
+	var back HealthData
+	if err := DecodeData(full, &back); err != nil || back.Up != 9 || len(back.Scn) != 1 || back.Scn[0].ID != "zombie-alley" {
+		t.Errorf("health reads back as %+v, %v", back, err)
+	}
+}
+
+func TestContentAnnouncementAndReport(t *testing.T) {
+	announce := ContentAvailable{ID: "night-range", Ver: 2, Sha: strings.Repeat("ab", 32), Size: 4096}
+	frame, err := Encode(Command{ID: 7, N: CommandContentAvailable, A: announce.Args()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := Decode(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := decoded.(Command)
+	var got ContentAvailable
+	if err := DecodeArgs(cmd.A, &got); err != nil || got != announce || cmd.N != "content_available" {
+		t.Errorf("the announcement reads back as %s %+v, %v", cmd.N, got, err)
+	}
+	if err := DecodeArgs(map[string]any{"id": "x", "ver": "two"}, &got); !errors.Is(err, ErrBadMessage) {
+		t.Errorf("a version in words gave %v", err)
+	}
+
+	report := ContentData{ID: "night-range", Ver: 2, St: ContentFailed, E: "manifest hash differs"}
+	var back ContentData
+	if err := DecodeData(mustData(t, report), &back); err != nil || back != report {
+		t.Errorf("the report reads back as %+v, %v", back, err)
+	}
+	if raw := mustData(t, ContentData{ID: "a", Ver: 1, St: ContentInstalled}); bytes.Contains(raw, []byte{0x61, 0x65}) {
+		t.Errorf("an empty e is sent: %x", raw)
+	}
+}

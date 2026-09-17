@@ -1,6 +1,7 @@
 // Command simtarget is a simulated target for testing the device link without
 // firmware. It journals its events, connects like a target, replays what the
-// server has not acknowledged, and answers commands.
+// server has not acknowledged, answers commands, reports the scenario
+// versions it holds, and installs the ones the server announces.
 //
 //	simtarget --server wss://127.0.0.1:8443 --id tgt-01 --token <token> --insecure
 package main
@@ -40,6 +41,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	dropEvery := fs.Int("drop-every", 0, "close the connection deliberately every `seconds` and reconnect after 2 seconds; 0 disables")
 	duration := fs.Int("duration", 0, "stop generating after `seconds`, wait for the last acks and exit; 0 runs until Ctrl+C")
 	class := fs.String("class", "esp", "device class reported in hello: esp, pi or pc")
+	holdingList := fs.String("holdings", "", "scenario versions to report as held besides the installed ones, as `id@version,...`")
+	contentDir := fs.String("content-dir", "", "directory for installed scenario packages (default <journal>/content)")
 	logLevel := fs.String("log-level", "info", "debug, info, warn or error")
 	showVersion := fs.Bool("version", false, "print the version and exit")
 
@@ -65,6 +68,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "simtarget: --rate and --controllers must be positive, --drop-every and --duration not negative")
 		return 2
 	}
+	holdings, err := simtarget.ParseHoldings(*holdingList)
+	if err != nil {
+		fmt.Fprintf(stderr, "simtarget: --holdings: %v\n", err)
+		return 2
+	}
 
 	var level slog.Level
 	if err := level.UnmarshalText([]byte(*logLevel)); err != nil {
@@ -78,6 +86,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	if *journalDir == "" {
 		*journalDir = filepath.Join("data", "simtarget", *id)
+	}
+	if *contentDir == "" {
+		*contentDir = filepath.Join(*journalDir, "content")
 	}
 	journal, err := simtarget.OpenJournal(*journalDir)
 	if err != nil {
@@ -101,6 +112,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		DropEvery:   time.Duration(*dropEvery) * time.Second,
 		Duration:    time.Duration(*duration) * time.Second,
 		Logger:      logger,
+		Holdings:    holdings,
+		ContentDir:  *contentDir,
 	}, journal)
 
 	fmt.Fprintf(stdout, "simtarget %s summary after %s\n", *id, time.Since(started).Round(time.Millisecond))
@@ -113,8 +126,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "  connections: %d, deliberate drops: %d\n", stats.Connections, stats.Drops)
 	fmt.Fprintf(stdout, "  epoch:       %d, resets by the server: %d, events dropped by them: %d\n", stats.Epoch, stats.EpochResets, stats.Dropped)
 	fmt.Fprintf(stdout, "  commands:    %d answered\n", stats.Commands)
+	fmt.Fprintf(stdout, "  content:     %d installed, %d failed, holds %s\n", stats.Installs, stats.InstallsFailed, orNone(simtarget.FormatHoldings(stats.Held)))
 	fmt.Fprintf(stdout, "  last ack:    %d, unacknowledged: %d\n", stats.LastAck, stats.Unacked)
 	fmt.Fprintf(stdout, "  journal:     %s\n", *journalDir)
+	fmt.Fprintf(stdout, "  packages:    %s\n", *contentDir)
 
 	switch {
 	case errors.Is(err, simtarget.ErrUnauthorized):
@@ -128,4 +143,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+	return s
 }

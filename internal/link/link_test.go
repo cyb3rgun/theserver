@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1133,5 +1134,140 @@ func TestSetConfigAppliesToTheNextBatch(t *testing.T) {
 	c.waitAck(2)
 	if n := h.countEvents("tgt-01"); n != 2 {
 		t.Errorf("%d events stored, want 2", n)
+	}
+}
+
+// dataEvent is an event of any kind with the payload data.
+func dataEvent(t *testing.T, seq uint64, kind string, data any) protocol.Event {
+	t.Helper()
+	raw, err := protocol.EncodeData(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id protocol.EventID
+	id[6], id[8], id[14], id[15] = 0x40, 0x80, 0x7f, byte(seq)
+	return protocol.Event{ID: id, Seq: seq, K: kind, Ts: time.Now().UnixMilli(), D: raw}
+}
+
+// The link records what a device holds from its health and content reports
+// (protocol section 8.10), in the order of the journal.
+func TestLinkRecordsHoldings(t *testing.T) {
+	h := newHarness(t, testConfig())
+	token := h.addDevice("tgt-01")
+	ctx := context.Background()
+	held := func() string {
+		t.Helper()
+		list, err := h.store.DeviceScenarios(ctx, "tgt-01")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, holding := range list {
+			if holding.Current {
+				out = append(out, holding.ScenarioID+"@"+strconv.Itoa(holding.Version))
+			}
+		}
+		return strings.Join(out, ",")
+	}
+
+	c := h.dial(token)
+	c.hello("tgt-01", 0)
+	c.waitAck(0)
+	health := func(scn []protocol.Holding) protocol.HealthData {
+		return protocol.HealthData{Up: 5, RSSI: -50, Temp: 40, Free: 1000, Scn: scn}
+	}
+	c.send(dataEvent(t, 1, protocol.KindHealth, health([]protocol.Holding{{ID: "zombie-alley", Ver: 1}, {ID: "night-range", Ver: 1}})))
+	c.waitAck(1)
+	eventually(t, 2*time.Second, "the first holdings", func() bool { return held() == "night-range@1,zombie-alley@1" })
+
+	// A health report without scn says nothing; a content report adds and
+	// removes one version; an empty scn says nothing is held.
+	c.send(dataEvent(t, 2, protocol.KindHealth, health(nil)))
+	c.send(dataEvent(t, 3, protocol.KindContent, protocol.ContentData{ID: "night-range", Ver: 2, St: protocol.ContentInstalling}))
+	c.send(dataEvent(t, 4, protocol.KindContent, protocol.ContentData{ID: "night-range", Ver: 2, St: protocol.ContentInstalled}))
+	c.send(dataEvent(t, 5, protocol.KindContent, protocol.ContentData{ID: "night-range", Ver: 1, St: protocol.ContentRemoved}))
+	c.send(dataEvent(t, 6, protocol.KindContent, protocol.ContentData{ID: "night-range", Ver: 3, St: protocol.ContentFailed, E: "manifest hash differs"}))
+	c.waitAck(6)
+	eventually(t, 2*time.Second, "the content reports", func() bool { return held() == "night-range@2,zombie-alley@1" })
+
+	// Unusable reports are journaled and change nothing.
+	c.send(dataEvent(t, 7, protocol.KindContent, protocol.ContentData{ID: "Bad Id", Ver: 1, St: protocol.ContentInstalled}))
+	c.send(dataEvent(t, 8, protocol.KindHealth, map[string]any{"up": 1, "scn": "all of them"}))
+	c.send(dataEvent(t, 9, protocol.KindHealth, health([]protocol.Holding{{ID: "night-range", Ver: 2}, {ID: "zombie-alley", Ver: 0}})))
+	c.waitAck(9)
+	eventually(t, 2*time.Second, "the report of seq 9", func() bool { return held() == "night-range@2" })
+	if h.countEvents("tgt-01") != 9 {
+		t.Errorf("the journal holds %d events, want 9", h.countEvents("tgt-01"))
+	}
+	c.send(dataEvent(t, 10, protocol.KindHealth, health([]protocol.Holding{})))
+	c.waitAck(10)
+	eventually(t, 2*time.Second, "the empty report", func() bool { return held() == "" })
+
+	logs := h.logs.String()
+	for _, want := range []string{
+		`msg="device holdings" component=link device=tgt-01`, `scenarios=night-range@1,zombie-alley@1`,
+		`msg="content reported" component=link device=tgt-01`, `scenario=night-range version=2 state=installed`,
+		`state=failed reason="manifest hash differs"`, `msg="unusable content report"`,
+		`msg="health report with unreadable holdings"`, `msg="health report names an unusable scenario version"`,
+	} {
+		if !strings.Contains(logs, want) {
+			t.Errorf("the log lacks %s", want)
+		}
+	}
+	// Recorded at seq 1, again at seq 9 after the content reports, and at
+	// seq 10.
+	if n := strings.Count(logs, `msg="device holdings"`); n != 3 {
+		t.Errorf("%d holdings lines, want 3", n)
+	}
+}
+
+// Announce sends content_available and reports a refusal.
+func TestAnnounceSendsContentAvailable(t *testing.T) {
+	h := newHarness(t, testConfig())
+	token := h.addDevice("tgt-01")
+	ctx := context.Background()
+	content := protocol.ContentAvailable{ID: "night-range", Ver: 2, Sha: strings.Repeat("0f", 32), Size: 1234}
+	if err := h.link.Announce(ctx, "tgt-01", content); !errors.Is(err, ErrDeviceOffline) {
+		t.Errorf("an announcement to an offline device gave %v", err)
+	}
+
+	c := h.dial(token)
+	c.hello("tgt-01", 0)
+	c.waitAck(0)
+	received := make(chan protocol.ContentAvailable, 2)
+	go func() {
+		for {
+			msg, err := c.read(10 * time.Second)
+			if err != nil {
+				return
+			}
+			cmd, ok := msg.(protocol.Command)
+			if !ok || cmd.N != protocol.CommandContentAvailable {
+				continue
+			}
+			var got protocol.ContentAvailable
+			protocol.DecodeArgs(cmd.A, &got)
+			received <- got
+			result := protocol.Result{ID: cmd.ID, OK: got.Ver == 2}
+			if !result.OK {
+				result.E = "no room for it"
+			}
+			frame, _ := protocol.Encode(result)
+			c.ws.Write(context.Background(), websocket.MessageBinary, frame)
+		}
+	}()
+	if err := h.link.Announce(ctx, "tgt-01", content); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-received; got != content {
+		t.Errorf("the device received %+v", got)
+	}
+	content.Ver = 3
+	err := h.link.Announce(ctx, "tgt-01", content)
+	if !errors.Is(err, ErrRefused) || !strings.Contains(err.Error(), "no room for it") {
+		t.Errorf("a refused announcement gave %v", err)
+	}
+	if !strings.Contains(h.logs.String(), `msg="content announced" component=link device=tgt-01 scenario=night-range version=2`) {
+		t.Errorf("the announcement is not logged:\n%s", h.logs.String())
 	}
 }

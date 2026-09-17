@@ -56,6 +56,17 @@ const (
 	KindMiss   = "miss"
 	KindState  = "state"
 	KindHealth = "health"
+	// KindContent reports the install state of a scenario version
+	// (protocol section 8.10).
+	KindContent = "content"
+)
+
+// The states of a content event.
+const (
+	ContentInstalling = "installing"
+	ContentInstalled  = "installed"
+	ContentFailed     = "failed"
+	ContentRemoved    = "removed"
 )
 
 // Command names of S01, the value of n in a cmd message.
@@ -65,6 +76,10 @@ const (
 	CommandSessionStop  = "session_stop"
 	CommandSetConfig    = "set_config"
 	CommandReboot       = "reboot"
+	// CommandContentAvailable announces a scenario version the device
+	// should fetch (protocol section 8.10); its arguments are
+	// ContentAvailable.
+	CommandContentAvailable = "content_available"
 )
 
 var (
@@ -223,14 +238,61 @@ type (
 		St  string `cbor:"st"`
 	}
 
-	// HealthData is the d map of the periodic health report.
+	// HealthData is the d map of the periodic health report. Scn lists the
+	// scenario versions the device holds (protocol section 8.10); a nil list
+	// is left out and says nothing, an empty one says the device holds none.
 	HealthData struct {
-		Up   uint64  `cbor:"up"`
-		RSSI int64   `cbor:"rssi"`
-		Temp float64 `cbor:"temp"`
-		Free uint64  `cbor:"free"`
+		Up   uint64    `cbor:"up"`
+		RSSI int64     `cbor:"rssi"`
+		Temp float64   `cbor:"temp"`
+		Free uint64    `cbor:"free"`
+		Scn  []Holding `cbor:"scn,omitzero"`
+	}
+
+	// Holding is one scenario version a device holds.
+	Holding struct {
+		ID  string `cbor:"id"`
+		Ver uint64 `cbor:"ver"`
+	}
+
+	// ContentData is the d map of a content event: the state St of the
+	// scenario version ID and Ver on the device. E says why an install
+	// failed.
+	ContentData struct {
+		ID  string `cbor:"id"`
+		Ver uint64 `cbor:"ver"`
+		St  string `cbor:"st"`
+		E   string `cbor:"e,omitempty"`
 	}
 )
+
+// ContentAvailable is the argument map of content_available: the scenario
+// version ID and Ver, the manifest hash Sha in lower case hex, and the size
+// of the package in bytes.
+type ContentAvailable struct {
+	ID   string `cbor:"id"`
+	Ver  uint64 `cbor:"ver"`
+	Sha  string `cbor:"sha"`
+	Size uint64 `cbor:"size"`
+}
+
+// Args returns the announcement as the a map of a command.
+func (c ContentAvailable) Args() map[string]any {
+	return map[string]any{"id": c.ID, "ver": c.Ver, "sha": c.Sha, "size": c.Size}
+}
+
+// DecodeArgs reads the a map of a command into a type such as
+// ContentAvailable.
+func DecodeArgs(args map[string]any, into any) error {
+	raw, err := encMode.Marshal(args)
+	if err != nil {
+		return fmt.Errorf("%w: command arguments: %v", ErrBadMessage, err)
+	}
+	if err := decMode.Unmarshal(raw, into); err != nil {
+		return fmt.Errorf("%w: command arguments: %v", ErrBadMessage, err)
+	}
+	return nil
+}
 
 var (
 	encMode cbor.EncMode

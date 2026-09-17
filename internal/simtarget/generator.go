@@ -97,13 +97,15 @@ func (g *Generator) shot() []Draft {
 	return []Draft{shot, hit}
 }
 
-// Health returns the periodic health report.
-func (g *Generator) Health(now time.Time) Draft {
+// Health returns the periodic health report with the scenario versions the
+// target holds; nil leaves them out.
+func (g *Generator) Health(now time.Time, held []protocol.Holding) Draft {
 	return mustDraft(protocol.KindHealth, protocol.HealthData{
 		Up:   uint64(now.Sub(g.started).Seconds()),
 		RSSI: -45 - int64(g.rng.IntN(30)),
 		Temp: round3(38 + 8*g.rng.Float64()),
 		Free: 120_000 + uint64(g.rng.IntN(40_000)),
+		Scn:  held,
 	})
 }
 
