@@ -18,9 +18,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/store"
 	"github.com/cyb3rgun/theserver/internal/version"
 )
@@ -50,13 +52,16 @@ type Options struct {
 	Logger *slog.Logger
 	// Now is the clock of the session cookie; time.Now when nil.
 	Now func() time.Time
+	// Language is the language of a login that has not chosen one; English
+	// when nil (D-031).
+	Language func() string
 }
 
 // Admin serves /admin.
 type Admin struct {
 	opts      Options
 	log       *slog.Logger
-	pages     map[string]*template.Template
+	pages     map[string]map[string]*template.Template // by language, then page
 	integrity string
 	handler   http.Handler
 }
@@ -87,16 +92,19 @@ func New(opts Options) (*Admin, error) {
 	a := &Admin{
 		opts:      opts,
 		log:       opts.Logger.With("component", "admin"),
-		pages:     map[string]*template.Template{},
+		pages:     map[string]map[string]*template.Template{},
 		integrity: "sha384-" + base64.StdEncoding.EncodeToString(sum[:]),
 	}
-	for _, name := range pageNames {
-		t, err := template.New(name).Funcs(templateFuncs).ParseFS(templateFS,
-			"templates/layout.html", "templates/fragments.html", "templates/"+name+".html")
-		if err != nil {
-			return nil, fmt.Errorf("admin: template %s: %w", name, err)
+	for _, lang := range i18n.Languages() {
+		a.pages[lang] = map[string]*template.Template{}
+		for _, name := range pageNames {
+			t, err := template.New(name).Funcs(templateFuncs(lang)).ParseFS(templateFS,
+				"templates/layout.html", "templates/fragments.html", "templates/"+name+".html")
+			if err != nil {
+				return nil, fmt.Errorf("admin: template %s: %w", name, err)
+			}
+			a.pages[lang][name] = t
 		}
-		a.pages[name] = t
 	}
 
 	static, err := fs.Sub(staticFS, "static")
@@ -159,29 +167,49 @@ func staticHandler(next http.Handler) http.Handler {
 	})
 }
 
-// layout is what every page template gets besides its own data.
-type layout struct {
-	Title     string
-	Active    string
-	Admin     string
-	Integrity string
-	Version   string
-	Notice    string
-	Error     string
+// lang is the language of a request: the language cookie, else the
+// configured default, else English (D-031).
+func (a *Admin) lang(r *http.Request) string {
+	chosen := ""
+	if c, err := r.Cookie(i18n.CookieName); err == nil {
+		chosen = c.Value
+	}
+	def := ""
+	if a.opts.Language != nil {
+		def = a.opts.Language()
+	}
+	return i18n.Resolve(chosen, def)
 }
 
-func (a *Admin) layout(title, active string, s session) layout {
+// layout is what every page template gets besides its own data.
+type layout struct {
+	Lang         string
+	Title        string
+	Active       string
+	Admin        string
+	Integrity    string
+	Version      string
+	Notice       string
+	Error        string
+	SessionHours int
+}
+
+// layout fills the frame of a page; titleKey names its title in the
+// catalogue.
+func (a *Admin) layout(titleKey, active string, s session) layout {
 	return layout{
-		Title:     title,
-		Active:    active,
-		Admin:     s.Name,
-		Integrity: a.integrity,
-		Version:   version.Version,
+		Lang:         s.Lang,
+		Title:        i18n.T(s.Lang, titleKey),
+		Active:       active,
+		Admin:        s.Name,
+		Integrity:    a.integrity,
+		Version:      version.Version,
+		SessionHours: int(SessionLifetime.Hours()),
 	}
 }
 
-func (a *Admin) render(w http.ResponseWriter, status int, page, name string, data any) {
-	t, ok := a.pages[page]
+func (a *Admin) render(w http.ResponseWriter, lang string, status int, page, name string, data any) {
+	t, ok := a.pages[lang][page]
 	if !ok {
 		http.Error(w, "unknown page", http.StatusInternalServerError)
 		return
@@ -197,21 +225,36 @@ func (a *Admin) render(w http.ResponseWriter, status int, page, name string, dat
 	fmt.Fprint(w, buf.String())
 }
 
-var templateFuncs = template.FuncMap{
-	"when": func(ms int64) string {
-		if ms == 0 {
-			return "never"
-		}
-		return time.UnixMilli(ms).Local().Format("2006-01-02 15:04:05")
-	},
-	"path":  url.PathEscape,
-	"query": url.QueryEscape,
-	"next":  func(n uint64) uint64 { return n + 1 },
-	"percent": func(part, whole int) string {
-		if whole == 0 {
-			return "0 %"
-		}
-		return fmt.Sprintf("%.0f %%", 100*float64(part)/float64(whole))
-	},
-	"plus": func(a, b int) int { return a + b },
+// templateFuncs are the functions of the templates of one language. t
+// translates a catalogue key; word translates a value such as a device
+// status, and shows the value itself when the catalogue has no word for it.
+func templateFuncs(lang string) template.FuncMap {
+	return template.FuncMap{
+		"t": func(key string, args ...any) string {
+			return i18n.T(lang, key, args...)
+		},
+		"word": func(group, value string) string {
+			if key := group + "." + value; i18n.Has(lang, key) {
+				return i18n.T(lang, key)
+			}
+			return value
+		},
+		"when": func(ms int64) string {
+			if ms == 0 {
+				return i18n.T(lang, "admin.never")
+			}
+			return time.UnixMilli(ms).Local().Format("2006-01-02 15:04:05")
+		},
+		"path":  url.PathEscape,
+		"query": url.QueryEscape,
+		"next":  func(n uint64) uint64 { return n + 1 },
+		"percent": func(part, whole int) string {
+			share := 0.0
+			if whole != 0 {
+				share = 100 * float64(part) / float64(whole)
+			}
+			return i18n.T(lang, "admin.percent", strconv.FormatFloat(share, 'f', 0, 64))
+		},
+		"plus": func(a, b int) int { return a + b },
+	}
 }

@@ -1,13 +1,13 @@
 {{define "content"}}
 <section class="login">
-  <h1>Log in</h1>
-  <p>Paste an admin token. Create one on the server with <code>theserver admin token add --name &lt;name&gt;</code>.</p>
+  <h1>{{t "admin.login.title"}}</h1>
+  <p>{{t "admin.login.intro"}} <code>theserver admin token add --name &lt;name&gt;</code>.</p>
   {{template "messages" .}}
   <form method="post" action="/admin/login">
-    <label for="token">Admin token</label>
+    <label for="token">{{t "admin.login.token"}}</label>
     <input id="token" name="token" type="password" autocomplete="off" required>
-    <button class="button primary" type="submit">Log in</button>
+    <button class="button primary" type="submit">{{t "admin.login.submit"}}</button>
   </form>
-  <p class="muted">The login lasts 12 hours in this browser.</p>
+  <p class="muted">{{t "admin.login.lasts" .SessionHours}}</p>
 </section>
 {{end}}

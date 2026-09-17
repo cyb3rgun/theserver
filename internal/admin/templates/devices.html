@@ -1,6 +1,6 @@
 {{define "content"}}
-<h1>Devices</h1>
-<p class="muted">Refreshed every 5 seconds. Reset starts a device over at seq 1 in a new epoch; a new token locks out the old one. Both close a live connection.</p>
+<h1>{{t "admin.devices.title"}}</h1>
+<p class="muted">{{t "admin.devices.intro"}}</p>
 {{template "devices-table" .}}
 {{end}}
 
@@ -11,59 +11,59 @@
   <table>
     <thead>
       <tr>
-        <th>Device</th><th>Kind</th><th>Class</th><th>Room</th><th>Status</th>
-        <th>Online</th><th>Last seen</th><th class="number">Epoch</th><th class="number">Last ack</th><th>Firmware</th><th>Actions</th>
+        <th>{{t "admin.devices.col_device"}}</th><th>{{t "admin.devices.col_kind"}}</th><th>{{t "admin.devices.col_class"}}</th><th>{{t "admin.devices.col_room"}}</th><th>{{t "admin.devices.col_status"}}</th>
+        <th>{{t "admin.devices.col_online"}}</th><th>{{t "admin.devices.col_last_seen"}}</th><th class="number">{{t "admin.devices.col_epoch"}}</th><th class="number">{{t "admin.devices.col_last_ack"}}</th><th>{{t "admin.devices.col_firmware"}}</th><th>{{t "admin.devices.col_actions"}}</th>
       </tr>
     </thead>
     <tbody>
     {{range .Devices}}
       <tr id="device-{{.ID}}">
         <td><strong>{{.ID}}</strong>{{with .Name}}<br><span class="muted">{{.}}</span>{{end}}</td>
-        <td>{{.Kind}}</td>
+        <td>{{word "admin.kind" .Kind}}</td>
         <td>{{.Class}}</td>
         <td>{{.Room}}</td>
-        <td><span class="badge {{.Status}}">{{.Status}}</span></td>
-        <td>{{if .Online}}<span class="badge online">online</span>{{else}}<span class="badge offline">offline</span>{{end}}</td>
+        <td><span class="badge {{.Status}}">{{word "admin.status" .Status}}</span></td>
+        <td>{{if .Online}}<span class="badge online">{{t "admin.devices.online"}}</span>{{else}}<span class="badge offline">{{t "admin.devices.offline"}}</span>{{end}}</td>
         <td>{{when .LastSeen}}</td>
         <td class="number">{{.SeqEpoch}}</td>
-        <td class="number">{{if .Online}}{{.LastAck}}{{else}}<span class="muted">none</span>{{end}}</td>
+        <td class="number">{{if .Online}}{{.LastAck}}{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</td>
         <td>{{.FirmwareVersion}}</td>
         <td class="actions">
           {{if ne .Status "approved"}}
-          <button class="button" hx-post="/admin/devices/{{path .ID}}/approve" hx-target="#devices" hx-swap="outerHTML">Approve</button>
+          <button class="button" hx-post="/admin/devices/{{path .ID}}/approve" hx-target="#devices" hx-swap="outerHTML">{{t "admin.devices.approve"}}</button>
           {{end}}
           {{if ne .Status "blocked"}}
           <button class="button danger" hx-post="/admin/devices/{{path .ID}}/block" hx-target="#devices" hx-swap="outerHTML"
-                  hx-confirm="Block {{.ID}}? Its live connection is closed and it cannot connect until approved again.">Block</button>
+                  hx-confirm="{{t "admin.devices.confirm_block" .ID}}">{{t "admin.devices.block"}}</button>
           {{end}}
           <button class="button" hx-post="/admin/devices/{{path .ID}}/reset" hx-target="#devices" hx-swap="outerHTML"
-                  hx-confirm="Reset {{.ID}}? It starts over at seq 1 in epoch {{next .SeqEpoch}}; the events of earlier epochs stay.">Reset</button>
+                  hx-confirm="{{t "admin.devices.confirm_reset" .ID (next .SeqEpoch)}}">{{t "admin.devices.reset"}}</button>
           <button class="button" hx-post="/admin/devices/{{path .ID}}/token" hx-target="#dialog" hx-swap="innerHTML"
-                  hx-confirm="Issue a new token for {{.ID}}? The old token stops working and the device is disconnected.">New token</button>
+                  hx-confirm="{{t "admin.devices.confirm_token" .ID}}">{{t "admin.devices.new_token"}}</button>
         </td>
       </tr>
     {{else}}
-      <tr><td colspan="11">No devices yet. Add one on the server with <code>theserver device add</code>.</td></tr>
+      <tr><td colspan="11">{{t "admin.devices.empty"}} <code>theserver device add</code>.</td></tr>
     {{end}}
     </tbody>
   </table>
   </div>
-  <p class="muted">Updated {{.Updated}}</p>
+  <p class="muted">{{t "admin.updated" .Updated}}</p>
 </section>
 {{end}}
 
 {{define "token-dialog"}}
 <dialog open class="dialog" aria-labelledby="token-title">
   {{if .Error}}
-  <h2 id="token-title">No new token</h2>
+  <h2 id="token-title">{{t "admin.devices.token_failed"}}</h2>
   <p class="error" role="alert">{{.Error}}</p>
   {{else}}
-  <h2 id="token-title">New token for {{.Token.DeviceID}}</h2>
-  <p class="warning">{{.Token.Warning}}</p>
+  <h2 id="token-title">{{t "admin.devices.token_title" .Token.DeviceID}}</h2>
+  <p class="warning">{{t "admin.devices.token_warning"}}</p>
   <p><code class="token" id="new-token">{{.Token.Token}}</code></p>
-  <p>The device was disconnected. It connects again only with this token.</p>
+  <p>{{t "admin.devices.token_disconnected"}}</p>
   {{end}}
-  <form method="dialog"><button class="button primary" type="submit">Close</button></form>
+  <form method="dialog"><button class="button primary" type="submit">{{t "admin.close"}}</button></form>
 </dialog>
 <hx-partial hx-target="#devices" hx-swap="outerHTML">
 {{template "devices-table" .Table}}

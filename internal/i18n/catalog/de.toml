@@ -1,0 +1,158 @@
+# Deutscher Katalog der Verwaltungsoberfläche (D-031).
+#
+# Tabellen werden als flache Schlüssel gelesen: title unter [admin.devices]
+# ist der Schlüssel admin.devices.title. Texte mit Argumenten verwenden
+# dieselben fmt-Platzhalter wie en.toml. Ein Schlüssel, der in en.toml fehlt
+# oder hier fehlt, lässt einen Test scheitern.
+
+[admin]
+title = "%s | theserver Verwaltung"
+brand = "theserver"
+brand_admin = "Verwaltung"
+signed_in = "Angemeldet mit Token %s"
+logout = "Abmelden"
+footer = "theserver %s"
+never = "nie"
+none = "keine"
+not_yet = "noch nicht"
+percent = "%s %%"
+updated = "Aktualisiert %s"
+close = "Schließen"
+unknown_action = "Unbekannte Aktion %s."
+error_generic = "Der Server konnte das nicht ausführen. Einzelheiten stehen im Protokoll."
+
+[admin.nav]
+label = "Verwaltungsseiten"
+devices = "Geräte"
+sessions = "Sitzungen"
+ranking = "Rangliste"
+settings = "Einstellungen"
+
+[admin.api_error]
+bad_request = "Die Anfrage wurde nicht angenommen."
+not_found = "Nicht gefunden."
+conflict = "Das gibt es schon."
+bad_transition = "Das ist im aktuellen Zustand nicht möglich."
+method_not_allowed = "Diese Aktion ist hier nicht verfügbar."
+internal = "Der Server konnte das nicht ausführen. Einzelheiten stehen im Protokoll."
+unknown = "Der Server hat mit einem Fehler geantwortet."
+
+[admin.login]
+title = "Anmelden"
+intro = "Fügen Sie ein Admin-Token ein. Ein Token erzeugen Sie auf dem Server mit"
+token = "Admin-Token"
+submit = "Anmelden"
+lasts = "Die Anmeldung gilt %d Stunden in diesem Browser."
+invalid = "Das ist kein gültiges Admin-Token."
+revoked = "Dieses Admin-Token wurde widerrufen."
+failed = "Der Server konnte das Token nicht prüfen."
+
+[admin.devices]
+title = "Geräte"
+intro = "Wird alle 5 Sekunden aktualisiert. Zurücksetzen lässt ein Gerät in einer neuen Epoche bei Seq 1 neu beginnen; ein neues Token sperrt das alte aus. Beides trennt eine laufende Verbindung."
+col_device = "Gerät"
+col_kind = "Art"
+col_class = "Klasse"
+col_room = "Raum"
+col_status = "Status"
+col_online = "Verbindung"
+col_last_seen = "Zuletzt gesehen"
+col_epoch = "Epoche"
+col_last_ack = "Letzte Bestätigung"
+col_firmware = "Firmware"
+col_actions = "Aktionen"
+online = "online"
+offline = "offline"
+approve = "Freigeben"
+block = "Sperren"
+reset = "Zurücksetzen"
+new_token = "Neues Token"
+confirm_block = "%s sperren? Die laufende Verbindung wird getrennt, und das Gerät kann sich erst nach erneuter Freigabe verbinden."
+confirm_reset = "%s zurücksetzen? Es beginnt bei Seq 1 in Epoche %d; die Ereignisse früherer Epochen bleiben erhalten."
+confirm_token = "Ein neues Token für %s ausstellen? Das alte Token funktioniert dann nicht mehr, und das Gerät wird getrennt."
+empty = "Noch keine Geräte. Fügen Sie eines auf dem Server hinzu mit"
+approved = "Gerät %s ist freigegeben."
+blocked = "Gerät %s ist gesperrt; seine Verbindung wurde getrennt."
+reset_done = "Gerät %s wurde zurückgesetzt und beginnt bei Seq 1 in Epoche %d; seine Verbindung wurde getrennt."
+token_done = "Gerät %s hat ein neues Token; seine Verbindung wurde getrennt."
+token_title = "Neues Token für %s"
+token_failed = "Kein neues Token"
+token_warning = "Dieses Token wird nur einmal angezeigt und lässt sich nicht erneut anzeigen. Tragen Sie es jetzt im Gerät ein."
+token_disconnected = "Das Gerät wurde getrennt. Es verbindet sich nur mit diesem Token wieder."
+
+[admin.status]
+pending = "wartend"
+approved = "freigegeben"
+blocked = "gesperrt"
+
+[admin.kind]
+target = "Ziel"
+controller = "Controller"
+bridge = "Brücke"
+
+[admin.sessions]
+title = "Sitzungen"
+id = "Sitzungs-ID"
+id_placeholder = "vergibt der Server"
+scenario = "Szenario"
+room = "Raum"
+create = "Sitzung anlegen"
+col_session = "Sitzung"
+col_scenario = "Szenario"
+col_room = "Raum"
+col_state = "Zustand"
+col_started = "Gestartet"
+col_ended = "Beendet"
+col_devices = "Geräte"
+col_actions = "Aktionen"
+start = "Starten"
+stop = "Beenden"
+confirm_stop = "Sitzung %s beenden? Eine beendete Sitzung kann nicht wieder laufen."
+device_for = "Gerät für %s"
+add_device = "Gerät hinzufügen"
+empty = "Noch keine Sitzungen."
+created = "Sitzung %s ist angelegt."
+running = "Sitzung %s läuft."
+stopped = "Sitzung %s ist beendet."
+device_added = "Gerät %s ist in Sitzung %s."
+
+[admin.state]
+created = "angelegt"
+running = "läuft"
+stopped = "beendet"
+
+[admin.ranking]
+title = "Rangliste"
+session = "Sitzung"
+all = "Alle Sitzungen"
+option = "%s (%s)"
+show = "Anzeigen"
+intro = "Bei jeder Aktualisierung aus dem Journal berechnet, alle 2 Sekunden."
+col_place = "Platz"
+col_controller = "Controller"
+col_points = "Punkte"
+col_hits = "Treffer"
+col_misses = "Fehlschüsse"
+col_rate = "Trefferquote"
+col_last_hit = "Letzter Treffer"
+empty = "Noch keine Treffer oder Fehlschüsse."
+total = "Summe"
+footer_session = "Sitzung %s, berechnet %s"
+footer_all = "Alle Sitzungen, berechnet %s"
+
+[admin.settings]
+title = "Einstellungen"
+intro = "Die wirksame Konfiguration des laufenden Servers. Vorrang, höchster zuerst: Kommandozeile, Umgebung, Datei, Standard."
+col_setting = "Einstellung"
+col_value = "Wert"
+col_source = "Quelle"
+col_default = "Standard"
+col_env = "Umgebung"
+col_flag = "Kommandozeile"
+col_meaning = "Bedeutung"
+
+[admin.source]
+default = "Standard"
+file = "Datei"
+env = "Umgebung"
+flag = "Kommandozeile"

@@ -1,5 +1,5 @@
 {{define "content"}}
-<h1>Sessions</h1>
+<h1>{{t "admin.sessions.title"}}</h1>
 {{template "sessions-area" .}}
 {{end}}
 
@@ -7,16 +7,16 @@
 <section id="sessions">
   {{template "messages" .}}
   <form class="inline card" hx-post="/admin/sessions" hx-target="#sessions" hx-swap="outerHTML">
-    <label>Session id <input name="id" placeholder="chosen by the server" maxlength="64"></label>
-    <label>Scenario <input name="scenario"></label>
-    <label>Room <input name="room"></label>
-    <button class="button primary" type="submit">Create session</button>
+    <label>{{t "admin.sessions.id"}} <input name="id" placeholder="{{t "admin.sessions.id_placeholder"}}" maxlength="64"></label>
+    <label>{{t "admin.sessions.scenario"}} <input name="scenario"></label>
+    <label>{{t "admin.sessions.room"}} <input name="room"></label>
+    <button class="button primary" type="submit">{{t "admin.sessions.create"}}</button>
   </form>
 
   <div class="scroll">
   <table>
     <thead>
-      <tr><th>Session</th><th>Scenario</th><th>Room</th><th>State</th><th>Started</th><th>Ended</th><th>Devices</th><th>Actions</th></tr>
+      <tr><th>{{t "admin.sessions.col_session"}}</th><th>{{t "admin.sessions.col_scenario"}}</th><th>{{t "admin.sessions.col_room"}}</th><th>{{t "admin.sessions.col_state"}}</th><th>{{t "admin.sessions.col_started"}}</th><th>{{t "admin.sessions.col_ended"}}</th><th>{{t "admin.sessions.col_devices"}}</th><th>{{t "admin.sessions.col_actions"}}</th></tr>
     </thead>
     <tbody>
     {{range .Sessions}}
@@ -24,30 +24,30 @@
         <td><strong>{{.ID}}</strong></td>
         <td>{{.Scenario}}</td>
         <td>{{.Room}}</td>
-        <td><span class="badge {{.State}}">{{.State}}</span></td>
-        <td>{{if .StartedAt}}{{when .StartedAt}}{{else}}<span class="muted">not yet</span>{{end}}</td>
-        <td>{{if .EndedAt}}{{when .EndedAt}}{{else}}<span class="muted">not yet</span>{{end}}</td>
-        <td>{{range $i, $d := .Devices}}{{if $i}}, {{end}}{{$d}}{{else}}<span class="muted">none</span>{{end}}</td>
+        <td><span class="badge {{.State}}">{{word "admin.state" .State}}</span></td>
+        <td>{{if .StartedAt}}{{when .StartedAt}}{{else}}<span class="muted">{{t "admin.not_yet"}}</span>{{end}}</td>
+        <td>{{if .EndedAt}}{{when .EndedAt}}{{else}}<span class="muted">{{t "admin.not_yet"}}</span>{{end}}</td>
+        <td>{{range $i, $d := .Devices}}{{if $i}}, {{end}}{{$d}}{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</td>
         <td class="actions">
           {{if eq .State "created"}}
-          <button class="button primary" hx-post="/admin/sessions/{{path .ID}}/start" hx-target="#sessions" hx-swap="outerHTML">Start</button>
+          <button class="button primary" hx-post="/admin/sessions/{{path .ID}}/start" hx-target="#sessions" hx-swap="outerHTML">{{t "admin.sessions.start"}}</button>
           {{end}}
           {{if eq .State "running"}}
           <button class="button danger" hx-post="/admin/sessions/{{path .ID}}/stop" hx-target="#sessions" hx-swap="outerHTML"
-                  hx-confirm="Stop session {{.ID}}? A stopped session cannot run again.">Stop</button>
+                  hx-confirm="{{t "admin.sessions.confirm_stop" .ID}}">{{t "admin.sessions.stop"}}</button>
           {{end}}
           {{if ne .State "stopped"}}
           <form class="inline" hx-post="/admin/sessions/{{path .ID}}/devices" hx-target="#sessions" hx-swap="outerHTML">
-            <select name="device_id" aria-label="Device for {{.ID}}">
+            <select name="device_id" aria-label="{{t "admin.sessions.device_for" .ID}}">
               {{range $.Devices}}<option value="{{.ID}}">{{.ID}}</option>{{end}}
             </select>
-            <button class="button" type="submit">Add device</button>
+            <button class="button" type="submit">{{t "admin.sessions.add_device"}}</button>
           </form>
           {{end}}
         </td>
       </tr>
     {{else}}
-      <tr><td colspan="8">No sessions yet.</td></tr>
+      <tr><td colspan="8">{{t "admin.sessions.empty"}}</td></tr>
     {{end}}
     </tbody>
   </table>

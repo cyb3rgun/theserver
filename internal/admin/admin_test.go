@@ -22,6 +22,7 @@ import (
 
 	"github.com/cyb3rgun/theserver/internal/config"
 	"github.com/cyb3rgun/theserver/internal/httpapi"
+	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/protocol"
 	"github.com/cyb3rgun/theserver/internal/store"
@@ -35,6 +36,8 @@ type harness struct {
 	token  string
 	id     string
 	cookie *http.Cookie
+	// lang, when set, is sent as the language cookie.
+	lang string
 
 	// Set by newLinkedHarness: a device link on a test server.
 	link    *link.Server
@@ -125,6 +128,9 @@ func (h *harness) do(method, path string, form url.Values, withCookie bool, head
 	}
 	if withCookie {
 		req.AddCookie(h.cookie)
+	}
+	if h.lang != "" {
+		req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: h.lang})
 	}
 	rec := httptest.NewRecorder()
 	h.admin.ServeHTTP(rec, req)
@@ -342,11 +348,11 @@ func TestDevicesPageAndActions(t *testing.T) {
 	}
 
 	missing := h.html("POST", "/admin/devices/nobody/reset", url.Values{})
-	contains(t, missing, `class="error"`, "not found")
+	contains(t, missing, `class="error"`, "Not found.")
 	unknown := h.html("POST", "/admin/devices/tgt-01/explode", url.Values{})
 	contains(t, unknown, "Unknown action explode")
 	noToken := h.html("POST", "/admin/devices/nobody/token", url.Values{})
-	contains(t, noToken, "No new token", "not found")
+	contains(t, noToken, "No new token", "Not found.")
 }
 
 func TestSessionsPageAndActions(t *testing.T) {
@@ -369,7 +375,7 @@ func TestSessionsPageAndActions(t *testing.T) {
 	started := h.html("POST", "/admin/sessions/evening/start", url.Values{})
 	contains(t, started, "Session evening is running.", `hx-post="/admin/sessions/evening/stop"`)
 	again := h.html("POST", "/admin/sessions/evening/start", url.Values{})
-	contains(t, again, `class="error"`, "cannot move to running")
+	contains(t, again, `class="error"`, "This is not possible in the current state.")
 	if strings.Contains(again, "is running.") {
 		t.Error("a refused start still shows the success notice")
 	}
@@ -447,7 +453,7 @@ func TestSettingsPage(t *testing.T) {
 	for _, s := range config.Describe(config.Default(), nil) {
 		contains(t, page, "<code>"+s.Key+"</code>", s.Env)
 	}
-	contains(t, page, "source-default", "--listen", "read only")
+	contains(t, page, "source-default", "--listen", "Precedence, highest first", "Listen address", "Address and port the HTTPS server listens on.")
 }
 
 func TestStaticFilesAndHeaders(t *testing.T) {

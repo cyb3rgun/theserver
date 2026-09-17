@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/store"
 )
 
@@ -67,10 +68,11 @@ func LoadOrCreateKey(path string) ([]byte, error) {
 	return key, f.Close()
 }
 
-// session is a logged in admin.
+// session is a logged in admin and the language of the request.
 type session struct {
 	TokenID string
 	Name    string
+	Lang    string
 }
 
 // NewSessionCookie signs a session for an admin token id, valid for
@@ -174,6 +176,7 @@ func (a *Admin) page(h func(http.ResponseWriter, *http.Request, session)) http.H
 			a.sessionEnded(w, r)
 			return
 		}
+		s.Lang = a.lang(r)
 		h(w, r, s)
 	})
 }
@@ -187,27 +190,29 @@ func (a *Admin) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/admin/devices", http.StatusSeeOther)
 		return
 	}
-	a.render(w, http.StatusOK, "login", "layout", loginData{layout: a.layout("Log in", "", session{})})
+	lang := a.lang(r)
+	a.render(w, lang, http.StatusOK, "login", "layout", loginData{layout: a.layout("admin.login.title", "", session{Lang: lang})})
 }
 
 // login checks the pasted admin token once and sets the session cookie.
 func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
-	data := loginData{layout: a.layout("Log in", "", session{})}
+	lang := a.lang(r)
+	data := loginData{layout: a.layout("admin.login.title", "", session{Lang: lang})}
 	token := strings.TrimSpace(r.PostFormValue("token"))
 	row, err := a.opts.Store.VerifyAdminToken(r.Context(), token)
 	switch {
 	case errors.Is(err, store.ErrAdminTokenUnknown):
-		data.Error = "This is not a valid admin token."
-		a.render(w, http.StatusUnauthorized, "login", "layout", data)
+		data.Error = i18n.T(lang, "admin.login.invalid")
+		a.render(w, lang, http.StatusUnauthorized, "login", "layout", data)
 		return
 	case errors.Is(err, store.ErrAdminTokenRevoked):
-		data.Error = "This admin token was revoked."
-		a.render(w, http.StatusForbidden, "login", "layout", data)
+		data.Error = i18n.T(lang, "admin.login.revoked")
+		a.render(w, lang, http.StatusForbidden, "login", "layout", data)
 		return
 	case err != nil:
 		a.log.Error("admin login failed", "error", err)
-		data.Error = "The server could not check the token."
-		a.render(w, http.StatusInternalServerError, "login", "layout", data)
+		data.Error = i18n.T(lang, "admin.login.failed")
+		a.render(w, lang, http.StatusInternalServerError, "login", "layout", data)
 		return
 	}
 	http.SetCookie(w, NewSessionCookie(a.opts.Key, row.ID, a.opts.Now()))

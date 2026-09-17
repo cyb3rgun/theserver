@@ -1,17 +1,17 @@
 {{define "content"}}
-<h1>Ranking</h1>
+<h1>{{t "admin.ranking.title"}}</h1>
 <form class="inline card" method="get" action="/admin/ranking">
-  <label>Session
+  <label>{{t "admin.ranking.session"}}
     <select name="session" hx-get="/admin/ranking/table" hx-include="this" hx-target="#ranking" hx-swap="outerHTML">
-      <option value=""{{if eq .Selected ""}} selected{{end}}>All sessions</option>
+      <option value=""{{if eq .Selected ""}} selected{{end}}>{{t "admin.ranking.all"}}</option>
       {{range .Sessions}}
-      <option value="{{.ID}}"{{if eq .ID $.Selected}} selected{{end}}>{{.ID}} ({{.State}})</option>
+      <option value="{{.ID}}"{{if eq .ID $.Selected}} selected{{end}}>{{t "admin.ranking.option" .ID (word "admin.state" .State)}}</option>
       {{end}}
     </select>
   </label>
-  <button class="button" type="submit">Show</button>
+  <button class="button" type="submit">{{t "admin.ranking.show"}}</button>
 </form>
-<p class="muted">Computed from the journal on every refresh, every 2 seconds.</p>
+<p class="muted">{{t "admin.ranking.intro"}}</p>
 {{template "ranking-table" .}}
 {{end}}
 
@@ -21,7 +21,7 @@
   <div class="scroll">
   <table class="ranking">
     <thead>
-      <tr><th class="number">Place</th><th>Controller</th><th class="number">Points</th><th class="number">Hits</th><th class="number">Misses</th><th class="number">Hit rate</th><th>Last hit</th></tr>
+      <tr><th class="number">{{t "admin.ranking.col_place"}}</th><th>{{t "admin.ranking.col_controller"}}</th><th class="number">{{t "admin.ranking.col_points"}}</th><th class="number">{{t "admin.ranking.col_hits"}}</th><th class="number">{{t "admin.ranking.col_misses"}}</th><th class="number">{{t "admin.ranking.col_rate"}}</th><th>{{t "admin.ranking.col_last_hit"}}</th></tr>
     </thead>
     <tbody>
     {{range $i, $e := .Ranking.Entries}}
@@ -35,16 +35,16 @@
         <td>{{when $e.LastHit}}</td>
       </tr>
     {{else}}
-      <tr><td colspan="7">No hits or misses yet.</td></tr>
+      <tr><td colspan="7">{{t "admin.ranking.empty"}}</td></tr>
     {{end}}
     </tbody>
     {{if .Ranking.Entries}}
     <tfoot>
-      <tr><td></td><td>Total</td><td class="number">{{.Points}}</td><td class="number">{{.Hits}}</td><td class="number">{{.Misses}}</td><td class="number">{{percent .Hits (plus .Hits .Misses)}}</td><td></td></tr>
+      <tr><td></td><td>{{t "admin.ranking.total"}}</td><td class="number">{{.Points}}</td><td class="number">{{.Hits}}</td><td class="number">{{.Misses}}</td><td class="number">{{percent .Hits (plus .Hits .Misses)}}</td><td></td></tr>
     </tfoot>
     {{end}}
   </table>
   </div>
-  <p class="muted">{{if .Selected}}Session {{.Selected}}{{else}}All sessions{{end}}, computed {{.Computed}}</p>
+  <p class="muted">{{if .Selected}}{{t "admin.ranking.footer_session" .Selected .Computed}}{{else}}{{t "admin.ranking.footer_all" .Computed}}{{end}}</p>
 </section>
 {{end}}

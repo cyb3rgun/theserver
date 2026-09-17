@@ -13,6 +13,8 @@ import (
 
 	"github.com/cyb3rgun/theserver/internal/config"
 	"github.com/cyb3rgun/theserver/internal/httpapi"
+	"github.com/cyb3rgun/theserver/internal/i18n"
+	"github.com/cyb3rgun/theserver/internal/settings"
 )
 
 // errSessionEnded is an API answer of 401 or 403: the admin token behind the
@@ -94,9 +96,11 @@ func (a *Admin) call(r *http.Request, s session, method, path string, body, out 
 }
 
 // failed handles an error of call. It reports whether the handler has to
-// stop; otherwise the message is shown on the page.
+// stop; otherwise the message is shown on the page, in the language of the
+// request.
 func (a *Admin) failed(w http.ResponseWriter, r *http.Request, err error, message *string) bool {
 	var ae *apiError
+	lang := a.lang(r)
 	switch {
 	case err == nil:
 		return false
@@ -104,11 +108,16 @@ func (a *Admin) failed(w http.ResponseWriter, r *http.Request, err error, messag
 		a.sessionEnded(w, r)
 		return true
 	case errors.As(err, &ae):
-		*message = ae.Message
+		key := "admin.api_error." + ae.Code
+		if !i18n.Has(lang, key) {
+			key = "admin.api_error.unknown"
+		}
+		a.log.Debug("api refused an admin request", "path", r.URL.Path, "status", ae.Status, "code", ae.Code, "message", ae.Message)
+		*message = i18n.T(lang, key)
 		return false
 	default:
 		a.log.Error("admin request failed", "path", r.URL.Path, "error", err)
-		*message = "The server could not complete this. The log has the details."
+		*message = i18n.T(lang, "admin.error_generic")
 		return false
 	}
 }
@@ -147,23 +156,24 @@ func (a *Admin) loadDevices(w http.ResponseWriter, r *http.Request, s session, d
 }
 
 func (a *Admin) devicesPage(w http.ResponseWriter, r *http.Request, s session) {
-	data := devicesData{layout: a.layout("Devices", "devices", s)}
+	data := devicesData{layout: a.layout("admin.devices.title", "devices", s)}
 	if a.loadDevices(w, r, s, &data) {
-		a.render(w, http.StatusOK, "devices", "layout", data)
+		a.render(w, s.Lang, http.StatusOK, "devices", "layout", data)
 	}
 }
 
 func (a *Admin) devicesTable(w http.ResponseWriter, r *http.Request, s session) {
-	data := devicesData{layout: a.layout("Devices", "devices", s)}
+	data := devicesData{layout: a.layout("admin.devices.title", "devices", s)}
 	if a.loadDevices(w, r, s, &data) {
-		a.render(w, http.StatusOK, "devices", "devices-table", data)
+		a.render(w, s.Lang, http.StatusOK, "devices", "devices-table", data)
 	}
 }
 
+// deviceNotices names the catalogue text shown after a device action.
 var deviceNotices = map[string]string{
-	"approve": "Device %s is approved.",
-	"block":   "Device %s is blocked; its connection was closed.",
-	"reset":   "Device %s was reset and starts over at seq 1 in epoch %d; its connection was closed.",
+	"approve": "admin.devices.approved",
+	"block":   "admin.devices.blocked",
+	"reset":   "admin.devices.reset_done",
 }
 
 func (a *Admin) deviceAction(w http.ResponseWriter, r *http.Request, s session) {
@@ -176,20 +186,20 @@ func (a *Admin) deviceAction(w http.ResponseWriter, r *http.Request, s session) 
 		if a.failed(w, r, err, &data.Error) {
 			return
 		}
-		data.Table = devicesData{layout: a.layout("Devices", "devices", s)}
+		data.Table = devicesData{layout: a.layout("admin.devices.title", "devices", s)}
 		if data.Error == "" {
-			data.Table.Notice = fmt.Sprintf("Device %s has a new token; its connection was closed.", id)
+			data.Table.Notice = i18n.T(s.Lang, "admin.devices.token_done", id)
 		}
 		if a.loadDevices(w, r, s, &data.Table) {
-			a.render(w, http.StatusOK, "devices", "token-dialog", data)
+			a.render(w, s.Lang, http.StatusOK, "devices", "token-dialog", data)
 		}
 		return
 	}
 
-	data := devicesData{layout: a.layout("Devices", "devices", s)}
+	data := devicesData{layout: a.layout("admin.devices.title", "devices", s)}
 	notice, known := deviceNotices[action]
 	if !known {
-		data.Error = "Unknown action " + action + "."
+		data.Error = i18n.T(s.Lang, "admin.unknown_action", action)
 	} else {
 		var device httpapi.Device
 		if a.failed(w, r, a.call(r, s, http.MethodPost, path, nil, &device), &data.Error) {
@@ -197,14 +207,14 @@ func (a *Admin) deviceAction(w http.ResponseWriter, r *http.Request, s session) 
 		}
 		if data.Error == "" {
 			if action == "reset" {
-				data.Notice = fmt.Sprintf(notice, id, device.SeqEpoch)
+				data.Notice = i18n.T(s.Lang, notice, id, device.SeqEpoch)
 			} else {
-				data.Notice = fmt.Sprintf(notice, id)
+				data.Notice = i18n.T(s.Lang, notice, id)
 			}
 		}
 	}
 	if a.loadDevices(w, r, s, &data) {
-		a.render(w, http.StatusOK, "devices", "devices-table", data)
+		a.render(w, s.Lang, http.StatusOK, "devices", "devices-table", data)
 	}
 }
 
@@ -234,14 +244,14 @@ func (a *Admin) loadSessions(w http.ResponseWriter, r *http.Request, s session, 
 }
 
 func (a *Admin) sessionsPage(w http.ResponseWriter, r *http.Request, s session) {
-	data := sessionsData{layout: a.layout("Sessions", "sessions", s)}
+	data := sessionsData{layout: a.layout("admin.sessions.title", "sessions", s)}
 	if a.loadSessions(w, r, s, &data) {
-		a.render(w, http.StatusOK, "sessions", "layout", data)
+		a.render(w, s.Lang, http.StatusOK, "sessions", "layout", data)
 	}
 }
 
 func (a *Admin) createSession(w http.ResponseWriter, r *http.Request, s session) {
-	data := sessionsData{layout: a.layout("Sessions", "sessions", s)}
+	data := sessionsData{layout: a.layout("admin.sessions.title", "sessions", s)}
 	body := httpapi.NewSession{
 		ID:       strings.TrimSpace(r.PostFormValue("id")),
 		Scenario: strings.TrimSpace(r.PostFormValue("scenario")),
@@ -252,15 +262,15 @@ func (a *Admin) createSession(w http.ResponseWriter, r *http.Request, s session)
 		return
 	}
 	if data.Error == "" {
-		data.Notice = "Session " + created.ID + " is created."
+		data.Notice = i18n.T(s.Lang, "admin.sessions.created", created.ID)
 	}
 	if a.loadSessions(w, r, s, &data) {
-		a.render(w, http.StatusOK, "sessions", "sessions-area", data)
+		a.render(w, s.Lang, http.StatusOK, "sessions", "sessions-area", data)
 	}
 }
 
 func (a *Admin) sessionAction(w http.ResponseWriter, r *http.Request, s session) {
-	data := sessionsData{layout: a.layout("Sessions", "sessions", s)}
+	data := sessionsData{layout: a.layout("admin.sessions.title", "sessions", s)}
 	id, action := r.PathValue("id"), r.PathValue("action")
 	path := "/sessions/" + url.PathEscape(id) + "/" + action
 
@@ -269,16 +279,16 @@ func (a *Admin) sessionAction(w http.ResponseWriter, r *http.Request, s session)
 	switch action {
 	case "start":
 		err = a.call(r, s, http.MethodPost, path, nil, &result)
-		data.Notice = "Session " + id + " is running."
+		data.Notice = i18n.T(s.Lang, "admin.sessions.running", id)
 	case "stop":
 		err = a.call(r, s, http.MethodPost, path, nil, &result)
-		data.Notice = "Session " + id + " is stopped."
+		data.Notice = i18n.T(s.Lang, "admin.sessions.stopped", id)
 	case "devices":
 		device := strings.TrimSpace(r.PostFormValue("device_id"))
 		err = a.call(r, s, http.MethodPost, path, httpapi.SessionDevice{DeviceID: device}, &result)
-		data.Notice = "Device " + device + " is in session " + id + "."
+		data.Notice = i18n.T(s.Lang, "admin.sessions.device_added", device, id)
 	default:
-		data.Error = "Unknown action " + action + "."
+		data.Error = i18n.T(s.Lang, "admin.unknown_action", action)
 	}
 	if a.failed(w, r, err, &data.Error) {
 		return
@@ -287,7 +297,7 @@ func (a *Admin) sessionAction(w http.ResponseWriter, r *http.Request, s session)
 		data.Notice = ""
 	}
 	if a.loadSessions(w, r, s, &data) {
-		a.render(w, http.StatusOK, "sessions", "sessions-area", data)
+		a.render(w, s.Lang, http.StatusOK, "sessions", "sessions-area", data)
 	}
 }
 
@@ -325,7 +335,7 @@ func (a *Admin) loadRanking(w http.ResponseWriter, r *http.Request, s session, d
 }
 
 func (a *Admin) rankingPage(w http.ResponseWriter, r *http.Request, s session) {
-	data := rankingData{layout: a.layout("Ranking", "ranking", s)}
+	data := rankingData{layout: a.layout("admin.ranking.title", "ranking", s)}
 	var sessions struct {
 		Sessions []httpapi.Session `json:"sessions"`
 	}
@@ -334,14 +344,14 @@ func (a *Admin) rankingPage(w http.ResponseWriter, r *http.Request, s session) {
 	}
 	data.Sessions = sessions.Sessions
 	if a.loadRanking(w, r, s, &data) {
-		a.render(w, http.StatusOK, "ranking", "layout", data)
+		a.render(w, s.Lang, http.StatusOK, "ranking", "layout", data)
 	}
 }
 
 func (a *Admin) rankingTable(w http.ResponseWriter, r *http.Request, s session) {
-	data := rankingData{layout: a.layout("Ranking", "ranking", s)}
+	data := rankingData{layout: a.layout("admin.ranking.title", "ranking", s)}
 	if a.loadRanking(w, r, s, &data) {
-		a.render(w, http.StatusOK, "ranking", "ranking-table", data)
+		a.render(w, s.Lang, http.StatusOK, "ranking", "ranking-table", data)
 	}
 }
 
@@ -349,17 +359,31 @@ func (a *Admin) rankingTable(w http.ResponseWriter, r *http.Request, s session) 
 
 type settingsData struct {
 	layout
-	Settings []config.Setting
+	Settings []settingRow
+}
+
+// settingRow is one setting with its texts in the language of the page.
+type settingRow struct {
+	config.Setting
+	Label       string
+	Description string
 }
 
 func (a *Admin) settingsPage(w http.ResponseWriter, r *http.Request, s session) {
-	data := settingsData{layout: a.layout("Settings", "settings", s)}
+	data := settingsData{layout: a.layout("admin.settings.title", "settings", s)}
 	var list struct {
 		Settings []config.Setting `json:"settings"`
 	}
 	if a.failed(w, r, a.call(r, s, http.MethodGet, "/settings", nil, &list), &data.Error) {
 		return
 	}
-	data.Settings = list.Settings
-	a.render(w, http.StatusOK, "settings", "layout", data)
+	for _, setting := range list.Settings {
+		row := settingRow{Setting: setting}
+		if described, ok := settings.Get(setting.Key); ok {
+			text := described.TextIn(s.Lang)
+			row.Label, row.Description = text.Label, text.Description
+		}
+		data.Settings = append(data.Settings, row)
+	}
+	a.render(w, s.Lang, http.StatusOK, "settings", "layout", data)
 }
