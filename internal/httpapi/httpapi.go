@@ -154,6 +154,7 @@ func (s *Server) routes() []struct {
 		{Route{http.MethodPatch, "/drafts/{id}", true, false}, s.patchDraft},
 		{Route{http.MethodDelete, "/drafts/{id}", true, false}, s.deleteDraft},
 		{Route{http.MethodPost, "/drafts/{id}/media", true, false}, s.uploadDraftMedia},
+		{Route{http.MethodGet, "/drafts/{id}/media/{name}", true, false}, s.getDraftMedia},
 		{Route{http.MethodPatch, "/drafts/{id}/media/{name}", true, false}, s.measureDraftMedia},
 		{Route{http.MethodDelete, "/drafts/{id}/media/{name}", true, false}, s.deleteDraftMedia},
 		{Route{http.MethodPost, "/drafts/{id}/validate", true, false}, s.validateDraft},

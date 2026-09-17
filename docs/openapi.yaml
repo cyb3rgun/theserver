@@ -415,6 +415,30 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/Error"}
   /drafts/{id}/media/{name}:
+    get:
+      summary: The media file itself, for the editor to play it.
+      description: |
+        The file as it was uploaded, with Range, so a video element can seek
+        in it. Only an admin token opens it; a draft is not content a device
+        can fetch.
+      operationId: getDraftMedia
+      parameters:
+        - {$ref: "#/components/parameters/DraftID"}
+        - {$ref: "#/components/parameters/MediaName"}
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        "206":
+          description: The part of the file the Range asked for.
+          content:
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
     patch:
       summary: Keep what the browser measured on a clip.
       operationId: measureDraftMedia

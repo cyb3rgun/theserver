@@ -53,10 +53,27 @@ type catalogueEntry struct {
 type scenariosData struct {
 	layout
 	Scenarios []catalogueEntry
+	// Drafts are the working copies of the editor (D-041).
+	Drafts []draftEntry
 	// Problems are those of an upload that was not stored.
 	Problems    []problemView
 	MaxUploadMB int
+	Tiers       []tierChoice
 	Script      string // integrity of static/scenarios.js
+}
+
+// draftEntry is one editor draft in the catalogue.
+type draftEntry struct {
+	httpapi.Draft
+	Name     string
+	TierName string
+	Problems int
+}
+
+// tierChoice is a tier a new draft can be opened in.
+type tierChoice struct {
+	Value string
+	Label string
 }
 
 func (a *Admin) newScenariosData(s session) scenariosData {
@@ -71,6 +88,20 @@ func (a *Admin) loadCatalogue(w http.ResponseWriter, r *http.Request, s session,
 	}
 	for _, sc := range list.Scenarios {
 		data.Scenarios = append(data.Scenarios, catalogueEntry{ScenarioSummary: sc, Title: titleIn(s.Lang, sc.Current.Title, sc.ID)})
+	}
+	var drafts httpapi.DraftList
+	if err := a.call(r, s, http.MethodGet, "/drafts", nil, &drafts); err == nil {
+		for _, d := range drafts.Drafts {
+			data.Drafts = append(data.Drafts, draftEntry{
+				Draft:    d,
+				Name:     titleIn(s.Lang, d.Title, d.ScenarioID),
+				TierName: i18n.T(s.Lang, "admin.tier."+d.Tier),
+				Problems: len(d.Problems),
+			})
+		}
+	}
+	for _, tier := range httpapi.EditorTiers() {
+		data.Tiers = append(data.Tiers, tierChoice{Value: tier, Label: i18n.T(s.Lang, "admin.tier."+tier)})
 	}
 	var settingsList httpapi.SettingsList
 	if err := a.call(r, s, http.MethodGet, "/settings", nil, &settingsList); err == nil {
@@ -88,8 +119,13 @@ func (a *Admin) scenariosPage(w http.ResponseWriter, r *http.Request, s session)
 	if !a.loadCatalogue(w, r, s, &data) {
 		return
 	}
-	if deleted := r.URL.Query().Get("deleted"); deleted != "" {
-		data.Notice = i18n.T(s.Lang, "admin.scenario.deleted_last", deleted)
+	switch query := r.URL.Query(); {
+	case query.Get("deleted") != "":
+		data.Notice = i18n.T(s.Lang, "admin.scenario.deleted_last", query.Get("deleted"))
+	case query.Get("draft_deleted") != "":
+		data.Notice = i18n.T(s.Lang, "admin.scenarios.draft_deleted")
+	case query.Get("draft_gone") != "":
+		data.Notice = i18n.T(s.Lang, "admin.scenarios.draft_gone")
 	}
 	a.render(w, s.Lang, http.StatusOK, "scenarios", "layout", data)
 }

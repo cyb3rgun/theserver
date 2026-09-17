@@ -599,3 +599,404 @@ form.settings.dirty .savebar #unsaved-count {
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* The scenario editor (S01-B08): canvas above, properties beside, timeline
+   below, media and check at the bottom. Nothing decorative. */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.editor-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.editor-bar .state {
+  min-width: 10rem;
+  color: var(--muted);
+}
+
+.editor-bar .state.busy {
+  color: var(--accent);
+}
+
+.editor-bar .state.failed {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.editor-bar form.inline {
+  margin-left: auto;
+}
+
+.editor-main {
+  display: grid;
+  grid-template-columns: minmax(20rem, 2fr) minmax(22rem, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.stage {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.stage-frame {
+  position: relative;
+  background: #000000;
+  aspect-ratio: 9 / 16;
+  max-height: 60vh;
+  margin: 0 auto;
+  width: fit-content;
+}
+
+.stage-frame video {
+  display: block;
+  height: 100%;
+  max-height: 60vh;
+}
+
+.stage-frame canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: default;
+}
+
+.stage-frame canvas.drawing {
+  cursor: crosshair;
+}
+
+.stage-empty {
+  position: absolute;
+  inset: auto 0 1rem;
+  text-align: center;
+  color: #e6e8ea;
+}
+
+.transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.transport .time {
+  font-variant-numeric: tabular-nums;
+  min-width: 4rem;
+  text-align: right;
+}
+
+.transport .tools {
+  display: flex;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+
+.transport .button.active {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75rem;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.panel-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.panel-nav .nav-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.panel-nav .nav-label {
+  color: var(--muted);
+  min-width: 7rem;
+}
+
+.chip {
+  font: inherit;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--ground);
+  cursor: pointer;
+}
+
+.chip.current {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.panel-head h2 {
+  margin: 0.6rem 0 0;
+}
+
+.editor-form .field {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.editor-form .field.invalid {
+  background: #fff6f5;
+}
+
+.editor-form .texts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.5rem;
+  align-items: center;
+}
+
+.editor-form .marks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.editor-form table.states {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.panel-actions {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 0.6rem;
+  background: var(--panel);
+}
+
+.timeline {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.timeline-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.timeline-bar h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.track {
+  overflow-x: auto;
+  margin-top: 0.5rem;
+}
+
+.track-inner {
+  position: relative;
+  min-height: 5rem;
+  padding-top: 1.4rem;
+}
+
+.ruler {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1.2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.ruler .mark {
+  position: absolute;
+  top: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  transform: translateX(-50%);
+}
+
+.lane {
+  position: relative;
+  height: 1.8rem;
+  border-bottom: 1px dashed var(--line);
+}
+
+.lane .bar {
+  position: absolute;
+  top: 0.2rem;
+  height: 1.3rem;
+  background: #cfe0ff;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  padding: 0 0.3rem;
+  overflow: hidden;
+  cursor: grab;
+  white-space: nowrap;
+}
+
+.lane .bar.selected {
+  background: #ffe3b0;
+  border-color: var(--warn);
+}
+
+.lane .grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.lane .grip.left {
+  left: 0;
+}
+
+.lane .grip.right {
+  right: 0;
+}
+
+.lane.keyframes .keyframe {
+  position: absolute;
+  top: 0.5rem;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  background: var(--warn);
+  transform: rotate(45deg);
+}
+
+.playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--danger);
+}
+
+.editor-lower {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+.media,
+.problems {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.media h2,
+.problems h2 {
+  margin-top: 0;
+}
+
+.media-upload {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+table.media-list,
+table.draft-list {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+}
+
+table.media-list th,
+table.media-list td,
+table.draft-list th,
+table.draft-list td {
+  text-align: left;
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.problem-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.problem-list li {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.problem-list .problem-text {
+  margin-left: 0.4rem;
+}
+
+.problem-list .field {
+  margin-left: 0.4rem;
+  color: var(--muted);
+}
+
+button.link {
+  font: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.shortcuts dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.8rem;
+  margin: 0.5rem 0 0;
+}
+
+.shortcuts dt {
+  font-weight: 600;
+}
+
+.shortcuts dd {
+  margin: 0;
+}
+
+.new-scenario form,
+.drafts form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+@media (max-width: 70rem) {
+  .editor-main,
+  .editor-lower {
+    grid-template-columns: 1fr;
+  }
+}

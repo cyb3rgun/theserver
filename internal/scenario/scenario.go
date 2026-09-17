@@ -65,6 +65,36 @@ func ZoneClasses() []string {
 	return slices.Clone(zoneClasses)
 }
 
+// Licences lists the licences a scenario may carry.
+func Licences() []string {
+	return slices.Clone(licences)
+}
+
+// Orientations lists how a target may be mounted.
+func Orientations() []string {
+	return slices.Clone(orientation)
+}
+
+// Fits lists how a picture fills a screen of another shape.
+func Fits() []string {
+	return slices.Clone(fits)
+}
+
+// Shapes lists the shapes a zone may have.
+func Shapes() []string {
+	return slices.Clone(shapes)
+}
+
+// OnTimeouts lists what an appearance does when its time runs out.
+func OnTimeouts() []string {
+	return slices.Clone(onTimeouts)
+}
+
+// Hitmarkers lists the marks an immediate reaction may draw.
+func Hitmarkers() []string {
+	return slices.Clone(hitmarkers)
+}
+
 // Manifest is manifest.toml. The toml and json names are the same; Hash
 // encodes the json form.
 type Manifest struct {

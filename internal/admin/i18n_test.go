@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/cyb3rgun/theserver/internal/i18n"
+	"github.com/cyb3rgun/theserver/internal/mediakind/mediakindtest"
 	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/scenario/scenariotest"
 	"github.com/cyb3rgun/theserver/internal/store"
@@ -93,6 +95,30 @@ func TestEveryPageInEveryLanguage(t *testing.T) {
 			"/admin/devices/tgt-02/view?age=16"} {
 			h.html("GET", page, nil)
 		}
+		// The editor in this language: the page, every group of the panel,
+		// the media panel with a file, a refused change, and the check.
+		draft := h.draft("editor-"+lang, "interactive")
+		editorPage := h.html("GET", "/admin/editor/"+draft, nil)
+		contains(t, editorPage, i18n.T(lang, "admin.editor.timeline"), i18n.T(lang, "admin.editor.shortcuts"),
+			i18n.T(lang, "scenario.problem.missing_section"))
+		for _, part := range []string{"scenario", "display", "rules", "media", "immediate", "zone:0", "followup:0"} {
+			h.html("GET", "/admin/editor/"+draft+"/panel?select="+part, nil)
+		}
+		if rec := h.putMedia(draft, "clip.mp4", mediakindtest.Clip()); rec.Code != http.StatusOK {
+			t.Fatalf("the upload answered %d: %s", rec.Code, rec.Body.String())
+		}
+		if rec := h.putMedia(draft, "notes.txt", []byte(strings.Repeat("text\n", 8))); rec.Code != http.StatusOK {
+			t.Fatalf("a refused upload answered %d", rec.Code)
+		}
+		h.html("GET", "/admin/editor/"+draft+"/media", nil)
+		h.html("POST", "/admin/editor/"+draft+"/field", url.Values{
+			"select": {"scenario"}, "scenario.title.en": {"Editor"}, "scenario.title.de": {"Editor"},
+			"scenario.age_rating": {"18"}, "scenario.duration_s": {"12"}, "scenario.licence": {"private"},
+		})
+		h.html("POST", "/admin/editor/"+draft+"/field", url.Values{"select": {"rules"}, "rules.lives": {"x"}})
+		h.html("POST", "/admin/editor/"+draft+"/validate", url.Values{})
+		h.html("POST", "/admin/editor/"+draft+"/publish", url.Values{})
+
 		h.upload(scenariotest.Zip(t, scenariotest.Broken(scenario.CodeBadPackage)))
 		h.do("GET", "/admin/scenarios/nowhere", nil, true)
 		h.do("GET", "/admin/devices/nobody/view", nil, true)

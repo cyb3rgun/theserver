@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 
@@ -20,8 +21,9 @@ import (
 // the file.
 const MediaField = "file"
 
-// editorTiers are the tiers the editor of S01 works in (S01-B08).
-func editorTiers() []string {
+// EditorTiers are the tiers the editor of S01 works in (S01-B08); the admin
+// pages offer these and the API takes no other.
+func EditorTiers() []string {
 	return []string{scenario.TierVideo, scenario.TierInteractive}
 }
 
@@ -210,8 +212,8 @@ func (s *Server) createDraft(w http.ResponseWriter, r *http.Request) {
 	case !scenario.ValidID(spec.ScenarioID):
 		s.fail(w, r, fmt.Errorf("%w: id must be 1 to 64 lower case letters, digits, hyphens or underscores", errBadRequest))
 		return
-	case !slices.Contains(editorTiers(), spec.Tier):
-		s.fail(w, r, fmt.Errorf("%w: the editor works in the tiers %s", errBadRequest, strings.Join(editorTiers(), " and ")))
+	case !slices.Contains(EditorTiers(), spec.Tier):
+		s.fail(w, r, fmt.Errorf("%w: the editor works in the tiers %s", errBadRequest, strings.Join(EditorTiers(), " and ")))
 		return
 	}
 	d, err := drafts.CreateDraft(r.Context(), spec)
@@ -340,6 +342,60 @@ func (s *Server) uploadDraftMedia(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "draft media uploaded", "draft", d.ID, "file", file.Name, "size", file.Size,
 		"container", file.Container, "codec", file.Codec)
 	writeJSON(w, http.StatusCreated, DraftChanged{Draft: s.draftJSON(r, d, true), Touched: []scenario.Problem{}})
+}
+
+// getDraftMedia serves one media file of a draft, with Range, so the editor
+// can play it in a video element.
+func (s *Server) getDraftMedia(w http.ResponseWriter, r *http.Request) {
+	drafts, err := s.content()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	id, name := r.PathValue("id"), r.PathValue("name")
+	d, err := s.opts.Store.GetDraft(r.Context(), id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if _, ok := d.Media[name]; !ok {
+		s.fail(w, r, fmt.Errorf("the draft %s has no media file %q: %w", id, name, os.ErrNotExist))
+		return
+	}
+	path, err := drafts.DraftMediaPath(id, name)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("Content-Type", mediaType(d.Media[name].Container))
+	http.ServeContent(w, r, name, info.ModTime(), file)
+}
+
+// mediaType is the type of a container the browser is told (D-045).
+func mediaType(container string) string {
+	switch container {
+	case mediakind.MP4:
+		return "video/mp4"
+	case mediakind.WebM:
+		return "video/webm"
+	case mediakind.Ogg:
+		return "audio/ogg"
+	case mediakind.PNG:
+		return "image/png"
+	}
+	return "application/octet-stream"
 }
 
 // measureDraftMedia keeps what the browser measured on a clip, the second

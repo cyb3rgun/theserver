@@ -17,7 +17,7 @@
     <div class="field{{if .Error}} invalid{{end}}{{if .Locked}} locked{{end}}" id="field-{{.ID}}">
       <div class="field-head">
         <label for="{{.ID}}">{{.Label}}</label>
-        <span class="help" tabindex="0" aria-describedby="tip-{{.ID}}">?<span class="tip" role="tooltip" id="tip-{{.ID}}">{{.Description}}</span></span>
+        {{template "help" .}}
         {{if .Restart}}<span class="badge restart">{{t "admin.settings.needs_restart"}}</span>{{end}}
         <code class="key">{{.Key}}</code>
       </div>

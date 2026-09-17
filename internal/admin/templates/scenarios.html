@@ -13,6 +13,45 @@
   </form>
   {{with .MaxUploadMB}}<p class="muted">{{t "admin.scenarios.upload_limit" .}}</p>{{end}}
 </section>
+<section class="card new-scenario">
+  <h2>{{t "admin.scenarios.new_title"}}</h2>
+  <p class="muted">{{t "admin.scenarios.new_intro"}}</p>
+  <form id="new-draft" method="post" action="/admin/editor">
+    <label for="new-id">{{t "admin.scenarios.new_id"}}</label>
+    <input type="text" id="new-id" name="id" spellcheck="false" required pattern="[a-z0-9][a-z0-9_-]*">
+    <label for="new-title">{{t "admin.scenarios.new_name"}}</label>
+    <input type="text" id="new-title" name="title">
+    <label for="new-tier">{{t "admin.scenarios.new_tier"}}</label>
+    <select id="new-tier" name="tier">
+      {{range .Tiers}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
+    </select>
+    <button class="button primary" type="submit">{{t "admin.scenarios.new_button"}}</button>
+  </form>
+</section>
+<section class="card drafts" id="drafts">
+  <h2>{{t "admin.scenarios.drafts_title"}}</h2>
+  <table class="draft-list">
+    <thead>
+      <tr><th>{{t "admin.scenarios.col_title"}}</th><th>{{t "admin.scenarios.col_tier"}}</th>
+      <th>{{t "admin.scenarios.draft_next"}}</th><th>{{t "admin.scenarios.col_drafts"}}</th>
+      <th>{{t "admin.scenarios.draft_changed"}}</th><th></th></tr>
+    </thead>
+    <tbody>
+    {{range .Drafts}}
+      <tr id="draft-{{.ID}}">
+        <td><a href="/admin/editor/{{path .ID}}"><strong>{{.Name}}</strong></a><br><code>{{.ScenarioID}}</code></td>
+        <td>{{.TierName}}</td>
+        <td>{{t "admin.scenarios.version" .NextVersion}}</td>
+        <td>{{if .Problems}}<span class="badge problems">{{t "admin.scenarios.problem_count" .Problems}}</span>{{else}}<span class="badge ok">{{t "admin.scenarios.draft_ready"}}</span>{{end}}</td>
+        <td>{{when .UpdatedAt}} <span class="muted">{{.UpdatedBy}}</span></td>
+        <td><a class="button" href="/admin/editor/{{path .ID}}">{{t "admin.scenarios.draft_open"}}</a></td>
+      </tr>
+    {{else}}
+      <tr><td colspan="6" class="muted">{{t "admin.scenarios.drafts_empty"}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</section>
 <section id="catalogue">
   {{template "messages" .}}
   {{with .Problems}}

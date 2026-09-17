@@ -1,0 +1,230 @@
+{{define "content"}}
+<h1>{{t "admin.editor.title"}} <span class="muted">{{.Name}}</span></h1>
+<p class="muted" id="editor-intro">{{t "admin.editor.intro" .Draft.ScenarioID (word "admin.tier" .Draft.Tier) .Draft.NextVersion}}</p>
+{{template "messages" .}}
+<div class="editor" id="editor"
+     data-draft="/admin/editor/{{path .Draft.ID}}/draft"
+     data-patch="/admin/editor/{{path .Draft.ID}}/patch"
+     data-panel="/admin/editor/{{path .Draft.ID}}/panel"
+     data-media="/admin/editor/{{path .Draft.ID}}/media"
+     data-file="/admin/editor/{{path .Draft.ID}}/file/"
+     data-measure="/admin/editor/{{path .Draft.ID}}/media/"
+     data-validate="/admin/editor/{{path .Draft.ID}}/validate"
+     data-publish="/admin/editor/{{path .Draft.ID}}/publish"
+     data-tier="{{.Draft.Tier}}"
+     data-words="{{.Words}}">
+  <div class="editor-bar">
+    <span id="editor-state" class="state" role="status"
+          data-idle="{{t "admin.editor.saved"}}" data-busy="{{t "admin.editor.saving"}}"
+          data-failed="{{t "admin.editor.save_failed"}}">{{t "admin.editor.saved"}}</span>
+    <button type="button" class="button" id="editor-validate">{{t "admin.editor.validate"}}</button>
+    <button type="button" class="button primary" id="editor-publish"{{if not .Problems.Ready}} disabled{{end}}
+            data-confirm="{{t "admin.editor.confirm_publish"}}">{{t "admin.editor.publish"}}</button>
+    <a class="button" id="editor-preview" href="{{.Preview}}">{{t "admin.editor.preview"}}</a>
+    <form method="post" action="/admin/editor/{{path .Draft.ID}}/delete" class="inline"
+          data-confirm="{{t "admin.editor.confirm_delete"}}">
+      <button class="button danger" type="submit">{{t "admin.editor.delete"}}</button>
+    </form>
+  </div>
+
+  <div class="editor-main">
+    <section class="stage" aria-label="{{t "admin.editor.stage"}}">
+      <div class="stage-frame" id="stage">
+        <video id="stage-video" preload="metadata" playsinline muted></video>
+        <canvas id="stage-canvas" width="1080" height="1920" tabindex="0"
+                aria-label="{{t "admin.editor.canvas"}}"></canvas>
+        <p class="stage-empty muted" id="stage-empty">{{t "admin.editor.no_video"}}</p>
+      </div>
+      <div class="transport">
+        <button type="button" class="button" data-act="play" aria-keyshortcuts="Space">{{t "admin.editor.play"}}</button>
+        <button type="button" class="button" data-act="back">{{t "admin.editor.frame_back"}}</button>
+        <button type="button" class="button" data-act="forward">{{t "admin.editor.frame_forward"}}</button>
+        <output id="stage-time" class="time" for="stage-video">0</output>
+        <span class="tools" role="group" aria-label="{{t "admin.editor.tools"}}">
+          <button type="button" class="button" data-tool="rect">{{t "admin.editor.tool_rect"}}</button>
+          <button type="button" class="button" data-tool="circle">{{t "admin.editor.tool_circle"}}</button>
+          <button type="button" class="button" data-tool="polygon">{{t "admin.editor.tool_polygon"}}</button>
+          <button type="button" class="button" data-act="keyframe">{{t "admin.editor.keyframe_add"}}</button>
+          <button type="button" class="button" data-act="keyframe-delete">{{t "admin.editor.keyframe_delete"}}</button>
+          <button type="button" class="button" data-act="cover">{{t "admin.editor.cover"}}</button>
+        </span>
+      </div>
+      <p class="muted" id="stage-hint">{{t "admin.editor.stage_hint"}}</p>
+    </section>
+
+    <aside class="panel" id="panel" aria-label="{{t "admin.editor.panel"}}">{{template "editor-panel" .Panel}}</aside>
+  </div>
+
+  <section class="timeline" aria-label="{{t "admin.editor.timeline"}}">
+    <div class="timeline-bar">
+      <h2>{{t "admin.editor.timeline"}}</h2>
+      <button type="button" class="button" data-act="appearance">{{t "admin.editor.appearance_add"}}</button>
+      <button type="button" class="button" data-act="zoom-out" aria-label="{{t "admin.editor.zoom_out"}}">-</button>
+      <button type="button" class="button" data-act="zoom-in" aria-label="{{t "admin.editor.zoom_in"}}">+</button>
+      <span class="muted">{{t "admin.editor.timeline_hint"}}</span>
+    </div>
+    <div class="track" id="track"></div>
+  </section>
+
+  <div class="editor-lower">
+    <section class="media" id="media" aria-label="{{t "admin.editor.media"}}">{{template "editor-media" .Media}}</section>
+    <section class="problems" id="problems" aria-label="{{t "admin.editor.problems"}}">{{template "editor-problems" .Problems}}</section>
+  </div>
+
+  <details class="shortcuts" id="shortcuts">
+    <summary>{{t "admin.editor.shortcuts"}}</summary>
+    <dl>{{range .Shortcuts}}<dt><kbd>{{.Keys}}</kbd></dt><dd>{{.What}}</dd>{{end}}</dl>
+  </details>
+</div>
+<script src="/admin/static/editor.js" integrity="{{.Script}}" defer></script>
+{{end}}
+
+{{define "editor-panel"}}
+<nav class="panel-nav" aria-label="{{t "admin.editor.parts"}}">
+  {{range .Nav}}
+  <div class="nav-row">
+    <span class="nav-label">{{.Label}}</span>
+    {{range .Links}}<button type="button" class="chip{{if .Current}} current{{end}}" data-select="{{.Select}}">{{.Label}}</button>{{end}}
+    {{with .Add}}<button type="button" class="chip add" data-act="{{.}}">+</button>{{end}}
+  </div>
+  {{end}}
+</nav>
+<div class="panel-head">
+  <h2>{{.Title}}</h2>
+  {{with .Subtitle}}<p class="muted">{{.}}</p>{{end}}
+</div>
+{{template "error" .}}
+{{if .Missing}}
+<p class="muted">{{t "admin.editor.nothing_selected"}}</p>
+{{else}}
+<form class="editor-form" method="post" action="{{.Action}}" hx-post="{{.Action}}" hx-target="#panel" hx-swap="innerHTML">
+  <input type="hidden" name="select" value="{{.Select}}">
+  {{range .Fields}}
+  {{$field := .}}
+  <div class="field{{if .Problem}} invalid{{end}}" id="field-{{.ID}}">
+    <div class="field-head">
+      <label for="{{.ID}}">{{.Label}}</label>
+      {{template "help" .}}
+    </div>
+    <div class="control">
+      {{if eq .Control "text"}}
+      <input type="text" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}" spellcheck="false">
+      {{else if eq .Control "texts"}}
+      <span class="texts">
+        {{range .Languages}}
+        <label class="sub" for="{{$field.ID}}-{{.Lang}}">{{.Label}}</label>
+        <input type="text" id="{{$field.ID}}-{{.Lang}}" name="{{$field.Name}}.{{.Lang}}" value="{{.Value}}">
+        {{end}}
+      </span>
+      {{else if eq .Control "number"}}
+      <input type="number" id="{{.ID}}" name="{{.Name}}" value="{{.Value}}" step="1"{{with .Min}} min="{{.}}"{{end}}{{with .Max}} max="{{.}}"{{end}}>
+      {{else if eq .Control "switch"}}
+      <input type="hidden" name="{{.Name}}" value="false">
+      <input type="checkbox" role="switch" id="{{.ID}}" name="{{.Name}}" value="true"{{if .On}} checked{{end}}>
+      {{else if eq .Control "select"}}
+      <select id="{{.ID}}" name="{{.Name}}">
+        {{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+      </select>
+      {{else if eq .Control "zones"}}
+      <ul class="marks" id="{{.ID}}">
+        {{range .Marks}}
+        <li>
+          <label><input type="checkbox" name="{{$field.Name}}" value="{{.Value}}"{{if .Checked}} checked{{end}}> {{.Label}}</label>
+          {{with .Taken}}<span class="muted">{{t "admin.editor.zone_taken" .}}</span>{{end}}
+        </li>
+        {{else}}
+        <li class="muted">{{t "admin.editor.no_zones"}}</li>
+        {{end}}
+      </ul>
+      {{else if eq .Control "states"}}
+      <table class="states" id="{{.ID}}">
+        <thead><tr><th>{{t "admin.editor.state_name"}}</th><th>{{t "admin.editor.state_clip"}}</th></tr></thead>
+        <tbody>
+        {{range .Rows}}
+        <tr>
+          <td><input type="text" name="state.name" value="{{.Name}}" spellcheck="false" placeholder="{{t "admin.editor.state_new"}}"></td>
+          <td><select name="state.clip">{{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select></td>
+        </tr>
+        {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <span class="fixed" id="{{.ID}}">{{if .Value}}{{.Value}}{{else}}<span class="muted">{{t "admin.editor.none"}}</span>{{end}}</span>
+      {{end}}
+      {{with .Unit}}<span class="unit">{{.}}</span>{{end}}
+    </div>
+    {{with .Problem}}<p class="field-error" role="alert">{{.}}</p>{{end}}
+    <details class="why"><summary>{{t "admin.editor.why"}}</summary><p>{{.Why}}</p></details>
+  </div>
+  {{end}}
+  <div class="panel-actions">
+    <button class="button primary" type="submit">{{t "admin.editor.apply"}}</button>
+    {{if .Removable}}
+    <button class="button danger" type="submit" name="remove" value="1"
+            data-confirm="{{t "admin.editor.confirm_remove"}}">{{t "admin.editor.remove"}}</button>
+    {{end}}
+  </div>
+</form>
+{{end}}
+{{end}}
+
+{{define "editor-media"}}
+<h2>{{t "admin.editor.media"}}</h2>
+{{template "error" .}}
+<form class="media-upload" method="post" action="{{.Action}}" enctype="multipart/form-data" data-upload="1">
+  <label for="media-file">{{t "admin.editor.upload"}}</label>
+  <input type="file" id="media-file" name="file" accept=".mp4,.webm,.ogg,.oga,.png">
+  <button class="button" type="submit">{{t "admin.editor.upload_button"}}</button>
+  <progress id="media-progress" max="100" value="0" hidden></progress>
+  <p class="muted">{{t "admin.editor.upload_hint"}}</p>
+</form>
+<table class="media-list">
+  <thead>
+    <tr>
+      <th>{{t "admin.editor.file"}}</th><th>{{t "admin.editor.kind"}}</th><th>{{t "admin.editor.size"}}</th>
+      <th>{{t "admin.editor.length"}}</th><th>{{t "admin.editor.used"}}</th><th></th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Files}}
+    <tr data-file="{{.Name}}" data-path="{{.Path}}" data-use="{{.Use}}" data-url="{{.URL}}">
+      <td><code>{{.Path}}</code></td>
+      <td>{{.Use}} <span class="muted">{{.Container}} {{.Codec}}</span></td>
+      <td>{{.Size}}</td>
+      <td>{{if .Duration}}{{.Duration}} <span class="muted">{{.Width}}x{{.Height}}</span>{{else}}<span class="muted">{{t "admin.editor.unmeasured"}}</span>{{end}}</td>
+      <td>{{if .Used}}<code>{{.Used}}</code>{{else}}<span class="muted">{{t "admin.editor.unused"}}</span>{{end}}</td>
+      <td>
+        <form method="post" action="{{$.Action}}/{{path .Name}}/delete" hx-post="{{$.Action}}/{{path .Name}}/delete"
+              hx-target="#media" hx-swap="innerHTML" data-confirm="{{t "admin.editor.confirm_file" .Name}}">
+          <button class="button quiet" type="submit">{{t "admin.editor.delete_file"}}</button>
+        </form>
+      </td>
+    </tr>
+  {{else}}
+    <tr><td colspan="6" class="muted">{{t "admin.editor.no_media"}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+{{end}}
+
+{{define "editor-problems"}}
+<h2>{{t "admin.editor.problems"}}</h2>
+{{template "error" .}}
+{{if .Problems}}
+<ul class="problem-list">
+  {{range .Problems}}
+  <li>
+    <button type="button" class="link" data-select="{{.Select}}">{{.Label}}</button>
+    <span class="problem-text">{{.Text}}</span>
+    <code class="field">{{.Field}}</code>
+    <small class="detail">{{.Detail}}</small>
+  </li>
+  {{end}}
+</ul>
+{{else if .Checked}}
+<p class="notice" role="status">{{t "admin.editor.ready"}}</p>
+{{else}}
+<p class="muted">{{t "admin.editor.not_checked"}}</p>
+{{end}}
+<p class="ready" hidden data-ready="{{if .Ready}}1{{else}}0{{end}}"></p>
+{{end}}

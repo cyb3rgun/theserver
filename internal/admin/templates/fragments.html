@@ -5,6 +5,8 @@
 
 {{define "holding-state"}}{{if not .Current}}<span class="muted">{{t "admin.holding.gone"}}</span>{{else if not .Latest}}<span class="badge">{{t "admin.holding.held"}}</span>{{else if .UpToDate}}<span class="badge ok">{{t "admin.holding.current"}}</span>{{else}}<span class="badge outdated">{{t "admin.holding.outdated"}}</span>{{end}}{{end}}
 
+{{define "help"}}<span class="help" tabindex="0" aria-describedby="tip-{{.ID}}">?<span class="tip" role="tooltip" id="tip-{{.ID}}">{{.Description}}</span></span>{{end}}
+
 {{define "error"}}
 {{if .Error}}<p class="error" role="alert">{{.Error}}{{with .ErrorDetail}}<small class="detail">{{.}}</small>{{end}}</p>{{end}}
 {{end}}

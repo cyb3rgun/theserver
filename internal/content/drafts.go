@@ -261,6 +261,16 @@ func (c *Store) PutDraftMedia(ctx context.Context, id, name string, r io.Reader,
 	return d, file, err
 }
 
+// DraftMediaPath is the file of one media name of a draft, for the editor
+// to play. It checks only that the name can be a file; whether the draft
+// holds it is the index's to say.
+func (c *Store) DraftMediaPath(id, name string) (string, error) {
+	if !scenario.ValidID(id) || !ValidMediaName(name) {
+		return "", fmt.Errorf("%q %q: %w", id, name, os.ErrNotExist)
+	}
+	return filepath.Join(c.DraftMediaDir(id), name), nil
+}
+
 // MeasuredMedia is what the browser measured on a clip; the server does not
 // decode media, so it takes these numbers from the page (D-045).
 type MeasuredMedia struct {

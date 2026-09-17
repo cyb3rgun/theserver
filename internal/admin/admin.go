@@ -70,7 +70,7 @@ type Admin struct {
 	handler   http.Handler
 }
 
-var pageNames = []string{"login", "devices", "device", "sessions", "ranking", "scenarios", "scenario", "settings"}
+var pageNames = []string{"login", "devices", "device", "sessions", "ranking", "scenarios", "scenario", "editor", "settings"}
 
 // New returns the admin handler.
 func New(opts Options) (*Admin, error) {
@@ -100,7 +100,7 @@ func New(opts Options) (*Admin, error) {
 		integrity: "sha384-" + base64.StdEncoding.EncodeToString(sum[:]),
 		scripts:   map[string]string{},
 	}
-	for _, name := range []string{"settings.js", "scenarios.js"} {
+	for _, name := range []string{"settings.js", "scenarios.js", "editor.js"} {
 		script, err := staticFS.ReadFile("static/" + name)
 		if err != nil {
 			return nil, err
@@ -148,6 +148,20 @@ func New(opts Options) (*Admin, error) {
 	mux.Handle("GET /admin/scenarios/{id}/{version}/cover.png", a.page(a.scenarioCover))
 	mux.Handle("GET /admin/scenarios/{id}/{version}/package.zip", a.page(a.scenarioPackage))
 	mux.Handle("POST /admin/scenarios/{id}/{version}/{action}", a.page(a.scenarioAction))
+	mux.Handle("POST /admin/editor", a.page(a.newDraft))
+	mux.Handle("GET /admin/editor/{id}", a.page(a.editorPage))
+	mux.Handle("GET /admin/editor/{id}/draft", a.page(a.editorDraft))
+	mux.Handle("POST /admin/editor/{id}/patch", a.page(a.editorPatch))
+	mux.Handle("GET /admin/editor/{id}/panel", a.page(a.editorPanel))
+	mux.Handle("POST /admin/editor/{id}/field", a.page(a.editorField))
+	mux.Handle("GET /admin/editor/{id}/media", a.page(a.editorMedia))
+	mux.Handle("POST /admin/editor/{id}/media", a.page(a.editorUpload))
+	mux.Handle("GET /admin/editor/{id}/file/{name}", a.page(a.editorFile))
+	mux.Handle("POST /admin/editor/{id}/media/{name}/delete", a.page(a.editorMediaDelete))
+	mux.Handle("POST /admin/editor/{id}/media/{name}/measure", a.page(a.editorMeasure))
+	mux.Handle("POST /admin/editor/{id}/validate", a.page(a.editorValidate))
+	mux.Handle("POST /admin/editor/{id}/publish", a.page(a.editorPublish))
+	mux.Handle("POST /admin/editor/{id}/delete", a.page(a.editorDelete))
 	mux.Handle("GET /admin/ranking", a.page(a.rankingPage))
 	mux.Handle("GET /admin/ranking/table", a.page(a.rankingTable))
 	mux.Handle("GET /admin/settings", a.page(a.settingsPage))

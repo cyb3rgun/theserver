@@ -42,6 +42,11 @@
         <form class="inline" method="post" action="/admin/scenarios/{{path .ID}}/{{.Version}}/delete" data-confirm="{{t "admin.scenario.confirm_delete" .Version}}">
           <button class="button danger" type="submit">{{t "admin.scenario.delete"}}</button>
         </form>
+        {{else}}
+        <form class="inline" method="post" action="/admin/editor" data-confirm="{{t "admin.scenarios.confirm_edit"}}">
+          <input type="hidden" name="from" value="{{.ID}}@{{.Version}}">
+          <button class="button" type="submit">{{t "admin.scenarios.edit_version"}}</button>
+        </form>
         {{end}}
         <a class="button quiet" href="/admin/scenarios/{{path .ID}}/{{.Version}}/package.zip">{{t "admin.scenario.download"}}</a>
       </td>
