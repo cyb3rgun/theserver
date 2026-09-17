@@ -22,7 +22,8 @@ import (
 // CookieName is the name of the admin session cookie.
 const CookieName = "theserver_admin"
 
-// SessionLifetime is how long a login lasts.
+// SessionLifetime is how long a login lasts unless Options.SessionLifetime
+// says otherwise; it is the default of admin.session_hours.
 const SessionLifetime = 12 * time.Hour
 
 const (
@@ -79,7 +80,11 @@ type session struct {
 // SessionLifetime from now. The cookie carries the id and the expiry, never
 // the token.
 func NewSessionCookie(key []byte, tokenID string, now time.Time) *http.Cookie {
-	expires := now.Add(SessionLifetime)
+	return newSessionCookie(key, tokenID, now, SessionLifetime)
+}
+
+func newSessionCookie(key []byte, tokenID string, now time.Time, lifetime time.Duration) *http.Cookie {
+	expires := now.Add(lifetime)
 	payload := strings.Join([]string{cookieFormat, tokenID, strconv.FormatInt(expires.Unix(), 10)}, "|")
 	value := base64.RawURLEncoding.EncodeToString([]byte(payload)) + "." +
 		base64.RawURLEncoding.EncodeToString(sign(key, payload))
@@ -88,7 +93,7 @@ func NewSessionCookie(key []byte, tokenID string, now time.Time) *http.Cookie {
 		Value:    value,
 		Path:     cookiePath,
 		Expires:  expires,
-		MaxAge:   int(SessionLifetime.Seconds()),
+		MaxAge:   int(lifetime.Seconds()),
 		HttpOnly: true,
 		Secure:   true,
 		SameSite: http.SameSiteStrictMode,
@@ -156,6 +161,16 @@ func (a *Admin) authenticate(r *http.Request) (session, bool) {
 	return session{TokenID: token.ID, Name: token.Name}, true
 }
 
+// sessionLifetime is how long a new login lasts (admin.session_hours).
+func (a *Admin) sessionLifetime() time.Duration {
+	if a.opts.SessionLifetime != nil {
+		if d := a.opts.SessionLifetime(); d > 0 {
+			return d
+		}
+	}
+	return SessionLifetime
+}
+
 // sessionEnded sends a browser without a valid session to the login page. An
 // HTMX request is told to go there with HX-Redirect.
 func (a *Admin) sessionEnded(w http.ResponseWriter, r *http.Request) {
@@ -215,7 +230,7 @@ func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
 		a.render(w, lang, http.StatusInternalServerError, "login", "layout", data)
 		return
 	}
-	http.SetCookie(w, NewSessionCookie(a.opts.Key, row.ID, a.opts.Now()))
+	http.SetCookie(w, newSessionCookie(a.opts.Key, row.ID, a.opts.Now(), a.sessionLifetime()))
 	a.log.Info("admin logged in", "admin_token", row.ID, "admin_name", row.Name, "remote", r.RemoteAddr)
 	http.Redirect(w, r, "/admin/devices", http.StatusSeeOther)
 }

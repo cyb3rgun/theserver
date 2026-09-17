@@ -197,4 +197,36 @@ var registry = []Setting{
 			},
 		},
 	},
+	{
+		Key: "admin.language", Section: "admin", Kind: Enum, Default: "en",
+		Enum: []string{"en", "de"},
+		Text: map[string]Text{
+			"en": {
+				Label:       "Admin language",
+				Description: "Language of the admin pages for a login that has not chosen one.",
+				Why:         "Every operator can switch the language at the top of the page, and that choice lasts for the login. This setting is the language a new login starts with: en for English, de for German.",
+			},
+			"de": {
+				Label:       "Sprache der Verwaltung",
+				Description: "Sprache der Verwaltungsseiten für eine Anmeldung, die noch keine gewählt hat.",
+				Why:         "Jeder Betreiber kann die Sprache oben auf der Seite umschalten, und diese Wahl gilt für die Anmeldung. Diese Einstellung ist die Sprache, mit der eine neue Anmeldung beginnt: en für Englisch, de für Deutsch.",
+			},
+		},
+	},
+	{
+		Key: "admin.session_hours", Section: "admin", Kind: Duration, Default: int64(12),
+		Unit: "h", Min: bound(1), Max: bound(720),
+		Text: map[string]Text{
+			"en": {
+				Label:       "Login duration",
+				Description: "How long an admin login lasts before the token is asked for again.",
+				Why:         "A shorter time protects a computer that several people use; a longer one saves logging in again on a machine only staff can reach. A change applies to logins made after it.",
+			},
+			"de": {
+				Label:       "Dauer der Anmeldung",
+				Description: "Wie lange eine Admin-Anmeldung gilt, bevor das Token erneut abgefragt wird.",
+				Why:         "Eine kürzere Zeit schützt einen Rechner, den mehrere Personen nutzen; eine längere erspart das erneute Anmelden auf einem Gerät, das nur Personal erreicht. Eine Änderung gilt für Anmeldungen danach.",
+			},
+		},
+	},
 }

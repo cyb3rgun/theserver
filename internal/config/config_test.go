@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/cyb3rgun/theserver/internal/settings"
 )
 
 func writeFile(t *testing.T, dir, name, content string) string {
@@ -33,6 +34,25 @@ func defaultsWith(change func(c *Config)) Config {
 	return c
 }
 
+func TestDefaultsComeFromTheRegistry(t *testing.T) {
+	want := Config{
+		Server: Server{ListenAddr: ":8443", DataDir: "./data"},
+		Store:  Store{BusyTimeoutMs: 5000},
+		Link:   Link{AckIntervalMs: 100, AckBatch: 32, PingIntervalS: 15, PongTimeoutS: 10, HelloTimeoutS: 5},
+		Log:    Log{Level: "info", Format: "text"},
+		Admin:  Admin{Language: "en", SessionHours: 12},
+	}
+	if got := Default(); got != want {
+		t.Errorf("Default is %+v, want %+v", got, want)
+	}
+	if got := want.Get("link.ack_batch"); got != int64(32) {
+		t.Errorf("Get(link.ack_batch) = %#v", got)
+	}
+	if got := want.Get("no.such"); got != nil {
+		t.Errorf("Get of an unknown key = %#v", got)
+	}
+}
+
 func TestLoadPrecedence(t *testing.T) {
 	dir := t.TempDir()
 	full := writeFile(t, dir, "full.toml", `
@@ -57,6 +77,10 @@ hello_timeout_s = 3
 [log]
 level = "warn"
 format = "json"
+
+[admin]
+language = "de"
+session_hours = 8
 `)
 	partial := writeFile(t, dir, "partial.toml", `
 [log]
@@ -69,6 +93,7 @@ level = "debug"
 		Store:  Store{BusyTimeoutMs: 1234},
 		Link:   Link{AckIntervalMs: 250, AckBatch: 8, PingIntervalS: 30, PongTimeoutS: 20, HelloTimeoutS: 3},
 		Log:    Log{Level: "warn", Format: "json"},
+		Admin:  Admin{Language: "de", SessionHours: 8},
 	}
 
 	tests := []struct {
@@ -104,9 +129,11 @@ level = "debug"
 				"THESERVER_LINK_ACKBATCH":       "16",
 				"THESERVER_LINK_PINGINTERVALS":  "5",
 				"THESERVER_LINK_PONGTIMEOUTS":   "4",
-				"THESERVER_LINK_HELLOTIMEOUTS":  "2",
+				"THESERVER_LINK_HELLOTIMEOUTS":  "2s",
 				"THESERVER_LOG_LEVEL":           "error",
 				"THESERVER_LOG_FORMAT":          "json",
+				"THESERVER_ADMIN_LANGUAGE":      "de",
+				"THESERVER_ADMIN_SESSIONHOURS":  "2h",
 			},
 			want: Config{
 				Server: Server{ListenAddr: "127.0.0.1:9100", DataDir: "env-data"},
@@ -114,6 +141,7 @@ level = "debug"
 				Store:  Store{BusyTimeoutMs: 250},
 				Link:   Link{AckIntervalMs: 50, AckBatch: 16, PingIntervalS: 5, PongTimeoutS: 4, HelloTimeoutS: 2},
 				Log:    Log{Level: "error", Format: "json"},
+				Admin:  Admin{Language: "de", SessionHours: 2},
 			},
 		},
 		{
@@ -195,8 +223,11 @@ level = "debug"
 func TestLoadErrors(t *testing.T) {
 	dir := t.TempDir()
 	unknown := writeFile(t, dir, "unknown.toml", "[server]\nlisten = \":1\"\n")
+	bare := writeFile(t, dir, "bare.toml", "listen_addr = \":1\"\n")
+	notTable := writeFile(t, dir, "nottable.toml", "server = 5\n")
 	wrongType := writeFile(t, dir, "wrongtype.toml", "[server]\nlisten_addr = 8443\n")
 	badFormat := writeFile(t, dir, "badformat.toml", "[log]\nformat = \"xml\"\n")
+	broken := writeFile(t, dir, "broken.toml", "[log\n")
 
 	tests := []struct {
 		name    string
@@ -206,19 +237,24 @@ func TestLoadErrors(t *testing.T) {
 		wantErr string
 	}{
 		{name: "named file is missing", file: filepath.Join(dir, "missing.toml"), wantErr: "missing.toml"},
+		{name: "file is not toml", file: broken, wantErr: "broken.toml"},
 		{name: "unknown key in file", file: unknown, wantErr: "unknown settings: server.listen"},
-		{name: "wrong type in file", file: wrongType, wantErr: "wrongtype.toml"},
-		{name: "invalid format in file", file: badFormat, wantErr: `log.format "xml"`},
-		{name: "invalid level from env", env: map[string]string{"THESERVER_LOG_LEVEL": "loud"}, wantErr: `log.level "loud"`},
-		{name: "listen address without port from flag", flags: map[string]string{"listen": "localhost"}, wantErr: "server.listen_addr"},
-		{name: "empty data dir from env", env: map[string]string{"THESERVER_SERVER_DATADIR": ""}, wantErr: "server.data_dir"},
+		{name: "bare key at the top of the file", file: bare, wantErr: "unknown settings: listen_addr"},
+		{name: "section that is not a table", file: notTable, wantErr: "unknown settings: server"},
+		{name: "wrong type in file", file: wrongType, wantErr: "wrongtype.toml: server.listen_addr: 8443 has the wrong type"},
+		{name: "invalid format in file", file: badFormat, wantErr: `log.format: "xml" is not allowed`},
+		{name: "invalid level from env", env: map[string]string{"THESERVER_LOG_LEVEL": "loud"}, wantErr: `environment THESERVER_LOG_LEVEL: log.level: "loud"`},
+		{name: "listen address without port from flag", flags: map[string]string{"listen": "localhost"}, wantErr: "flag --listen: server.listen_addr"},
+		{name: "empty data dir from env", env: map[string]string{"THESERVER_SERVER_DATADIR": ""}, wantErr: "server.data_dir: must not be empty"},
 		{name: "busy timeout is not a number", env: map[string]string{"THESERVER_STORE_BUSYTIMEOUTMS": "soon"}, wantErr: "is not a whole number"},
 		{name: "negative busy timeout", env: map[string]string{"THESERVER_STORE_BUSYTIMEOUTMS": "-1"}, wantErr: "store.busy_timeout_ms"},
 		{name: "only a certificate", env: map[string]string{"THESERVER_TLS_CERTFILE": "a.crt"}, wantErr: "tls.cert_file and tls.key_file"},
 		{name: "only a key", env: map[string]string{"THESERVER_TLS_KEYFILE": "a.key"}, wantErr: "tls.cert_file and tls.key_file"},
 		{name: "zero ack batch", env: map[string]string{"THESERVER_LINK_ACKBATCH": "0"}, wantErr: "link.ack_batch"},
 		{name: "negative pong timeout", env: map[string]string{"THESERVER_LINK_PONGTIMEOUTS": "-5"}, wantErr: "link.pong_timeout_s"},
-		{name: "hello timeout is not a number", env: map[string]string{"THESERVER_LINK_HELLOTIMEOUTS": "5s"}, wantErr: "is not a whole number"},
+		{name: "hello timeout is not a duration", env: map[string]string{"THESERVER_LINK_HELLOTIMEOUTS": "soon"}, wantErr: "link.hello_timeout_s"},
+		{name: "unknown admin language", env: map[string]string{"THESERVER_ADMIN_LANGUAGE": "fr"}, wantErr: "admin.language"},
+		{name: "login of a year", env: map[string]string{"THESERVER_ADMIN_SESSIONHOURS": "8760"}, wantErr: "admin.session_hours"},
 	}
 
 	for _, tt := range tests {
@@ -234,24 +270,73 @@ func TestLoadErrors(t *testing.T) {
 	}
 }
 
+// A flag replaces an environment variable entirely; what the variable held
+// does not matter then.
+func TestOnlyTheWinningValueIsChecked(t *testing.T) {
+	cfg, sources, err := LoadWithSources("",
+		envFrom(map[string]string{"THESERVER_SERVER_DATADIR": "", "THESERVER_LOG_LEVEL": "loud"}),
+		map[string]string{"data-dir": "flag-data", "log-level": "warn"})
+	if err != nil {
+		t.Fatalf("LoadWithSources: %v", err)
+	}
+	if cfg.Server.DataDir != "flag-data" || cfg.Log.Level != "warn" || sources.Of("log.level") != SourceFlag {
+		t.Errorf("loaded %+v %+v from %s", cfg.Server, cfg.Log, sources.Of("log.level"))
+	}
+}
+
+func TestForeignTablesAreKnownButNotErrors(t *testing.T) {
+	path := writeFile(t, t.TempDir(), "theserver.toml", `
+[log]
+level = "warn"
+
+[scenario]
+catalogue = "/srv/scenarios"
+
+[zeta.inner]
+x = 1
+`)
+	cfg, sources, err := LoadWithSources(path, nil, nil)
+	if err != nil {
+		t.Fatalf("LoadWithSources: %v", err)
+	}
+	if cfg.Log.Level != "warn" || sources.File != path {
+		t.Errorf("loaded %+v from %q", cfg.Log, sources.File)
+	}
+	if strings.Join(sources.Foreign, ",") != "scenario,zeta" {
+		t.Errorf("foreign tables are %v", sources.Foreign)
+	}
+}
+
 func TestWriteDefaultRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "theserver.toml")
 	if err := WriteDefault(path); err != nil {
 		t.Fatalf("WriteDefault: %v", err)
 	}
-	got, err := Load(path, nil, nil)
+	got, sources, err := LoadWithSources(path, nil, nil)
 	if err != nil {
 		t.Fatalf("Load of the default file: %v", err)
 	}
 	if got != Default() {
 		t.Errorf("default file loads as %+v, want %+v", got, Default())
 	}
+	for _, s := range settings.All() {
+		if sources.Of(s.Key) != SourceFile {
+			t.Errorf("%s comes from %s, want the file that sets every default", s.Key, sources.Of(s.Key))
+		}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(info.Name(), ".tmp") {
+		t.Errorf("the file is named %s", info.Name())
+	}
 }
 
-func TestWriteDefaultCommentsEverySetting(t *testing.T) {
+func TestWrittenFileExplainsEverySetting(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "theserver.toml")
-	if err := WriteDefault(path); err != nil {
-		t.Fatalf("WriteDefault: %v", err)
+	if err := Write(path, map[string]any{"link.ack_batch": 64, "server.listen_addr": "127.0.0.1:9000"}); err != nil {
+		t.Fatalf("Write: %v", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -259,28 +344,135 @@ func TestWriteDefaultCommentsEverySetting(t *testing.T) {
 	}
 	lines := strings.Split(string(data), "\n")
 
-	def := Default()
-	for _, s := range settings {
-		want := s.key + " = "
+	for _, s := range settings.All() {
+		text := s.TextIn("en")
+		active := s.Name() + " = "
+		commented := "# " + active
 		found := false
 		for i, line := range lines {
-			if !strings.HasPrefix(line, want) {
+			if !strings.HasPrefix(line, active) && !strings.HasPrefix(line, commented) {
 				continue
 			}
 			found = true
-			if i == 0 || !strings.HasPrefix(lines[i-1], "# ") {
-				t.Errorf("%s.%s has no comment line above it", s.section, s.key)
-			} else if !strings.Contains(lines[i-1], s.env) {
-				t.Errorf("comment of %s.%s does not name %s", s.section, s.key, s.env)
+			if i < 2 || lines[i-2] != fmt.Sprintf("# %s. %s", text.Label, text.Description) {
+				t.Errorf("%s is not introduced by its label and description", s.Key)
 			}
-			want := fmt.Sprint(s.value(&def))
-			if !strings.Contains(line, want) {
-				t.Errorf("%s.%s line %q does not carry the default %q", s.section, s.key, line, want)
+			if !strings.Contains(lines[i-1], s.Env()) || !strings.HasPrefix(lines[i-1], "# Default ") {
+				t.Errorf("the facts of %s read %q", s.Key, lines[i-1])
+			}
+			if s.Restart != strings.Contains(lines[i-1], "Changing it needs a restart.") {
+				t.Errorf("the restart note of %s is wrong: %q", s.Key, lines[i-1])
+			}
+			if s.Flag != "" && !strings.Contains(lines[i-1], "flag --"+s.Flag) {
+				t.Errorf("the facts of %s do not name its flag", s.Key)
+			}
+			set := s.Key == "link.ack_batch" || s.Key == "server.listen_addr"
+			if set != strings.HasPrefix(line, active) {
+				t.Errorf("%s line is %q", s.Key, line)
+			}
+			if !set && !strings.Contains(line, fmt.Sprint(s.Default)) {
+				t.Errorf("%s line %q does not show the default %v", s.Key, line, s.Default)
 			}
 		}
 		if !found {
-			t.Errorf("%s.%s is missing from the default file", s.section, s.key)
+			t.Errorf("%s is missing from the file", s.Key)
 		}
+	}
+	for _, want := range []string{"ack_batch = 64", `listen_addr = "127.0.0.1:9000"`, "from 1 to 1024", "one of debug, info, warn, error", "Default 5000 ms"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("the file lacks %q", want)
+		}
+	}
+}
+
+// Writing a set of values and loading the file gives the same values back,
+// and writing them again gives the same bytes.
+func TestWriteThenLoadIsIdentical(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "theserver.toml", `
+# a comment theserver does not keep
+[scenario]
+catalogue = "/srv/scenarios"
+ratings = ["16", "18"]
+
+[log]
+level = "info"
+`)
+	values := map[string]any{
+		"server.listen_addr":    "127.0.0.1:9443",
+		"server.data_dir":       `C:\theserver\data`,
+		"tls.cert_file":         "a b.crt",
+		"tls.key_file":          `quote "key".pem`,
+		"store.busy_timeout_ms": "2s",
+		"link.ack_batch":        int64(7),
+		"log.level":             "debug",
+		"admin.language":        "de",
+		"admin.session_hours":   3,
+	}
+	if err := Write(path, values); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, sources, err := LoadWithSources(path, nil, nil)
+	if err != nil {
+		t.Fatalf("Load: %v\n%s", err, first)
+	}
+	want := defaultsWith(func(c *Config) {
+		c.Server = Server{ListenAddr: "127.0.0.1:9443", DataDir: `C:\theserver\data`}
+		c.TLS = TLS{CertFile: "a b.crt", KeyFile: `quote "key".pem`}
+		c.Store.BusyTimeoutMs = 2000
+		c.Link.AckBatch = 7
+		c.Log.Level = "debug"
+		c.Admin = Admin{Language: "de", SessionHours: 3}
+	})
+	if cfg != want {
+		t.Errorf("loaded\n %+v\nwant\n %+v", cfg, want)
+	}
+	for _, s := range settings.All() {
+		_, set := values[s.Key]
+		if want := map[bool]Source{true: SourceFile, false: SourceDefault}[set]; sources.Of(s.Key) != want {
+			t.Errorf("%s comes from %s, want %s", s.Key, sources.Of(s.Key), want)
+		}
+	}
+	if strings.Join(sources.Foreign, ",") != "scenario" {
+		t.Errorf("the foreign table is lost: %v\n%s", sources.Foreign, first)
+	}
+	if !strings.Contains(string(first), `ratings = ["16", "18"]`) || strings.Contains(string(first), "does not keep") {
+		t.Errorf("the foreign table was not kept as found, or a hand comment survived:\n%s", first)
+	}
+
+	again := map[string]any{}
+	for key := range values {
+		again[key] = cfg.Get(key)
+	}
+	if err := Write(path, again); err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Errorf("writing the loaded values again changed the file:\n%s\n---\n%s", first, second)
+	}
+}
+
+func TestWriteRefusesBadValuesAndKeepsTheFile(t *testing.T) {
+	path := writeFile(t, t.TempDir(), "theserver.toml", "[log]\nlevel = \"warn\"\n")
+	err := Write(path, map[string]any{"log.level": "loud", "no.such": 1})
+	if err == nil || !strings.Contains(err.Error(), "log.level") || !strings.Contains(err.Error(), "no.such") {
+		t.Fatalf("Write returned %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	if string(data) != "[log]\nlevel = \"warn\"\n" {
+		t.Errorf("a refused write changed the file to %q", data)
+	}
+	broken := writeFile(t, t.TempDir(), "theserver.toml", "[log\n")
+	if err := Write(broken, map[string]any{"log.level": "warn"}); err == nil {
+		t.Error("Write replaced a file it could not read")
 	}
 }
 
@@ -298,54 +490,6 @@ func TestWriteDefaultKeepsExistingFile(t *testing.T) {
 	}
 }
 
-// TestSettingsCoverEveryField guards the settings table: every leaf field of
-// Config must have exactly one row, so that no setting is left out of the
-// default file or the overrides.
-func TestSettingsCoverEveryField(t *testing.T) {
-	var cfg Config
-	textRows := map[*string]int{}
-	numberRows := map[*int]int{}
-	for _, s := range settings {
-		switch {
-		case s.text != nil && s.number != nil:
-			t.Errorf("%s.%s is both text and number", s.section, s.key)
-		case s.text != nil:
-			textRows[s.text(&cfg)]++
-		case s.number != nil:
-			numberRows[s.number(&cfg)]++
-		default:
-			t.Errorf("%s.%s points at no field", s.section, s.key)
-		}
-	}
-
-	root := reflect.ValueOf(&cfg).Elem()
-	leaves := 0
-	for i := range root.NumField() {
-		section := root.Field(i)
-		for j := range section.NumField() {
-			leaves++
-			field := section.Field(j)
-			name := root.Type().Field(i).Name + "." + section.Type().Field(j).Name
-			var rows int
-			switch ptr := field.Addr().Interface().(type) {
-			case *string:
-				rows = textRows[ptr]
-			case *int:
-				rows = numberRows[ptr]
-			default:
-				t.Errorf("%s is neither string nor int; extend the settings table for its type", name)
-				continue
-			}
-			if rows != 1 {
-				t.Errorf("%s has %d rows in the settings table, want 1", name, rows)
-			}
-		}
-	}
-	if leaves != len(settings) {
-		t.Errorf("Config has %d settings, the table has %d rows", leaves, len(settings))
-	}
-}
-
 func TestLoadWithSources(t *testing.T) {
 	file := writeFile(t, t.TempDir(), "partial.toml", `
 [server]
@@ -360,6 +504,9 @@ ack_batch = 8
 	if err != nil {
 		t.Fatalf("LoadWithSources: %v", err)
 	}
+	if sources.File != file {
+		t.Errorf("the file in use is %q, want %q", sources.File, file)
+	}
 	want := map[string]Source{
 		"server.listen_addr":    SourceFile,
 		"server.data_dir":       SourceDefault,
@@ -369,24 +516,24 @@ ack_batch = 8
 		"store.busy_timeout_ms": SourceDefault,
 	}
 	for key, source := range want {
-		if sources[key] != source {
-			t.Errorf("%s comes from %q, want %q", key, sources[key], source)
+		if sources.Of(key) != source {
+			t.Errorf("%s comes from %q, want %q", key, sources.Of(key), source)
 		}
 	}
-	if len(sources) != len(settings) {
-		t.Errorf("%d sources for %d settings", len(sources), len(settings))
+	if len(sources.Keys) != len(settings.All()) {
+		t.Errorf("%d sources for %d settings", len(sources.Keys), len(settings.All()))
 	}
 
 	described := Describe(cfg, sources)
-	if len(described) != len(settings) {
-		t.Fatalf("Describe listed %d settings, want %d", len(described), len(settings))
+	if len(described) != len(settings.All()) {
+		t.Fatalf("Describe listed %d settings, want %d", len(described), len(settings.All()))
 	}
 	byKey := map[string]Setting{}
 	for _, s := range described {
 		byKey[s.Key] = s
 	}
 	batch := byKey["link.ack_batch"]
-	if batch.Value != 16 || batch.Default != 32 || batch.Source != SourceEnv || batch.Env != "THESERVER_LINK_ACKBATCH" || batch.Flag != "" || batch.Comment == "" {
+	if batch.Value != int64(16) || batch.Default != int64(32) || batch.Source != SourceEnv || batch.Env != "THESERVER_LINK_ACKBATCH" || batch.Flag != "" || batch.Comment == "" {
 		t.Errorf("link.ack_batch is described as %+v", batch)
 	}
 	listen := byKey["server.listen_addr"]
@@ -394,9 +541,20 @@ ack_batch = 8
 		t.Errorf("server.listen_addr is described as %+v", listen)
 	}
 	if described[0].Key != "server.listen_addr" {
-		t.Errorf("Describe starts with %s, want the order of the default file", described[0].Key)
+		t.Errorf("Describe starts with %s, want the registry order", described[0].Key)
 	}
-	if got := Describe(Default(), nil); got[0].Source != SourceDefault {
+	if got := Describe(Default(), Sources{}); got[0].Source != SourceDefault {
 		t.Errorf("without sources a setting reads %q", got[0].Source)
+	}
+}
+
+func TestLogValueListsEverySection(t *testing.T) {
+	value := Default().LogValue()
+	var sections []string
+	for _, attr := range value.Group() {
+		sections = append(sections, attr.Key)
+	}
+	if strings.Join(sections, ",") != strings.Join(settings.Sections(), ",") {
+		t.Errorf("logged sections are %v", sections)
 	}
 }

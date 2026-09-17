@@ -92,8 +92,10 @@ type DeviceStatus struct {
 // are online. The zero value is not usable; call New.
 type Server struct {
 	store *store.Store
-	cfg   Config
 	log   *slog.Logger
+
+	cfgMu sync.RWMutex
+	cfg   Config
 	now   func() time.Time
 
 	mu     sync.Mutex
@@ -273,12 +275,31 @@ func (s *Server) Disconnect(deviceID string, why DisconnectReason) bool {
 	return true
 }
 
+// SetConfig changes the timing of the link while it runs (D-032). A new ack
+// interval or batch size applies to the next batch, a new ping interval from
+// each connection's next ping, and a new hello timeout to connections that
+// open afterwards. StatusCheck and CommandTimeout keep their first values.
+func (s *Server) SetConfig(cfg Config) {
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	cfg.StatusCheck = s.cfg.StatusCheck
+	cfg.CommandTimeout = s.cfg.CommandTimeout
+	s.cfg = cfg
+}
+
+// Config returns the timing the link uses now.
+func (s *Server) Config() Config {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg
+}
+
 // Watch compares every live connection with its device every StatusCheck
 // until ctx ends, and drops connections of devices that are no longer
 // approved, got a new token, or were reset. That covers changes made by
 // another process, such as a device command beside the running server.
 func (s *Server) Watch(ctx context.Context) {
-	ticker := time.NewTicker(s.cfg.StatusCheck)
+	ticker := time.NewTicker(s.Config().StatusCheck)
 	defer ticker.Stop()
 	for {
 		select {
@@ -452,7 +473,7 @@ func newDeviceConn(s *Server, ws *websocket.Conn, device store.Device, remote st
 		ctx:         ctx,
 		cancel:      cancel,
 		out:         make(chan outFrame, 64),
-		events:      make(chan store.Event, 2*max(s.cfg.AckBatch, 1)),
+		events:      make(chan store.Event, 2*max(s.Config().AckBatch, 1)),
 		stopWriter:  make(chan struct{}),
 		writerDone:  make(chan struct{}),
 		batchDone:   make(chan struct{}),
@@ -479,7 +500,7 @@ func (c *deviceConn) serve() {
 // handshake reads the hello and answers it. It reports whether the connection
 // goes on.
 func (c *deviceConn) handshake() bool {
-	helloCtx, cancel := context.WithTimeout(c.ctx, c.srv.cfg.HelloTimeout)
+	helloCtx, cancel := context.WithTimeout(c.ctx, c.srv.Config().HelloTimeout)
 	typ, data, err := c.ws.Read(helloCtx)
 	cancel()
 	if err != nil {
@@ -693,11 +714,12 @@ func (c *deviceConn) batchLoop() {
 			if c.discarding.Load() {
 				continue
 			}
+			cfg := c.srv.Config()
 			if len(batch) == 0 {
-				timer.Reset(c.srv.cfg.AckInterval)
+				timer.Reset(cfg.AckInterval)
 			}
 			batch = append(batch, event)
-			if len(batch) >= c.srv.cfg.AckBatch {
+			if len(batch) >= cfg.AckBatch {
 				flush()
 			}
 		case <-timer.C:
@@ -809,17 +831,21 @@ func (c *deviceConn) send(msg protocol.Message) error {
 
 // pingLoop pings the device and drops it when a pong does not come back.
 func (c *deviceConn) pingLoop() {
-	ticker := time.NewTicker(c.srv.cfg.PingInterval)
-	defer ticker.Stop()
+	// The timer is armed anew after every ping, so a changed interval applies
+	// from the next ping on.
+	timer := time.NewTimer(c.srv.Config().PingInterval)
+	defer timer.Stop()
 	for {
 		select {
 		case <-c.ctx.Done():
 			return
 		case <-c.closing:
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		}
-		ctx, cancel := context.WithTimeout(c.ctx, c.srv.cfg.PongTimeout)
+		cfg := c.srv.Config()
+		timer.Reset(cfg.PingInterval)
+		ctx, cancel := context.WithTimeout(c.ctx, cfg.PongTimeout)
 		err := c.ws.Ping(ctx)
 		cancel()
 		if err != nil {
@@ -957,7 +983,7 @@ func (c *deviceConn) command(ctx context.Context, name string, args map[string]a
 		return protocol.Result{}, err
 	}
 
-	timer := time.NewTimer(c.srv.cfg.CommandTimeout)
+	timer := time.NewTimer(c.srv.Config().CommandTimeout)
 	defer timer.Stop()
 	select {
 	case result, ok := <-answer:
@@ -966,7 +992,7 @@ func (c *deviceConn) command(ctx context.Context, name string, args map[string]a
 		}
 		return result, nil
 	case <-timer.C:
-		c.log.Warn("command timed out", "command", name, "id", id, "timeout", c.srv.cfg.CommandTimeout)
+		c.log.Warn("command timed out", "command", name, "id", id, "timeout", c.srv.Config().CommandTimeout)
 		return protocol.Result{}, fmt.Errorf("%s %s: %w", c.deviceID, name, ErrCommandTimeout)
 	case <-ctx.Done():
 		return protocol.Result{}, ctx.Err()

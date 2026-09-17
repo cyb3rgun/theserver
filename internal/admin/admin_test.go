@@ -89,7 +89,7 @@ func buildHarness(t *testing.T, withLink bool) *harness {
 	}
 	opts := httpapi.Options{
 		Store:    st,
-		Settings: func() []config.Setting { return config.Describe(config.Default(), nil) },
+		Settings: func() []config.Setting { return config.Describe(config.Default(), config.Sources{}) },
 		Logger:   quiet(),
 	}
 	if deviceLink != nil {
@@ -450,7 +450,7 @@ func TestRankingFragmentRendersSeededData(t *testing.T) {
 func TestSettingsPage(t *testing.T) {
 	h := newHarness(t)
 	page := h.html("GET", "/admin/settings", nil)
-	for _, s := range config.Describe(config.Default(), nil) {
+	for _, s := range config.Describe(config.Default(), config.Sources{}) {
 		contains(t, page, "<code>"+s.Key+"</code>", s.Env)
 	}
 	contains(t, page, "source-default", "--listen", "Precedence, highest first", "Listen address", "Address and port the HTTPS server listens on.")
@@ -641,4 +641,32 @@ func TestDeviceIsOfflineAtOnceAfterResetAndNewToken(t *testing.T) {
 		t.Errorf("right after the new token the row still shows the device online: %s", row)
 	}
 	expectClosed(t, ws, websocket.StatusPolicyViolation)
+}
+
+// A new login lasts as long as admin.session_hours says at that moment.
+func TestSessionLifetimeFollowsTheSetting(t *testing.T) {
+	h := newHarness(t)
+	hours := 3
+	h.admin.opts.SessionLifetime = func() time.Duration { return time.Duration(hours) * time.Hour }
+
+	page := h.do("GET", "/admin/login", nil, false)
+	contains(t, page.Body.String(), "The login lasts 3 hours in this browser.")
+	login := h.do("POST", "/admin/login", url.Values{"token": {h.token}}, false)
+	cookies := login.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].MaxAge != 3*3600 {
+		t.Fatalf("the login cookie is %+v", cookies)
+	}
+	id, ok := tokenIDFromCookie(h.key, cookies[0].Value, time.Now().Add(2*time.Hour))
+	if !ok || id != h.id {
+		t.Error("the cookie is not valid within its hours")
+	}
+	if _, ok := tokenIDFromCookie(h.key, cookies[0].Value, time.Now().Add(3*time.Hour+time.Minute)); ok {
+		t.Error("the cookie outlives its hours")
+	}
+
+	hours = 0
+	login = h.do("POST", "/admin/login", url.Values{"token": {h.token}}, false)
+	if c := login.Result().Cookies(); len(c) != 1 || c[0].MaxAge != int(SessionLifetime.Seconds()) {
+		t.Errorf("without a usable setting the cookie is %+v", c)
+	}
 }

@@ -1097,3 +1097,41 @@ func TestDisconnectedDeviceIsOfflineAtOnce(t *testing.T) {
 		})
 	}
 }
+
+// A timing changed while the link runs applies to the next batch (D-032);
+// the watcher and command timings keep their first values.
+func TestSetConfigAppliesToTheNextBatch(t *testing.T) {
+	cfg := testConfig()
+	cfg.AckInterval = time.Hour
+	cfg.AckBatch = 100
+	h := newHarness(t, cfg)
+	token := h.addDevice("tgt-01")
+	c := h.dial(token)
+	c.hello("tgt-01", 0)
+	c.waitAck(0)
+
+	c.send(shotEvent(t, 1, 1))
+	eventually(t, 2*time.Second, "the first event to arrive", func() bool {
+		online := h.link.Online()
+		return len(online) == 1 && !online[0].LastEventAt.IsZero()
+	})
+	if n := h.countEvents("tgt-01"); n != 0 {
+		t.Fatalf("%d events stored before the batch is full", n)
+	}
+
+	changed := h.link.Config()
+	changed.AckBatch = 2
+	changed.StatusCheck = time.Hour
+	changed.CommandTimeout = time.Hour
+	h.link.SetConfig(changed)
+	got := h.link.Config()
+	if got.AckBatch != 2 || got.StatusCheck != cfg.StatusCheck || got.CommandTimeout != cfg.CommandTimeout {
+		t.Errorf("Config after SetConfig is %+v", got)
+	}
+
+	c.send(shotEvent(t, 2, 2))
+	c.waitAck(2)
+	if n := h.countEvents("tgt-01"); n != 2 {
+		t.Errorf("%d events stored, want 2", n)
+	}
+}

@@ -74,34 +74,46 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		stop()
 	}()
 
-	logger := newLogger(cfg.Log, stderr)
+	logger, level := newLogger(cfg.Log, stderr)
 	slog.SetDefault(logger)
-	if err := serve(ctx, cfg, sources, *configPath, logger); err != nil {
+	if err := serve(ctx, cfg, sources, logger, level); err != nil {
 		logger.Error("theserver stopped with an error", "error", err)
 		return 1
 	}
 	return 0
 }
 
-func newLogger(c config.Log, w io.Writer) *slog.Logger {
-	opts := &slog.HandlerOptions{Level: c.SlogLevel()}
+// newLogger returns the logger of the server and the level it filters by,
+// which a settings change can move while the server runs.
+func newLogger(c config.Log, w io.Writer) (*slog.Logger, *slog.LevelVar) {
+	level := new(slog.LevelVar)
+	level.Set(c.SlogLevel())
+	opts := &slog.HandlerOptions{Level: level}
 	if c.Format == "json" {
-		return slog.New(slog.NewJSONHandler(w, opts))
+		return slog.New(slog.NewJSONHandler(w, opts)), level
 	}
-	return slog.New(slog.NewTextHandler(w, opts))
+	return slog.New(slog.NewTextHandler(w, opts)), level
 }
 
 // serve runs HTTPS with the health endpoint and the device link until ctx is
 // done, then shuts down within shutdownGrace.
-func serve(ctx context.Context, cfg config.Config, sources config.Sources, configPath string, logger *slog.Logger) error {
+func serve(ctx context.Context, cfg config.Config, sources config.Sources, logger *slog.Logger, level *slog.LevelVar) error {
 	logger.Info("theserver starting",
 		"version", version.Version,
 		"commit", version.Commit,
 		"build_date", version.BuildDate,
 		"go", version.GoVersion(),
-		"config_file", configPath,
+		"config_file", sources.File,
 		"config", cfg,
 	)
+	if len(sources.Foreign) > 0 {
+		logger.Info("the configuration file holds tables that are not theserver settings; they are kept",
+			"tables", sources.Foreign)
+	}
+	runtime, err := config.NewRuntime(cfg, sources)
+	if err != nil {
+		return err
+	}
 
 	db, err := openStore(ctx, cfg)
 	if err != nil {
@@ -124,6 +136,11 @@ func serve(ctx context.Context, cfg config.Config, sources config.Sources, confi
 	}
 
 	deviceLink := link.New(db, linkConfig(cfg.Link), logger)
+	// Settings that allow it take effect at once (D-032).
+	runtime.OnChange(func(c config.Config) {
+		level.Set(c.Log.SlogLevel())
+		deviceLink.SetConfig(linkConfig(c.Link))
+	})
 	watchCtx, stopWatch := context.WithCancel(context.Background())
 	defer stopWatch()
 	go deviceLink.Watch(watchCtx)
@@ -135,14 +152,20 @@ func serve(ctx context.Context, cfg config.Config, sources config.Sources, confi
 	router := httpapi.New(httpapi.Options{
 		Store:    db,
 		Link:     deviceLink,
-		Settings: func() []config.Setting { return config.Describe(cfg, sources) },
+		Settings: func() []config.Setting { return config.Describe(runtime.Config(), runtime.Sources()) },
 		Logger:   logger,
 	})
 	key, err := admin.LoadOrCreateKey(filepath.Join(cfg.Server.DataDir, admin.KeyFileName))
 	if err != nil {
 		return fmt.Errorf("admin cookie key: %w", err)
 	}
-	pages, err := admin.New(admin.Options{API: router.API(), Store: db, Key: key, Logger: logger})
+	pages, err := admin.New(admin.Options{
+		API: router.API(), Store: db, Key: key, Logger: logger,
+		Language: func() string { return runtime.Config().Admin.Language },
+		SessionLifetime: func() time.Duration {
+			return time.Duration(runtime.Config().Admin.SessionHours) * time.Hour
+		},
+	})
 	if err != nil {
 		return err
 	}

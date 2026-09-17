@@ -43,7 +43,7 @@ func newAPI(t *testing.T) *apiHarness {
 	srv := New(Options{
 		Store:    st,
 		Link:     fl,
-		Settings: func() []config.Setting { return config.Describe(config.Default(), nil) },
+		Settings: func() []config.Setting { return config.Describe(config.Default(), config.Sources{}) },
 		Logger:   quiet(),
 	})
 	return &apiHarness{t: t, st: st, link: fl, srv: srv, token: token, admin: admin}
@@ -410,7 +410,7 @@ func TestOnlineRoute(t *testing.T) {
 func TestSettingsRoute(t *testing.T) {
 	h := newAPI(t)
 	got := decode[struct{ Settings []config.Setting }](t, h.call("GET", Prefix+"/settings", ""), 200)
-	if len(got.Settings) != len(config.Describe(config.Default(), nil)) {
+	if len(got.Settings) != len(config.Describe(config.Default(), config.Sources{})) {
 		t.Fatalf("GET /settings listed %d settings", len(got.Settings))
 	}
 	first := got.Settings[0]

@@ -55,6 +55,9 @@ type Options struct {
 	// Language is the language of a login that has not chosen one; English
 	// when nil (D-031).
 	Language func() string
+	// SessionLifetime is how long a new login lasts; SessionLifetime when
+	// nil. It is asked at every login, so a change applies to the next one.
+	SessionLifetime func() time.Duration
 }
 
 // Admin serves /admin.
@@ -204,7 +207,7 @@ func (a *Admin) layout(titleKey, active string, s session) layout {
 		Admin:        s.Name,
 		Integrity:    a.integrity,
 		Version:      version.Version,
-		SessionHours: int(SessionLifetime.Hours()),
+		SessionHours: int(a.sessionLifetime().Hours()),
 	}
 }
 

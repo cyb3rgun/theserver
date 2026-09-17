@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	registry "github.com/cyb3rgun/theserver/internal/settings"
+	"github.com/cyb3rgun/theserver/internal/settings"
 )
 
 // configFields maps every leaf of Config, written section.key as the toml
@@ -29,17 +29,17 @@ func TestConfigMatchesRegistry(t *testing.T) {
 	def := Default()
 	fields := configFields(&def)
 
-	goKind := map[registry.Kind]reflect.Kind{
-		registry.String:   reflect.String,
-		registry.Path:     reflect.String,
-		registry.Addr:     reflect.String,
-		registry.Enum:     reflect.String,
-		registry.Int:      reflect.Int,
-		registry.Duration: reflect.Int,
-		registry.Bool:     reflect.Bool,
+	goKind := map[settings.Kind]reflect.Kind{
+		settings.String:   reflect.String,
+		settings.Path:     reflect.String,
+		settings.Addr:     reflect.String,
+		settings.Enum:     reflect.String,
+		settings.Int:      reflect.Int,
+		settings.Duration: reflect.Int,
+		settings.Bool:     reflect.Bool,
 	}
 	registered := map[string]bool{}
-	for _, s := range registry.All() {
+	for _, s := range settings.All() {
 		registered[s.Key] = true
 		field, ok := fields[s.Key]
 		if !ok {

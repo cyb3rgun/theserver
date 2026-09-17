@@ -22,6 +22,8 @@ var wantOrder = []string{
 	"link.hello_timeout_s",
 	"log.level",
 	"log.format",
+	"admin.language",
+	"admin.session_hours",
 }
 
 func keys(list []Setting) []string {
@@ -182,6 +184,8 @@ func TestEnvAndFlags(t *testing.T) {
 		"link.hello_timeout_s":  "THESERVER_LINK_HELLOTIMEOUTS",
 		"log.level":             "THESERVER_LOG_LEVEL",
 		"log.format":            "THESERVER_LOG_FORMAT",
+		"admin.language":        "THESERVER_ADMIN_LANGUAGE",
+		"admin.session_hours":   "THESERVER_ADMIN_SESSIONHOURS",
 	}
 	flags := map[string]string{}
 	for _, s := range All() {
