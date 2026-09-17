@@ -73,6 +73,16 @@
     stateBox.classList.toggle('busy', state.pending > 0);
   }
 
+  // swap puts a fragment the server rendered into the page and tells HTMX
+  // about it, so the forms inside it keep going through HTMX and not
+  // through a page load.
+  function swap(id, html) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    box.innerHTML = html;
+    if (window.htmx && typeof window.htmx.process === 'function') window.htmx.process(box);
+  }
+
   async function send(url, options) {
     busy(true);
     try {
@@ -99,6 +109,8 @@
     if (!answer) return false;
     const data = await answer.json();
     take(data.draft);
+    const stale = document.getElementById('problems-stale');
+    if (stale) stale.hidden = false;
     if (!keepPanel) refreshPanel();
     return true;
   }
@@ -307,8 +319,11 @@
     let n = list.length + 1;
     while (ids.has('z-' + n)) n++;
     const zone = {
+      // A name that is empty in every language is no name at all: the model
+      // takes a text that is there in one language and misses in another as
+      // a problem, and a new zone has none yet.
       id: 'z-' + n,
-      name: { en: '', de: '' },
+      name: null,
       shape: kind,
       points: shape.points,
       radius: kind === 'circle' ? shape.radius : 0,
@@ -395,7 +410,13 @@
 
   canvas.addEventListener('pointerdown', (event) => {
     if (!state.manifest) return;
-    canvas.setPointerCapture(event.pointerId);
+    // A pointer that is not really down, as a test sends one, cannot be
+    // captured; the drawing works without the capture.
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch (err) {
+      /* nothing to capture */
+    }
     const point = at(event);
     if (state.tool) {
       startDrawing(point);
@@ -618,7 +639,11 @@
     const grip = event.target.classList.contains('grip') ? (event.target.classList.contains('left') ? 'left' : 'right') : 'move';
     const a = appearances()[index];
     state.drag = { kind: 'bar', index, grip, from: time, start: a.t_start_ms, end: a.t_end_ms };
-    track.setPointerCapture(event.pointerId);
+    try {
+      track.setPointerCapture(event.pointerId);
+    } catch (err) {
+      /* nothing to capture */
+    }
   });
 
   track.addEventListener('pointermove', (event) => {
@@ -783,7 +808,7 @@
     busy(true);
     request.addEventListener('load', async () => {
       busy(false, request.status >= 400);
-      document.getElementById('media').innerHTML = request.responseText;
+      swap('media', request.responseText);
       input.value = '';
       await load();
     });
@@ -809,7 +834,7 @@
       busy(true);
       request.addEventListener('load', async () => {
         busy(false, request.status >= 400);
-        document.getElementById('media').innerHTML = request.responseText;
+        swap('media', request.responseText);
         await load();
       });
       request.addEventListener('error', () => busy(false, true));
@@ -831,7 +856,7 @@
       headers: { 'Accept': 'text/html' },
     });
     if (!answer) return;
-    document.getElementById('panel').innerHTML = await answer.text();
+    swap('panel', await answer.text());
   }
 
   // --- the bar ---------------------------------------------------------
@@ -839,7 +864,7 @@
   async function validate() {
     const answer = await send(urls.validate, { method: 'POST', headers: { 'Accept': 'text/html' } });
     if (!answer) return;
-    document.getElementById('problems').innerHTML = await answer.text();
+    swap('problems', await answer.text());
     readReady();
     await load();
   }
@@ -857,7 +882,7 @@
       location.href = answer.url;
       return;
     }
-    document.getElementById('problems').innerHTML = await answer.text();
+    swap('problems', await answer.text());
     readReady();
     await load();
   }

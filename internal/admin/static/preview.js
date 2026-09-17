@@ -173,7 +173,7 @@
     state.shots.push({ t_ms: t, x: point.x, y: point.y });
     handleEvents();
     if (decided) {
-      state.marks.push({ x: point.x, y: point.y, until: t + 350, hit: decided.kind === 'hit' });
+      state.marks.push({ x: point.x, y: point.y, until: t + 900, hit: decided.kind === 'hit' });
       if (decided.kind === 'hit') fire();
     }
     showScore();
@@ -231,7 +231,7 @@
     state.marks = state.marks.filter((mark) => mark.until > state.now);
     let flash = false;
     state.marks.forEach((mark) => {
-      flash = flash || (mark.hit && mark.until - state.now > 280);
+      flash = flash || (mark.hit && mark.until - state.now > 830);
       ctx.lineWidth = 6;
       ctx.strokeStyle = mark.hit ? '#ffb000' : 'rgba(255,255,255,0.7)';
       if (marker === 'ring' || !mark.hit) {
