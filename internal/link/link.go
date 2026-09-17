@@ -194,12 +194,16 @@ func writeUnauthorized(w http.ResponseWriter, reason string) {
 	w.Write(body)
 }
 
-// Online lists the connected devices, ordered by device id.
+// Online lists the connected devices, ordered by device id. A connection
+// that is being closed is no longer listed, even while its close handshake
+// runs.
 func (s *Server) Online() []DeviceStatus {
 	s.mu.Lock()
 	conns := make([]*deviceConn, 0, len(s.conns))
 	for _, c := range s.conns {
-		conns = append(conns, c)
+		if !c.leaving.Load() {
+			conns = append(conns, c)
+		}
 	}
 	s.mu.Unlock()
 
@@ -216,7 +220,7 @@ func (s *Server) Online() []DeviceStatus {
 // answer within the command timeout gives ErrCommandTimeout, which is logged.
 func (s *Server) SendCommand(ctx context.Context, deviceID, name string, args map[string]any) (protocol.Result, error) {
 	c := s.lookup(deviceID)
-	if c == nil {
+	if c == nil || c.leaving.Load() {
 		return protocol.Result{}, fmt.Errorf("%s: %w", deviceID, ErrDeviceOffline)
 	}
 	return c.command(ctx, name, args)
@@ -258,13 +262,14 @@ func (r DisconnectReason) closing() closing {
 }
 
 // Disconnect ends the live connection of a device, if it has one, and reports
-// whether it had. The connection is closed in the background.
+// whether it had. The device counts as offline when Disconnect returns; the
+// connection itself is closed in the background.
 func (s *Server) Disconnect(deviceID string, why DisconnectReason) bool {
 	c := s.lookup(deviceID)
 	if c == nil {
 		return false
 	}
-	go c.close(why.closing())
+	c.leave(why.closing())
 	return true
 }
 
@@ -299,11 +304,11 @@ func (s *Server) Watch(ctx context.Context) {
 			state, known := states[status.DeviceID]
 			switch {
 			case !known || state.Status != store.StatusApproved:
-				go c.close(Revoked.closing())
+				c.leave(Revoked.closing())
 			case !bytes.Equal(state.TokenHash, c.device.TokenHash):
-				go c.close(TokenReplaced.closing())
+				c.leave(TokenReplaced.closing())
 			case state.SeqEpoch != c.epoch:
-				go c.close(Reset.closing())
+				c.leave(Reset.closing())
 			}
 		}
 	}
@@ -321,7 +326,7 @@ func (s *Server) Close(ctx context.Context) error {
 	s.mu.Unlock()
 
 	for _, c := range conns {
-		go c.close(closing{code: websocket.StatusGoingAway, reason: "server shutting down"})
+		c.leave(closing{code: websocket.StatusGoingAway, reason: "server shutting down"})
 	}
 
 	done := make(chan struct{})
@@ -395,6 +400,9 @@ type deviceConn struct {
 	closeOnce  sync.Once
 	stopOnce   sync.Once
 	discarding atomic.Bool
+	// leaving is set as soon as the connection is being closed; from then on
+	// Online and SendCommand treat the device as offline.
+	leaving atomic.Bool
 
 	nextCommand atomic.Uint64
 	pendingMu   sync.Mutex
@@ -767,7 +775,7 @@ func (c *deviceConn) writeLoop() {
 				close(frame.written)
 			}
 			if err != nil {
-				go c.close(closing{code: websocket.StatusInternalError, reason: "write failed: " + err.Error(), abrupt: true})
+				c.leave(closing{code: websocket.StatusInternalError, reason: "write failed: " + err.Error(), abrupt: true})
 				return
 			}
 			if frame.last {
@@ -840,9 +848,17 @@ func (c *deviceConn) storeFailure(what string, err error) {
 	c.close(closing{code: websocket.StatusInternalError, reason: "store failure", discard: true})
 }
 
+// leave marks the connection as leaving and closes it in the background, so
+// that a caller sees the device offline at once.
+func (c *deviceConn) leave(how closing) {
+	c.leaving.Store(true)
+	go c.close(how)
+}
+
 // close ends the connection once: it stops further frames, sends the err
 // message if there is one as the last frame, and closes the WebSocket.
 func (c *deviceConn) close(how closing) {
+	c.leaving.Store(true)
 	c.closeOnce.Do(func() {
 		c.setReason(how.reason)
 		if how.discard {

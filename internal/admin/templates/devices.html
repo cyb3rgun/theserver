@@ -65,4 +65,7 @@
   {{end}}
   <form method="dialog"><button class="button primary" type="submit">Close</button></form>
 </dialog>
+<hx-partial hx-target="#devices" hx-swap="outerHTML">
+{{template "devices-table" .Table}}
+</hx-partial>
 {{end}}

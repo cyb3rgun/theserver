@@ -125,9 +125,13 @@ type devicesData struct {
 	Updated string
 }
 
+// tokenData fills the token dialog. Table is the devices table after the
+// change, swapped in beside the dialog so the page shows the device offline
+// at once.
 type tokenData struct {
 	Token httpapi.NewToken
 	Error string
+	Table devicesData
 }
 
 func (a *Admin) loadDevices(w http.ResponseWriter, r *http.Request, s session, data *devicesData) bool {
@@ -172,7 +176,13 @@ func (a *Admin) deviceAction(w http.ResponseWriter, r *http.Request, s session) 
 		if a.failed(w, r, err, &data.Error) {
 			return
 		}
-		a.render(w, http.StatusOK, "devices", "token-dialog", data)
+		data.Table = devicesData{layout: a.layout("Devices", "devices", s)}
+		if data.Error == "" {
+			data.Table.Notice = fmt.Sprintf("Device %s has a new token; its connection was closed.", id)
+		}
+		if a.loadDevices(w, r, s, &data.Table) {
+			a.render(w, http.StatusOK, "devices", "token-dialog", data)
+		}
 		return
 	}
 

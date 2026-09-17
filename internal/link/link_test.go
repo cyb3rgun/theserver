@@ -1054,3 +1054,46 @@ func TestDisconnectOfflineDevice(t *testing.T) {
 		t.Error("Disconnect reported a connection for an offline device")
 	}
 }
+
+// The device must count as offline as soon as Disconnect returns, not only
+// once the close handshake is over. The client does not read until the checks
+// are done, so the handshake cannot finish before them.
+func TestDisconnectedDeviceIsOfflineAtOnce(t *testing.T) {
+	tests := []struct {
+		name   string
+		why    DisconnectReason
+		status websocket.StatusCode
+	}{
+		{name: "revoked", why: Revoked, status: websocket.StatusPolicyViolation},
+		{name: "token replaced", why: TokenReplaced, status: websocket.StatusPolicyViolation},
+		{name: "reset", why: Reset, status: websocket.StatusServiceRestart},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, testConfig())
+			token := h.addDevice("tgt-01")
+			c := h.dial(token)
+			c.hello("tgt-01", 0)
+			c.waitAck(0)
+
+			if !h.link.Disconnect("tgt-01", tt.why) {
+				t.Fatal("Disconnect found no connection")
+			}
+			if online := h.link.Online(); len(online) != 0 {
+				t.Errorf("Online still lists %+v right after Disconnect", online)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			defer cancel()
+			if _, err := h.link.SendCommand(ctx, "tgt-01", protocol.CommandTimeMark, nil); !errors.Is(err, ErrDeviceOffline) {
+				t.Errorf("a command right after Disconnect gave %v, want ErrDeviceOffline", err)
+			}
+
+			if status := c.expectClosed(3 * time.Second); status != tt.status {
+				t.Errorf("close status is %d, want %d", status, tt.status)
+			}
+			eventually(t, 2*time.Second, "the connection to end", func() bool {
+				return strings.Contains(h.logs.String(), `msg="device disconnected"`)
+			})
+		})
+	}
+}

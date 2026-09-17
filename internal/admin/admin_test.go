@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,8 +18,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/cyb3rgun/theserver/internal/config"
 	"github.com/cyb3rgun/theserver/internal/httpapi"
+	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/protocol"
 	"github.com/cyb3rgun/theserver/internal/store"
 )
@@ -31,6 +35,11 @@ type harness struct {
 	token  string
 	id     string
 	cookie *http.Cookie
+
+	// Set by newLinkedHarness: a device link on a test server.
+	link    *link.Server
+	linkSrv *httptest.Server
+	linkURL string
 }
 
 func quiet() *slog.Logger {
@@ -38,6 +47,17 @@ func quiet() *slog.Logger {
 }
 
 func newHarness(t *testing.T) *harness {
+	t.Helper()
+	return buildHarness(t, false)
+}
+
+// newLinkedHarness is newHarness with a running device link behind the API.
+func newLinkedHarness(t *testing.T) *harness {
+	t.Helper()
+	return buildHarness(t, true)
+}
+
+func buildHarness(t *testing.T, withLink bool) *harness {
 	t.Helper()
 	st, err := store.Open(context.Background(), t.TempDir())
 	if err != nil {
@@ -48,20 +68,45 @@ func newHarness(t *testing.T) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := httpapi.New(httpapi.Options{
+	var (
+		deviceLink *link.Server
+		linkSrv    *httptest.Server
+	)
+	if withLink {
+		deviceLink = link.New(st, link.DefaultConfig(), quiet())
+		mux := http.NewServeMux()
+		mux.Handle(link.Path, deviceLink)
+		linkSrv = httptest.NewTLSServer(mux)
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			deviceLink.Close(ctx)
+			linkSrv.Close()
+		})
+	}
+	opts := httpapi.Options{
 		Store:    st,
 		Settings: func() []config.Setting { return config.Describe(config.Default(), nil) },
 		Logger:   quiet(),
-	})
+	}
+	if deviceLink != nil {
+		opts.Link = deviceLink
+	}
+	api := httpapi.New(opts)
 	key := bytes.Repeat([]byte{7}, 32)
 	a, err := New(Options{API: api.API(), Store: st, Key: key, Logger: quiet()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &harness{
+	h := &harness{
 		t: t, st: st, admin: a, key: key, token: token, id: row.ID,
 		cookie: NewSessionCookie(key, row.ID, time.Now()),
+		link:   deviceLink, linkSrv: linkSrv,
 	}
+	if linkSrv != nil {
+		h.linkURL = "wss" + strings.TrimPrefix(linkSrv.URL, "https") + link.Path
+	}
+	return h
 }
 
 // do sends a request, with the session cookie when withCookie is set.
@@ -482,4 +527,112 @@ func TestLoadOrCreateKey(t *testing.T) {
 	if _, err := New(Options{API: http.NotFoundHandler(), Store: &store.Store{}, Key: []byte("short")}); err == nil {
 		t.Error("New accepted a short key")
 	}
+}
+
+// connectDevice registers id as an approved target, connects it to the link
+// and reads its welcome and first ack. The test then reads nothing, so a close
+// from the server cannot finish its handshake until expectClosed reads again.
+func (h *harness) connectDevice(id string) *websocket.Conn {
+	h.t.Helper()
+	ctx := context.Background()
+	token := "token-of-" + id
+	if _, err := h.st.GetDevice(ctx, id); errors.Is(err, store.ErrDeviceNotFound) {
+		if err := h.st.UpsertDevice(ctx, store.Device{
+			ID: id, Kind: store.KindTarget, Class: store.ClassESP,
+			Status: store.StatusApproved, TokenHash: store.HashToken(token),
+		}); err != nil {
+			h.t.Fatal(err)
+		}
+	}
+	d, err := h.st.GetDevice(ctx, id)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if !bytes.Equal(d.TokenHash, store.HashToken(token)) {
+		if err := h.st.SetDeviceToken(ctx, id, store.HashToken(token)); err != nil {
+			h.t.Fatal(err)
+		}
+	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	header := http.Header{}
+	header.Set("Authorization", "Bearer "+token)
+	ws, _, err := websocket.Dial(dialCtx, h.linkURL, &websocket.DialOptions{
+		HTTPClient: h.linkSrv.Client(), HTTPHeader: header,
+	})
+	if err != nil {
+		h.t.Fatalf("dial: %v", err)
+	}
+	h.t.Cleanup(func() { ws.CloseNow() })
+	hello, err := protocol.Encode(protocol.Hello{Dev: id, FW: "test", Cls: protocol.ClassESP, Last: 0, Proto: protocol.Version})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if err := ws.Write(dialCtx, websocket.MessageBinary, hello); err != nil {
+		h.t.Fatal(err)
+	}
+	for _, want := range []string{protocol.TypeWelcome, protocol.TypeAck} {
+		_, frame, err := ws.Read(dialCtx)
+		if err != nil {
+			h.t.Fatalf("waiting for %s: %v", want, err)
+		}
+		msg, err := protocol.Decode(frame)
+		if err != nil || msg.Type() != want {
+			h.t.Fatalf("got %v, %v, want %s", msg, err, want)
+		}
+	}
+	return ws
+}
+
+func expectClosed(t *testing.T, ws *websocket.Conn, want websocket.StatusCode) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for {
+		if _, _, err := ws.Read(ctx); err != nil {
+			if got := websocket.CloseStatus(err); got != want {
+				t.Errorf("the device connection ended with %d (%v), want %d", got, err, want)
+			}
+			return
+		}
+	}
+}
+
+func deviceRow(t *testing.T, page, id string) string {
+	t.Helper()
+	row := regexp.MustCompile(`(?s)<tr id="device-` + regexp.QuoteMeta(id) + `">.*?</tr>`).FindString(page)
+	if row == "" {
+		t.Fatalf("the page has no row for %s: %s", id, page)
+	}
+	return row
+}
+
+// After a reset or a new token the answer must already show the device
+// offline, while its connection may still be closing.
+func TestDeviceIsOfflineAtOnceAfterResetAndNewToken(t *testing.T) {
+	h := newLinkedHarness(t)
+	ws := h.connectDevice("tgt-01")
+	contains(t, deviceRow(t, h.html("GET", "/admin/devices/table", nil), "tgt-01"), "badge online")
+
+	page := h.html("POST", "/admin/devices/tgt-01/reset", url.Values{})
+	row := deviceRow(t, page, "tgt-01")
+	contains(t, row, "badge offline", `<td class="number">2</td>`, `<span class="muted">none</span>`)
+	if strings.Contains(row, "badge online") {
+		t.Errorf("right after the reset the row still shows the device online: %s", row)
+	}
+	expectClosed(t, ws, websocket.StatusServiceRestart)
+
+	ws = h.connectDevice("tgt-01")
+	contains(t, deviceRow(t, h.html("GET", "/admin/devices/table", nil), "tgt-01"), "badge online")
+
+	page = h.html("POST", "/admin/devices/tgt-01/token", url.Values{})
+	contains(t, page, "<dialog open", `id="new-token"`,
+		`<hx-partial hx-target="#devices" hx-swap="outerHTML">`, "Device tgt-01 has a new token; its connection was closed.")
+	row = deviceRow(t, page, "tgt-01")
+	contains(t, row, "badge offline", `<span class="muted">none</span>`)
+	if strings.Contains(row, "badge online") {
+		t.Errorf("right after the new token the row still shows the device online: %s", row)
+	}
+	expectClosed(t, ws, websocket.StatusPolicyViolation)
 }
