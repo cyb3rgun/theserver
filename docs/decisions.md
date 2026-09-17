@@ -23,6 +23,7 @@ Numbered newest first. Every entry names its date, the decision, the reason and 
 - Date: 17 September 2026 (S01-B08)
 - Decision: theserver converts no media. The editor takes a file only when its container and its codec are ones a target plays, read from the header of the file alone, and refuses anything else at upload with a translated message.
 - Agreed with the architect during this pass: a clip is MP4 with H.264 or AV1, an overlay with transparency is WebM with VP8, VP9 or AV1, a sound is Ogg with Vorbis or Opus, and a cover is PNG. Whether the browser plays the file is the practical test.
+- Agreed with the architect at the close of the pass: the editor keeps the picture on the screen as `cover.png` with "This frame as cover", so a scenario built in the editor has a cover in the catalogue without a second program.
 - Details: `internal/mediakind` reads the boxes of an MP4 up to the sample description, the elements of a WebM up to the track entry, the first page of an Ogg stream and the signature of a PNG. It decodes nothing and needs nothing outside the standard library. What the server cannot know without decoding, the length of a clip and its picture size, the browser measures and sends back with `PATCH /api/v1/drafts/{id}/media/{name}`; the editor takes the duration and the canvas of the scenario from the first clip.
 - Reason: A venue uploads what its camera or its editing program produced. Refusing it at upload, with a sentence that says which formats are taken, is honest; transcoding on the server is a second product.
 - Versions: none.
@@ -40,6 +41,7 @@ Numbered newest first. Every entry names its date, the decision, the reason and 
 
 - Date: 17 September 2026 (S01-B08)
 - Decision: The drawing canvas, the timeline and the video scrubber of the editor are one plain JavaScript file, `internal/admin/static/editor.js`, served from the binary with a subresource integrity hash, as `settings.js` and `scenarios.js` are. The preview adds `rules.js` and `preview.js` the same way. No bundler, no npm, no CDN. HTMX renders the forms around them.
+- Agreed with the architect at the close of the pass: a zone drawn in the editor starts without a name, so that an optional text is never half filled in one language; a change while a zone has keyframes writes a keyframe at the playhead, and a zone without keyframes is changed itself.
 - Details: The scripts hold no text: the page carries every word they show in data attributes, so both languages come from the catalogues. A test compares the hash in the page with the hash of the file that is served. The pages keep the content security policy of B06: scripts and styles only from `/admin/static`.
 - Reason: The editor has to run in a venue without an internet connection, from one binary, and a build step in the browser would be a second toolchain nobody there can repair.
 - Versions: none.
@@ -48,6 +50,7 @@ Numbered newest first. Every entry names its date, the decision, the reason and 
 
 - Date: 17 September 2026 (S01-B08)
 - Decision: On publish the server writes `manifest.toml` from the draft, computes the SHA-256 of every file into the `[files]` table, zips the package and hands it to the same chain an upload takes: validated by `internal/scenario`, stored by the content store, published as the next version. The editor never sees a hash.
+- Agreed with the architect at the close of the pass: the version is decided at publish, one above the latest published one, and the draft stays afterwards and works towards the next version; throwing a draft away is a button on the editor page.
 - Details: `scenario.WriteManifest` writes the manifest, and a test reads back every valid fixture unchanged, with the same hash. The version is one above the latest published version of the scenario, and the draft stays after a publish and works towards the next one. A draft with problems publishes nothing at all. A test compares a package from the editor with the hand made fixture it was copied from, down to the files table.
 - Reason: A person who draws zones should not think about hashes, and a package from the editor must be the same kind of thing as a package from a studio, checked by the same code.
 - Versions: none.
@@ -56,7 +59,8 @@ Numbered newest first. Every entry names its date, the decision, the reason and 
 
 - Date: 17 September 2026 (S01-B08)
 - Decision: A scenario in the making is a row in `scenario_drafts` with its manifest as JSON and its media below `content/drafts/<draft id>/media`, not a document in the browser. Every editor action is a request that changes the draft; closing the browser loses nothing.
-- Details: Migration 0007 adds the table. Ten endpoints under `/api/v1/drafts` carry the editor: list, create (empty or as a copy of a published version), read, change, delete, upload media, read one media file, keep what the browser measured, delete media, validate, publish, and the trace of D-044. A change is a JSON merge patch (RFC 7386) on the manifest which must fit the scenario model, else nothing is stored and the field is named. The draft is kept in the shape the model writes, so nothing the model does not know survives a change.
+- Agreed with the architect at the close of the pass: a draft is opened for the tiers video and interactive only, and another tier is refused at creation with a sentence that says so. A new draft starts at age rating 18, licence `private`, the admin who opened it as author, a canvas of 1080 by 1920 upright and the rules of the example in `docs/scenario.md`; the editor takes the duration and the canvas from the first clip it measures and, in a video scenario, makes that clip the main video. Three endpoints beside the list of the briefing carry the editor: `GET /api/v1/drafts/{id}/media/{name}`, which the video element needs, `PATCH /api/v1/drafts/{id}/media/{name}` as the second call of an upload, and `POST /api/v1/drafts/{id}/trace` for the comparison of D-044.
+- Details: Migration 0007 adds the table. Twelve endpoints under `/api/v1/drafts` carry the editor: list, create (empty or as a copy of a published version), read, change, delete, upload media, read one media file, keep what the browser measured, delete media, validate, publish, and the trace of D-044. A change is a JSON merge patch (RFC 7386) on the manifest which must fit the scenario model, else nothing is stored and the field is named. The draft is kept in the shape the model writes, so nothing the model does not know survives a change.
 - Reason: A venue edits a scenario over days, on whatever computer is free, and a lost evening of work is the kind of thing that makes people stop using an editor.
 - Versions: none.
 
