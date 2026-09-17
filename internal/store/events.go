@@ -54,8 +54,13 @@ func (id EventID) String() string {
 //
 // An empty SessionID lets the store attribute the event by device time: to the
 // session of the device whose start and end cover TsDevice (D-021).
+//
+// DeviceID and SeqEpoch are filled when events are read; on append the device
+// is a parameter and the epoch is the current one of the device (D-026).
 type Event struct {
 	ID           EventID
+	DeviceID     string
+	SeqEpoch     uint64
 	Seq          uint64
 	Kind         string
 	ControllerID string
@@ -67,10 +72,11 @@ type Event struct {
 
 // An AppendResult reports what a batch did. AckSeq is the highest sequence
 // number such that every sequence number from 1 to AckSeq is stored for that
-// device, which is what the device link acknowledges.
+// device in its current epoch, which is what the device link acknowledges.
 type AppendResult struct {
 	Stored     int
 	Duplicates int
+	SeqEpoch   uint64
 	AckSeq     uint64
 }
 
@@ -80,8 +86,12 @@ var (
 	ErrSeqConflict = errors.New("sequence number already used by another event")
 
 	// ErrEventConflict says that an event id is already stored under another
-	// device or sequence number. The batch is rolled back.
+	// device, epoch or sequence number. The batch is rolled back.
 	ErrEventConflict = errors.New("event id already stored for another device or sequence number")
+
+	// ErrEpochChanged says that the device was reset after the caller learned
+	// its epoch. Nothing of the batch is stored.
+	ErrEpochChanged = errors.New("device sequence epoch changed")
 )
 
 // A ConflictError names the event of a batch that contradicted the journal.
@@ -101,15 +111,31 @@ func (e *ConflictError) Unwrap() error {
 	return e.Err
 }
 
-// AppendEvents writes a batch of events of one device in a single
-// transaction, and is safe to call again with the same batch: an event whose
-// id is already stored counts as a duplicate and is not written twice.
+// AppendEvents writes a batch of events of one device into its current
+// epoch, in a single transaction, and is safe to call again with the same
+// batch: an event whose id is already stored counts as a duplicate and is not
+// written twice.
 //
 // A sequence number that is already taken by a different event, or an event id
-// that is already stored under a different sequence number, is a conflict: the
-// whole batch is rolled back and nothing is stored. Events are immutable, so
-// the journal never updates a row (D-012).
+// that is already stored under a different device, epoch or sequence number,
+// is a conflict: the whole batch is rolled back and nothing is stored. Events
+// are immutable, so the journal never updates a row (D-012).
 func (s *Store) AppendEvents(ctx context.Context, deviceID string, events []Event) (AppendResult, error) {
+	return s.appendEvents(ctx, deviceID, 0, events)
+}
+
+// AppendEventsInEpoch is AppendEvents for a caller that learned the epoch of
+// the device earlier, like a device connection. If the device has been reset
+// since, it returns ErrEpochChanged and stores nothing, so events of an old
+// epoch never land in a new one.
+func (s *Store) AppendEventsInEpoch(ctx context.Context, deviceID string, epoch uint64, events []Event) (AppendResult, error) {
+	if epoch == 0 {
+		return AppendResult{}, errors.New("append events: epoch must be 1 or higher")
+	}
+	return s.appendEvents(ctx, deviceID, epoch, events)
+}
+
+func (s *Store) appendEvents(ctx context.Context, deviceID string, expectEpoch uint64, events []Event) (AppendResult, error) {
 	if deviceID == "" {
 		return AppendResult{}, errors.New("append events: device id must not be empty")
 	}
@@ -126,10 +152,18 @@ func (s *Store) AppendEvents(ctx context.Context, deviceID string, events []Even
 	}
 	defer tx.Rollback()
 
+	epoch, err := currentEpoch(ctx, tx, deviceID)
+	if err != nil {
+		return AppendResult{}, fmt.Errorf("append events: %w", err)
+	}
+	if expectEpoch != 0 && epoch != expectEpoch {
+		return AppendResult{}, fmt.Errorf("append events for %s: epoch is %d, not %d: %w", deviceID, epoch, expectEpoch, ErrEpochChanged)
+	}
+
 	tsServer := s.nowMilli()
-	var result AppendResult
+	result := AppendResult{SeqEpoch: epoch}
 	for _, e := range events {
-		stored, err := appendEvent(ctx, tx, deviceID, e, tsServer)
+		stored, err := appendEvent(ctx, tx, deviceID, epoch, e, tsServer)
 		var conflict *ConflictError
 		if errors.As(err, &conflict) {
 			return AppendResult{}, fmt.Errorf("append events for %s: %w", deviceID, err)
@@ -144,7 +178,7 @@ func (s *Store) AppendEvents(ctx context.Context, deviceID string, events []Even
 		}
 	}
 
-	ack, err := ackSeq(ctx, tx, deviceID)
+	ack, err := ackSeq(ctx, tx, deviceID, epoch)
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -171,14 +205,27 @@ func validateEvent(e Event) error {
 	return nil
 }
 
+// currentEpoch reads the sequence epoch of a device.
+func currentEpoch(ctx context.Context, q querier, deviceID string) (uint64, error) {
+	var epoch int64
+	err := q.QueryRowContext(ctx, `SELECT seq_epoch FROM devices WHERE id = ?`, deviceID).Scan(&epoch)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("%s: %w", deviceID, ErrDeviceNotFound)
+	}
+	if err != nil {
+		return 0, err
+	}
+	return uint64(epoch), nil
+}
+
 // insertEvent stores one event. Without a session from the caller, the
 // session is the one that holds the device and whose start and end cover the
 // device time of the event, the latest started if several do; a session that
 // is still running has no end yet.
 const insertEvent = `
 INSERT INTO events (
-  event_id, device_id, seq, kind, controller_id, session_id, ts_device, ts_server, payload
-) VALUES (?1, ?2, ?3, ?4, ?5,
+  event_id, device_id, seq_epoch, seq, kind, controller_id, session_id, ts_device, ts_server, payload
+) VALUES (?1, ?2, ?10, ?3, ?4, ?5,
   COALESCE(?6, (
     SELECT s.id
       FROM sessions s
@@ -195,23 +242,24 @@ ON CONFLICT(event_id) DO NOTHING`
 
 // appendEvent inserts one event and reports whether it was stored. An id that
 // is already in the journal is left alone, which makes a replay cheap, but
-// only when it carries the same device and sequence number.
-func appendEvent(ctx context.Context, tx *sql.Tx, deviceID string, e Event, tsServer int64) (bool, error) {
+// only when it carries the same device, epoch and sequence number.
+func appendEvent(ctx context.Context, tx *sql.Tx, deviceID string, epoch uint64, e Event, tsServer int64) (bool, error) {
 	result, err := tx.ExecContext(ctx, insertEvent,
 		e.ID[:], deviceID, int64(e.Seq), e.Kind, nullString(e.ControllerID), nullString(e.SessionID),
-		e.TsDevice, tsServer, e.Payload,
+		e.TsDevice, tsServer, e.Payload, int64(epoch),
 	)
 	if err != nil {
-		// The unique index on (device_id, seq) is the expected reason, and
-		// asking the journal is safer than reading the driver message.
-		taken, lookupErr := seqTakenBy(ctx, tx, deviceID, e.Seq)
+		// The unique index on (device_id, seq_epoch, seq) is the expected
+		// reason, and asking the journal is safer than reading the driver
+		// message.
+		taken, lookupErr := seqTakenBy(ctx, tx, deviceID, epoch, e.Seq)
 		if lookupErr != nil {
 			return false, err
 		}
 		if taken != nil && *taken != e.ID {
 			return false, &ConflictError{
 				Seq: e.Seq, EventID: e.ID, Err: ErrSeqConflict,
-				Detail: "held by event " + taken.String(),
+				Detail: fmt.Sprintf("held by event %s in epoch %d", taken, epoch),
 			}
 		}
 		return false, err
@@ -226,30 +274,32 @@ func appendEvent(ctx context.Context, tx *sql.Tx, deviceID string, e Event, tsSe
 	}
 
 	// The id was there already. It is a duplicate only if it stands for the
-	// same device and sequence number.
+	// same device, epoch and sequence number.
 	var storedDevice string
-	var storedSeq int64
+	var storedEpoch, storedSeq int64
 	err = tx.QueryRowContext(ctx,
-		`SELECT device_id, seq FROM events WHERE event_id = ?`, e.ID[:],
-	).Scan(&storedDevice, &storedSeq)
+		`SELECT device_id, seq_epoch, seq FROM events WHERE event_id = ?`, e.ID[:],
+	).Scan(&storedDevice, &storedEpoch, &storedSeq)
 	if err != nil {
 		return false, err
 	}
-	if storedDevice != deviceID || uint64(storedSeq) != e.Seq {
+	if storedDevice != deviceID || uint64(storedEpoch) != epoch || uint64(storedSeq) != e.Seq {
 		return false, &ConflictError{
 			Seq: e.Seq, EventID: e.ID, Err: ErrEventConflict,
-			Detail: fmt.Sprintf("event %s is stored for device %s seq %d", e.ID, storedDevice, storedSeq),
+			Detail: fmt.Sprintf("event %s is stored for device %s epoch %d seq %d",
+				e.ID, storedDevice, storedEpoch, storedSeq),
 		}
 	}
 	return false, nil
 }
 
-// seqTakenBy returns the id of the event that holds this sequence number, or
-// nil when the sequence number is free.
-func seqTakenBy(ctx context.Context, q querier, deviceID string, seq uint64) (*EventID, error) {
+// seqTakenBy returns the id of the event that holds this sequence number in
+// the epoch, or nil when the sequence number is free.
+func seqTakenBy(ctx context.Context, q querier, deviceID string, epoch, seq uint64) (*EventID, error) {
 	var raw []byte
 	err := q.QueryRowContext(ctx,
-		`SELECT event_id FROM events WHERE device_id = ? AND seq = ?`, deviceID, int64(seq),
+		`SELECT event_id FROM events WHERE device_id = ? AND seq_epoch = ? AND seq = ?`,
+		deviceID, int64(epoch), int64(seq),
 	).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -258,25 +308,47 @@ func seqTakenBy(ctx context.Context, q querier, deviceID string, seq uint64) (*E
 		return nil, err
 	}
 	if len(raw) != len(EventID{}) {
-		return nil, fmt.Errorf("event id of %s seq %d is %d bytes", deviceID, seq, len(raw))
+		return nil, fmt.Errorf("event id of %s epoch %d seq %d is %d bytes", deviceID, epoch, seq, len(raw))
 	}
 	var id EventID
 	copy(id[:], raw)
 	return &id, nil
 }
 
-// LastSeq is the highest sequence number of a device such that no sequence
-// number below it is missing. It is 0 when the device has no events or when
-// its first event has not arrived yet.
+// LastSeq is the highest sequence number of a device in its current epoch such
+// that no sequence number below it is missing. It is 0 when the epoch has no
+// events or when its first event has not arrived yet.
 func (s *Store) LastSeq(ctx context.Context, deviceID string) (uint64, error) {
-	return ackSeq(ctx, s.db, deviceID)
+	_, ack, err := s.SeqState(ctx, deviceID)
+	return ack, err
 }
 
-func ackSeq(ctx context.Context, q querier, deviceID string) (uint64, error) {
+// SeqState returns the current epoch of a device and the contiguous sequence
+// number in it, read together, which is what a device handshake needs.
+func (s *Store) SeqState(ctx context.Context, deviceID string) (epoch, ack uint64, err error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return 0, 0, err
+	}
+	defer tx.Rollback()
+
+	epoch, err = currentEpoch(ctx, tx, deviceID)
+	if err != nil {
+		return 0, 0, err
+	}
+	ack, err = ackSeq(ctx, tx, deviceID, epoch)
+	if err != nil {
+		return 0, 0, err
+	}
+	return epoch, ack, tx.Commit()
+}
+
+func ackSeq(ctx context.Context, q querier, deviceID string, epoch uint64) (uint64, error) {
 	// The run has to start at 1, otherwise nothing is acknowledged.
 	var one int
 	err := q.QueryRowContext(ctx,
-		`SELECT 1 FROM events WHERE device_id = ? AND seq = 1`, deviceID).Scan(&one)
+		`SELECT 1 FROM events WHERE device_id = ? AND seq_epoch = ? AND seq = 1`,
+		deviceID, int64(epoch)).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, nil
 	}
@@ -290,10 +362,11 @@ func ackSeq(ctx context.Context, q querier, deviceID string) (uint64, error) {
 	err = q.QueryRowContext(ctx, `
 SELECT MIN(e.seq)
   FROM events e
- WHERE e.device_id = ?1
+ WHERE e.device_id = ?1 AND e.seq_epoch = ?2
    AND NOT EXISTS (
-       SELECT 1 FROM events n WHERE n.device_id = ?1 AND n.seq = e.seq + 1
-   )`, deviceID).Scan(&end)
+       SELECT 1 FROM events n
+        WHERE n.device_id = ?1 AND n.seq_epoch = ?2 AND n.seq = e.seq + 1
+   )`, deviceID, int64(epoch)).Scan(&end)
 	if err != nil {
 		return 0, err
 	}
@@ -351,7 +424,7 @@ func (s *Store) EachEvent(ctx context.Context, f Filter, fn func(Event) error) e
 func (s *Store) eachEvent(ctx context.Context, f Filter, limit, offset int, fn func(Event) error) error {
 	query := strings.Builder{}
 	query.WriteString(`
-SELECT event_id, seq, kind, controller_id, session_id, ts_device, ts_server, payload
+SELECT event_id, device_id, seq_epoch, seq, kind, controller_id, session_id, ts_device, ts_server, payload
   FROM events
  WHERE 1 = 1`)
 	var args []any
@@ -378,7 +451,7 @@ SELECT event_id, seq, kind, controller_id, session_id, ts_device, ts_server, pay
 	if f.To != 0 {
 		add(" AND ts_server < ?", f.To)
 	}
-	query.WriteString(" ORDER BY ts_server, device_id, seq LIMIT ? OFFSET ?")
+	query.WriteString(" ORDER BY ts_server, device_id, seq_epoch, seq LIMIT ? OFFSET ?")
 	args = append(args, limit, offset)
 
 	rows, err := s.db.QueryContext(ctx, query.String(), args...)
@@ -403,16 +476,19 @@ func scanEvent(row rowScanner) (Event, error) {
 	var (
 		e                       Event
 		raw                     []byte
-		seq                     int64
+		epoch, seq              int64
 		controller, sessionText sql.NullString
 	)
-	if err := row.Scan(&raw, &seq, &e.Kind, &controller, &sessionText, &e.TsDevice, &e.TsServer, &e.Payload); err != nil {
+	err := row.Scan(&raw, &e.DeviceID, &epoch, &seq, &e.Kind, &controller, &sessionText,
+		&e.TsDevice, &e.TsServer, &e.Payload)
+	if err != nil {
 		return Event{}, err
 	}
 	if len(raw) != len(EventID{}) {
 		return Event{}, fmt.Errorf("event id is %d bytes, want 16", len(raw))
 	}
 	copy(e.ID[:], raw)
+	e.SeqEpoch = uint64(epoch)
 	e.Seq = uint64(seq)
 	e.ControllerID = controller.String
 	e.SessionID = sessionText.String

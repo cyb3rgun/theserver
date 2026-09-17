@@ -34,6 +34,9 @@ type Journal struct {
 }
 
 type journalState struct {
+	// Epoch is the sequence epoch the journal counts in. A journal written
+	// before epochs existed has none and counts in epoch 1.
+	Epoch   uint64           `cbor:"epoch,omitempty"`
 	LastSeq uint64           `cbor:"last"`
 	Pending []protocol.Event `cbor:"pending"`
 }
@@ -81,6 +84,7 @@ func (j *Journal) Append(d Draft, ts int64) (protocol.Event, error) {
 		D:   d.Data,
 	}
 	next := journalState{
+		Epoch:   j.state.Epoch,
 		LastSeq: event.Seq,
 		Pending: append(slices.Clip(j.state.Pending), event),
 	}
@@ -104,6 +108,7 @@ func (j *Journal) Acked(seq uint64) error {
 		return nil
 	}
 	next := journalState{
+		Epoch:   j.state.Epoch,
 		LastSeq: j.state.LastSeq,
 		Pending: slices.Clone(j.state.Pending[keep:]),
 	}
@@ -127,8 +132,30 @@ func (j *Journal) After(seq uint64) []protocol.Event {
 	return events
 }
 
-// LastSeq is the highest sequence number the journal handed out; hello
-// carries it as last.
+// Epoch is the sequence epoch the journal counts in.
+func (j *Journal) Epoch() uint64 {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return max(j.state.Epoch, 1)
+}
+
+// Reset starts the journal over in a new epoch, as a target does when the
+// server announces an epoch it does not know: the counter goes back to 0 and
+// the unacknowledged events are dropped. It returns how many were dropped.
+func (j *Journal) Reset(epoch uint64) (int, error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	dropped := len(j.state.Pending)
+	next := journalState{Epoch: epoch}
+	if err := j.save(next); err != nil {
+		return 0, err
+	}
+	j.state = next
+	return dropped, nil
+}
+
+// LastSeq is the highest sequence number the journal handed out in its epoch;
+// hello carries it as last.
 func (j *Journal) LastSeq() uint64 {
 	j.mu.Lock()
 	defer j.mu.Unlock()

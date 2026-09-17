@@ -54,7 +54,7 @@ func TestAppendEventsStoresBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AppendEvents: %v", err)
 	}
-	want := AppendResult{Stored: 3, Duplicates: 0, AckSeq: 3}
+	want := AppendResult{Stored: 3, Duplicates: 0, SeqEpoch: 1, AckSeq: 3}
 	if got != want {
 		t.Errorf("AppendEvents returned %+v, want %+v", got, want)
 	}
@@ -99,7 +99,7 @@ func TestAppendEventsIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second append: %v", err)
 	}
-	want := AppendResult{Stored: 0, Duplicates: 3, AckSeq: first.AckSeq}
+	want := AppendResult{Stored: 0, Duplicates: 3, SeqEpoch: 1, AckSeq: first.AckSeq}
 	if again != want {
 		t.Errorf("the replayed batch returned %+v, want %+v", again, want)
 	}
@@ -258,7 +258,7 @@ func TestAppendEventsEmptyBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("empty batch: %v", err)
 	}
-	want := AppendResult{AckSeq: 1}
+	want := AppendResult{SeqEpoch: 1, AckSeq: 1}
 	if got != want {
 		t.Errorf("empty batch returned %+v, want %+v", got, want)
 	}

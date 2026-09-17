@@ -361,10 +361,10 @@ func TestSetFirmwareVersion(t *testing.T) {
 	}
 }
 
-func TestDevicesNotApproved(t *testing.T) {
+func TestDeviceStates(t *testing.T) {
 	s := openTest(t)
 	ctx := t.Context()
-	for _, id := range []string{"t-1", "t-2", "t-3"} {
+	for _, id := range []string{"t-1", "t-2"} {
 		if err := s.UpsertDevice(ctx, testDevice(id)); err != nil {
 			t.Fatal(err)
 		}
@@ -372,15 +372,77 @@ func TestDevicesNotApproved(t *testing.T) {
 	if err := s.SetStatus(ctx, "t-1", StatusApproved); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetStatus(ctx, "t-3", StatusBlocked); err != nil {
+	if err := s.SetDeviceToken(ctx, "t-1", HashToken("one")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ResetDevice(ctx, "t-2"); err != nil {
 		t.Fatal(err)
 	}
 
-	ids, err := s.DevicesNotApproved(ctx)
+	states, err := s.DeviceStates(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ids) != 2 || ids[0] != "t-2" || ids[1] != "t-3" {
-		t.Errorf("DevicesNotApproved returned %v, want [t-2 t-3]", ids)
+	if len(states) != 2 {
+		t.Fatalf("DeviceStates returned %d devices, want 2", len(states))
+	}
+	one, two := states["t-1"], states["t-2"]
+	if one.Status != StatusApproved || one.SeqEpoch != 1 || !bytes.Equal(one.TokenHash, HashToken("one")) {
+		t.Errorf("t-1 is %+v", one)
+	}
+	if two.Status != StatusPending || two.SeqEpoch != 2 || two.TokenHash != nil {
+		t.Errorf("t-2 is %+v", two)
+	}
+}
+
+func TestResetDevice(t *testing.T) {
+	s := openTest(t)
+	ctx := t.Context()
+	if err := s.UpsertDevice(ctx, testDevice("t-1")); err != nil {
+		t.Fatal(err)
+	}
+	for want := uint64(2); want <= 3; want++ {
+		epoch, err := s.ResetDevice(ctx, "t-1")
+		if err != nil {
+			t.Fatalf("ResetDevice: %v", err)
+		}
+		if epoch != want {
+			t.Errorf("epoch after reset is %d, want %d", epoch, want)
+		}
+	}
+	device, err := s.GetDevice(ctx, "t-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device.SeqEpoch != 3 {
+		t.Errorf("GetDevice reports epoch %d, want 3", device.SeqEpoch)
+	}
+	if _, err := s.ResetDevice(ctx, "nobody"); !errors.Is(err, ErrDeviceNotFound) {
+		t.Errorf("resetting an unknown device returned %v, want ErrDeviceNotFound", err)
+	}
+}
+
+func TestSetDeviceToken(t *testing.T) {
+	s := openTest(t)
+	ctx := t.Context()
+	device := testDevice("t-1")
+	device.TokenHash = HashToken("old")
+	if err := s.UpsertDevice(ctx, device); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetDeviceToken(ctx, "t-1", HashToken("new")); err != nil {
+		t.Fatalf("SetDeviceToken: %v", err)
+	}
+	if _, err := s.DeviceByToken(ctx, "old"); !errors.Is(err, ErrDeviceNotFound) {
+		t.Errorf("the old token still finds a device: %v", err)
+	}
+	if got, err := s.DeviceByToken(ctx, "new"); err != nil || got.ID != "t-1" {
+		t.Errorf("the new token finds %q, %v", got.ID, err)
+	}
+	if err := s.SetDeviceToken(ctx, "nobody", HashToken("x")); !errors.Is(err, ErrDeviceNotFound) {
+		t.Errorf("an unknown device returned %v, want ErrDeviceNotFound", err)
+	}
+	if err := s.SetDeviceToken(ctx, "t-1", nil); err == nil {
+		t.Error("an empty token hash was accepted")
 	}
 }

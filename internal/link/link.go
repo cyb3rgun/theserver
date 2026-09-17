@@ -10,6 +10,7 @@
 package link
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -221,8 +222,56 @@ func (s *Server) SendCommand(ctx context.Context, deviceID, name string, args ma
 	return c.command(ctx, name, args)
 }
 
-// Watch drops the connections of devices that are no longer approved, checking
-// every StatusCheck until ctx ends.
+// A DisconnectReason says why the server ends a live connection on behalf of
+// an operator.
+type DisconnectReason int
+
+const (
+	// Revoked: the device is no longer approved. It gets err unauthorized.
+	Revoked DisconnectReason = iota
+	// TokenReplaced: the device has a new token. It gets err unauthorized,
+	// and its old token no longer connects.
+	TokenReplaced
+	// Reset: the device has a new sequence epoch. It is closed with status
+	// 1012 and no err, reconnects, and learns the epoch from welcome.
+	Reset
+)
+
+func (r DisconnectReason) closing() closing {
+	switch r {
+	case TokenReplaced:
+		return closing{
+			code:    websocket.StatusPolicyViolation,
+			reason:  "device token replaced",
+			err:     &protocol.Error{C: protocol.CodeUnauthorized, M: "the device token was replaced"},
+			discard: true,
+		}
+	case Reset:
+		return closing{code: websocket.StatusServiceRestart, reason: "device reset", discard: true}
+	default:
+		return closing{
+			code:   websocket.StatusPolicyViolation,
+			reason: "device revoked",
+			err:    &protocol.Error{C: protocol.CodeUnauthorized, M: "device is no longer approved"},
+		}
+	}
+}
+
+// Disconnect ends the live connection of a device, if it has one, and reports
+// whether it had. The connection is closed in the background.
+func (s *Server) Disconnect(deviceID string, why DisconnectReason) bool {
+	c := s.lookup(deviceID)
+	if c == nil {
+		return false
+	}
+	go c.close(why.closing())
+	return true
+}
+
+// Watch compares every live connection with its device every StatusCheck
+// until ctx ends, and drops connections of devices that are no longer
+// approved, got a new token, or were reset. That covers changes made by
+// another process, such as a device command beside the running server.
 func (s *Server) Watch(ctx context.Context) {
 	ticker := time.NewTicker(s.cfg.StatusCheck)
 	defer ticker.Stop()
@@ -235,20 +284,26 @@ func (s *Server) Watch(ctx context.Context) {
 		if len(s.Online()) == 0 {
 			continue
 		}
-		ids, err := s.store.DevicesNotApproved(ctx)
+		states, err := s.store.DeviceStates(ctx)
 		if err != nil {
 			if ctx.Err() == nil {
-				s.log.Error("link could not read device statuses", "error", err)
+				s.log.Error("link could not read device states", "error", err)
 			}
 			continue
 		}
-		for _, id := range ids {
-			if c := s.lookup(id); c != nil {
-				go c.close(closing{
-					code:   websocket.StatusPolicyViolation,
-					reason: "device revoked",
-					err:    &protocol.Error{C: protocol.CodeUnauthorized, M: "device is no longer approved"},
-				})
+		for _, status := range s.Online() {
+			c := s.lookup(status.DeviceID)
+			if c == nil {
+				continue
+			}
+			state, known := states[status.DeviceID]
+			switch {
+			case !known || state.Status != store.StatusApproved:
+				go c.close(Revoked.closing())
+			case !bytes.Equal(state.TokenHash, c.device.TokenHash):
+				go c.close(TokenReplaced.closing())
+			case state.SeqEpoch != c.epoch:
+				go c.close(Reset.closing())
 			}
 		}
 	}
@@ -322,6 +377,7 @@ type deviceConn struct {
 	ws       *websocket.Conn
 	deviceID string
 	device   store.Device
+	epoch    uint64 // the sequence epoch this connection journals into
 	remote   string
 	log      *slog.Logger
 
@@ -472,11 +528,12 @@ func (c *deviceConn) handshake() bool {
 	}
 
 	ctx := c.ctx
-	serverAck, err := c.srv.store.LastSeq(ctx, c.deviceID)
+	epoch, serverAck, err := c.srv.store.SeqState(ctx, c.deviceID)
 	if err != nil {
-		c.storeFailure("read last seq", err)
+		c.storeFailure("read sequence state", err)
 		return false
 	}
+	c.epoch = epoch
 	if hello.Last < serverAck {
 		c.fail(protocol.CodeSeqRegression,
 			fmt.Sprintf("device journal ends at %d, the server has %d; reset the device in the admin UI", hello.Last, serverAck))
@@ -493,7 +550,7 @@ func (c *deviceConn) handshake() bool {
 		return false
 	}
 
-	welcome := protocol.Welcome{Ack: serverAck, Now: c.srv.now().UnixMilli()}
+	welcome := protocol.Welcome{Ack: serverAck, Now: c.srv.now().UnixMilli(), Ep: epoch}
 	if inSession {
 		welcome.Ses = &session
 	}
@@ -506,7 +563,7 @@ func (c *deviceConn) handshake() bool {
 
 	c.log.Info("device hello",
 		"fw", hello.FW, "class", hello.Cls, "device_last", hello.Last,
-		"server_ack", serverAck, "replay_expected", hello.Last-serverAck, "session", session)
+		"epoch", epoch, "server_ack", serverAck, "replay_expected", hello.Last-serverAck, "session", session)
 
 	if err := c.send(welcome); err != nil {
 		return false
@@ -647,9 +704,15 @@ func (c *deviceConn) flush(batch []store.Event) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	result, err := c.srv.store.AppendEvents(ctx, c.deviceID, batch)
+	result, err := c.srv.store.AppendEventsInEpoch(ctx, c.deviceID, c.epoch, batch)
 	var conflict *store.ConflictError
 	switch {
+	case errors.Is(err, store.ErrEpochChanged):
+		// The device was reset while these events were on their way. They
+		// belong to the old epoch and are dropped with the connection.
+		c.log.Info("device reset while events were pending", "epoch", c.epoch, "dropped", len(batch))
+		c.close(Reset.closing())
+		return false
 	case errors.As(err, &conflict):
 		c.log.Warn("device journal conflicts with the server", "seq", conflict.Seq, "error", err)
 		c.close(closing{

@@ -40,6 +40,7 @@ func TestRoundTripEveryType(t *testing.T) {
 	messages := []Message{
 		Hello{Dev: "tgt-01", FW: "1.2.3", Cls: ClassESP, Last: 41, Proto: Version},
 		Welcome{Ack: 40, Now: 1_700_000_000_000, Ses: &session},
+		Welcome{Ack: 7, Now: 1_700_000_000_000, Ses: nil, Ep: 3},
 		Welcome{Ack: 0, Now: 1_700_000_000_000, Ses: nil},
 		Event{ID: testID(1), Seq: 42, K: KindHit, Ts: 1_700_000_000_123,
 			D: mustData(t, HitData{Ctl: "c-1", Cseq: 7, X: 0.25, Y: 0.75, Zone: "head", Pts: 100})},

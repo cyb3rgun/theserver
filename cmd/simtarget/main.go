@@ -108,9 +108,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if stats.Generated > 0 {
 		firstSeq = fmt.Sprint(stats.FirstSeq)
 	}
-	fmt.Fprintf(stdout, "  generated:   %d events this run, seq %s to %d\n", stats.Generated, firstSeq, stats.LastSeq)
+	fmt.Fprintf(stdout, "  generated:   %d events this run, first seq %s, last seq %d\n", stats.Generated, firstSeq, stats.LastSeq)
 	fmt.Fprintf(stdout, "  frames sent: %d, of which replayed: %d in %d replays\n", stats.FramesSent, stats.Replayed, stats.Replays)
 	fmt.Fprintf(stdout, "  connections: %d, deliberate drops: %d\n", stats.Connections, stats.Drops)
+	fmt.Fprintf(stdout, "  epoch:       %d, resets by the server: %d, events dropped by them: %d\n", stats.Epoch, stats.EpochResets, stats.Dropped)
 	fmt.Fprintf(stdout, "  commands:    %d answered\n", stats.Commands)
 	fmt.Fprintf(stdout, "  last ack:    %d, unacknowledged: %d\n", stats.LastAck, stats.Unacked)
 	fmt.Fprintf(stdout, "  journal:     %s\n", *journalDir)

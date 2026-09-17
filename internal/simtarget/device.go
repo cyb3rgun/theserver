@@ -77,6 +77,9 @@ type Stats struct {
 	Replays     int    // connections that replayed at least one event
 	Drops       int    // deliberate drops
 	Connections int    // successful handshakes
+	Epoch       uint64 // sequence epoch of the journal at the end
+	EpochResets int    // times the server announced a new epoch
+	Dropped     int    // unacknowledged events given up at those resets
 	LastAck     uint64 // highest ack received
 	Unacked     int    // events still pending at the end
 	Commands    int    // commands answered
@@ -120,6 +123,7 @@ const (
 	endReboot
 	endDone
 	endCancel
+	endEpoch
 )
 
 func (d *device) run(ctx context.Context) (Stats, error) {
@@ -129,17 +133,17 @@ func (d *device) run(ctx context.Context) (Stats, error) {
 	go func() { generating <- d.generate(genCtx) }()
 
 	var runErr error
-	first := true
+	first, immediately := true, false
 loop:
 	for {
-		if !first {
+		if !first && !immediately {
 			select {
 			case <-ctx.Done():
 				break loop
 			case <-time.After(d.opts.Reconnect):
 			}
 		}
-		first = false
+		first, immediately = false, false
 
 		end, err := d.session(ctx)
 		switch {
@@ -152,6 +156,8 @@ loop:
 			d.log.Info("deliberate drop, reconnecting", "after", d.opts.Reconnect)
 		case end == endReboot:
 			d.log.Info("reboot requested, reconnecting", "after", d.opts.Reconnect)
+		case end == endEpoch:
+			immediately = true
 		default:
 			d.log.Warn("connection ended, reconnecting", "error", err, "after", d.opts.Reconnect)
 		}
@@ -166,6 +172,7 @@ loop:
 	defer d.mu.Unlock()
 	d.stats.LastSeq = d.journal.LastSeq()
 	d.stats.Unacked = d.journal.Pending()
+	d.stats.Epoch = d.journal.Epoch()
 	return d.stats, runErr
 }
 
@@ -238,6 +245,24 @@ func (d *device) session(ctx context.Context) (sessionEnd, error) {
 	if err != nil {
 		return endError, err
 	}
+	if welcome.Ep != 0 && welcome.Ep != d.journal.Epoch() {
+		// The device was reset. Start over at seq 1 in the new epoch and
+		// connect again, so the next hello speaks for that epoch.
+		old := d.journal.Epoch()
+		dropped, err := d.journal.Reset(welcome.Ep)
+		if err != nil {
+			return endError, err
+		}
+		d.mu.Lock()
+		d.stats.EpochResets++
+		d.stats.Dropped += dropped
+		d.stats.LastAck = 0
+		d.mu.Unlock()
+		d.log.Info("server announced a new epoch, starting over at seq 1",
+			"old_epoch", old, "epoch", welcome.Ep, "dropped", dropped)
+		ws.Close(websocket.StatusNormalClosure, "epoch changed")
+		return endEpoch, nil
+	}
 	if err := d.journal.Acked(welcome.Ack); err != nil {
 		return endError, err
 	}
@@ -249,7 +274,7 @@ func (d *device) session(ctx context.Context) (sessionEnd, error) {
 	if welcome.Ses != nil {
 		session = *welcome.Ses
 	}
-	d.log.Info("connected", "journal_last", helloLast, "server_ack", welcome.Ack,
+	d.log.Info("connected", "epoch", welcome.Ep, "journal_last", helloLast, "server_ack", welcome.Ack,
 		"to_replay", len(d.journal.After(welcome.Ack)), "session", session)
 
 	readerDone := make(chan error, 1)

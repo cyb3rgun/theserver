@@ -896,3 +896,161 @@ func TestBatchFlushesAtBatchSize(t *testing.T) {
 		t.Errorf("a batch of one was flushed before its interval: %#v", msg)
 	}
 }
+
+func TestWelcomeCarriesTheEpoch(t *testing.T) {
+	h := newHarness(t, testConfig())
+	token := h.addDevice("tgt-01")
+	c := h.dial(token)
+	if welcome := c.hello("tgt-01", 0); welcome.Ep != 1 {
+		t.Errorf("welcome.ep is %d, want 1 for a device that was never reset", welcome.Ep)
+	}
+}
+
+// TestResetThenHelloFromZero is the reset of D-026: after the operator resets
+// a device, a hello with last 0 is accepted and seq 1 counts again.
+func TestResetThenHelloFromZero(t *testing.T) {
+	h := newHarness(t, testConfig())
+	token := h.addDevice("tgt-01")
+	h.connectAndStore(token, "tgt-01", 2)
+
+	if _, err := h.store.ResetDevice(context.Background(), "tgt-01"); err != nil {
+		t.Fatal(err)
+	}
+
+	c := h.dial(token)
+	welcome := c.hello("tgt-01", 0)
+	if welcome.Ack != 0 || welcome.Ep != 2 {
+		t.Fatalf("welcome after the reset is %+v, want ack 0 in epoch 2", welcome)
+	}
+	c.waitAck(0)
+	c.send(shotEvent(t, 1, 11))
+	c.send(shotEvent(t, 2, 12))
+	c.waitAck(2)
+
+	events, err := h.store.ListEvents(context.Background(), store.Filter{DeviceID: "tgt-01"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	perEpoch := map[uint64]int{}
+	for _, e := range events {
+		perEpoch[e.SeqEpoch]++
+	}
+	if perEpoch[1] != 2 || perEpoch[2] != 2 {
+		t.Errorf("events per epoch are %v, want 2 and 2", perEpoch)
+	}
+}
+
+func TestResetDropsTheLiveConnection(t *testing.T) {
+	tests := []struct {
+		name   string
+		action func(h *harness)
+	}{
+		{name: "reset seen by the watcher", action: func(h *harness) {
+			if _, err := h.store.ResetDevice(context.Background(), "tgt-01"); err != nil {
+				h.t.Fatal(err)
+			}
+		}},
+		{name: "reset through Disconnect", action: func(h *harness) {
+			if _, err := h.store.ResetDevice(context.Background(), "tgt-01"); err != nil {
+				h.t.Fatal(err)
+			}
+			if !h.link.Disconnect("tgt-01", Reset) {
+				h.t.Error("Disconnect found no connection")
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := testConfig()
+			cfg.AckInterval = time.Hour // the events below stay pending
+			h := newHarness(t, cfg)
+			token := h.addDevice("tgt-01")
+
+			c := h.dial(token)
+			c.hello("tgt-01", 0)
+			c.waitAck(0)
+			c.send(shotEvent(t, 1, 1))
+			c.send(shotEvent(t, 2, 2))
+			eventually(t, 2*time.Second, "the events to arrive", func() bool {
+				online := h.link.Online()
+				return len(online) == 1 && !online[0].LastEventAt.IsZero()
+			})
+
+			start := time.Now()
+			tt.action(h)
+			if status := c.expectClosed(3 * time.Second); status != websocket.StatusServiceRestart {
+				t.Errorf("close status is %d, want %d", status, websocket.StatusServiceRestart)
+			}
+			if took := time.Since(start); took > time.Second {
+				t.Errorf("the reset device was dropped after %s", took)
+			}
+			eventually(t, 2*time.Second, "the device to go offline", func() bool { return !h.online("tgt-01") })
+
+			// The pending events belonged to epoch 1 and were not stored in 2.
+			if n := h.countEvents("tgt-01"); n != 0 {
+				t.Errorf("%d events of the old epoch were stored", n)
+			}
+
+			again := h.dial(token)
+			if welcome := again.hello("tgt-01", 2); welcome.Ep != 2 || welcome.Ack != 0 {
+				t.Errorf("welcome after the reset is %+v, want ep 2 and ack 0", welcome)
+			}
+		})
+	}
+}
+
+func TestTokenReplacedDropsTheDevice(t *testing.T) {
+	tests := []struct {
+		name       string
+		disconnect bool
+	}{
+		{name: "seen by the watcher"},
+		{name: "through Disconnect", disconnect: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, testConfig())
+			oldToken := h.addDevice("tgt-01")
+
+			c := h.dial(oldToken)
+			c.hello("tgt-01", 0)
+			c.waitAck(0)
+
+			newToken, err := store.NewDeviceToken()
+			if err != nil {
+				t.Fatal(err)
+			}
+			start := time.Now()
+			if err := h.store.SetDeviceToken(context.Background(), "tgt-01", store.HashToken(newToken)); err != nil {
+				t.Fatal(err)
+			}
+			if tt.disconnect && !h.link.Disconnect("tgt-01", TokenReplaced) {
+				t.Error("Disconnect found no connection")
+			}
+			e := c.expectError(protocol.CodeUnauthorized)
+			if !strings.Contains(e.M, "replaced") {
+				t.Errorf("the message %q does not say the token was replaced", e.M)
+			}
+			if took := time.Since(start); took > time.Second {
+				t.Errorf("the device was dropped after %s", took)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, resp, err := websocket.Dial(ctx, h.url, h.dialOptions(oldToken)); err == nil || resp == nil || resp.StatusCode != http.StatusUnauthorized {
+				t.Errorf("the old token still connects: %v", err)
+			}
+			fresh := h.dial(newToken)
+			fresh.hello("tgt-01", 0)
+			fresh.waitAck(0)
+		})
+	}
+}
+
+func TestDisconnectOfflineDevice(t *testing.T) {
+	h := newHarness(t, testConfig())
+	h.addDevice("tgt-01")
+	if h.link.Disconnect("tgt-01", Reset) {
+		t.Error("Disconnect reported a connection for an offline device")
+	}
+}

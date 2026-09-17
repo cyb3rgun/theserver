@@ -364,3 +364,138 @@ func (b *lockedBuffer) String() string {
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
+
+func TestJournalEpoch(t *testing.T) {
+	dir := t.TempDir()
+	journal, err := OpenJournal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if journal.Epoch() != 1 {
+		t.Errorf("a new journal counts in epoch %d, want 1", journal.Epoch())
+	}
+	gen := NewGenerator(1, 3, time.Now())
+	for range 4 {
+		if _, err := journal.Append(gen.Next(), 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := journal.Acked(1); err != nil {
+		t.Fatal(err)
+	}
+
+	dropped, err := journal.Reset(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dropped != 3 {
+		t.Errorf("Reset dropped %d events, want the 3 unacknowledged", dropped)
+	}
+
+	reopened, err := OpenJournal(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Epoch() != 2 || reopened.LastSeq() != 0 || reopened.Pending() != 0 {
+		t.Fatalf("after the reset the journal is epoch %d, last %d, %d pending", reopened.Epoch(), reopened.LastSeq(), reopened.Pending())
+	}
+	next, err := reopened.Append(gen.Next(), 2)
+	if err != nil || next.Seq != 1 {
+		t.Errorf("the first event of epoch 2 has seq %d, %v; want 1", next.Seq, err)
+	}
+	if err := reopened.Acked(1); err != nil || reopened.Epoch() != 2 {
+		t.Errorf("an ack moved the epoch to %d, %v", reopened.Epoch(), err)
+	}
+}
+
+// TestRunThroughAReset resets the device in the middle of a run: the target
+// learns the new epoch from welcome, starts over at seq 1, and the server holds
+// a contiguous journal in the new epoch.
+func TestRunThroughAReset(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs for a few seconds")
+	}
+	ctx := context.Background()
+	st, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	token, err := store.NewDeviceToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertDevice(ctx, store.Device{
+		ID: "tgt-02", Kind: store.KindTarget, Status: store.StatusApproved, TokenHash: store.HashToken(token),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := link.DefaultConfig()
+	cfg.AckInterval = 20 * time.Millisecond
+	deviceLink := link.New(st, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	mux := http.NewServeMux()
+	mux.Handle(link.Path, deviceLink)
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+	defer deviceLink.Close(ctx)
+
+	go func() {
+		time.Sleep(time.Second)
+		if _, err := st.ResetDevice(ctx, "tgt-02"); err == nil {
+			deviceLink.Disconnect("tgt-02", link.Reset)
+		}
+	}()
+
+	stats, err := Run(ctx, Options{
+		Server:    "wss" + strings.TrimPrefix(srv.URL, "https"),
+		DeviceID:  "tgt-02",
+		Token:     token,
+		Insecure:  true,
+		Rate:      50,
+		Duration:  2500 * time.Millisecond,
+		Reconnect: 100 * time.Millisecond,
+		Health:    time.Hour,
+		Seed:      2,
+		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}, mustJournal(t))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	t.Logf("%+v", stats)
+
+	if stats.Epoch != 2 || stats.EpochResets != 1 || stats.Unacked != 0 {
+		t.Fatalf("the run ended in epoch %d after %d resets with %d unacknowledged", stats.Epoch, stats.EpochResets, stats.Unacked)
+	}
+	events, err := st.ListEvents(ctx, store.Filter{DeviceID: "tgt-02", Limit: 100_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inTwo []uint64
+	inOne := 0
+	for _, e := range events {
+		switch e.SeqEpoch {
+		case 1:
+			inOne++
+		case 2:
+			inTwo = append(inTwo, e.Seq)
+		default:
+			t.Fatalf("event in epoch %d", e.SeqEpoch)
+		}
+	}
+	slices.Sort(inTwo)
+	if uint64(len(inTwo)) != stats.LastSeq {
+		t.Fatalf("epoch 2 holds %d events, the target counted to %d", len(inTwo), stats.LastSeq)
+	}
+	for i, seq := range inTwo {
+		if seq != uint64(i+1) {
+			t.Fatalf("epoch 2 has seq %d at position %d", seq, i)
+		}
+	}
+	if inOne == 0 || len(inTwo) == 0 {
+		t.Errorf("epoch 1 holds %d and epoch 2 holds %d events; both should hold some", inOne, len(inTwo))
+	}
+	if got := uint64(inOne+len(inTwo)) + uint64(stats.Dropped); got != stats.Generated {
+		t.Errorf("stored %d plus dropped %d is not the %d generated", inOne+len(inTwo), stats.Dropped, stats.Generated)
+	}
+}

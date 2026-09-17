@@ -38,7 +38,8 @@ var ErrDeviceNotFound = errors.New("device not found")
 
 // A Device is one row of the registry. FirstSeen and LastSeen are unix
 // milliseconds and zero while the column is NULL, which means the device has
-// never been seen.
+// never been seen. SeqEpoch is the sequence epoch its events go into; it starts
+// at 1 and only ResetDevice moves it (D-026).
 type Device struct {
 	ID              string
 	Kind            string
@@ -50,6 +51,7 @@ type Device struct {
 	TokenHash       []byte
 	FirmwareVersion string
 	ConfigJSON      string
+	SeqEpoch        uint64
 	FirstSeen       int64
 	LastSeen        int64
 	CreatedAt       int64
@@ -107,7 +109,7 @@ ON CONFLICT(id) DO UPDATE SET
 }
 
 const deviceColumns = `id, kind, class, name, room, zone, status, token_hash,
-  firmware_version, config_json, first_seen, last_seen, created_at, updated_at`
+  firmware_version, config_json, seq_epoch, first_seen, last_seen, created_at, updated_at`
 
 // GetDevice reads one device. It returns ErrDeviceNotFound for an unknown id.
 func (s *Store) GetDevice(ctx context.Context, id string) (Device, error) {
@@ -191,24 +193,68 @@ func (s *Store) SetFirmwareVersion(ctx context.Context, id, version string) erro
 	return nil
 }
 
-// DevicesNotApproved lists the ids of every device whose status is not
-// approved. The device link closes their connections.
-func (s *Store) DevicesNotApproved(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id FROM devices WHERE status <> ? ORDER BY id`, StatusApproved)
+// ResetDevice starts a new sequence epoch for a device and returns it. The
+// device begins at seq 1 again; the events of earlier epochs stay (D-026).
+func (s *Store) ResetDevice(ctx context.Context, id string) (uint64, error) {
+	defer s.writing()()
+	var epoch int64
+	err := s.db.QueryRowContext(ctx,
+		`UPDATE devices SET seq_epoch = seq_epoch + 1, updated_at = ? WHERE id = ? RETURNING seq_epoch`,
+		s.nowMilli(), id).Scan(&epoch)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("%s: %w", id, ErrDeviceNotFound)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("list devices that are not approved: %w", err)
+		return 0, fmt.Errorf("reset device %s: %w", id, err)
+	}
+	return uint64(epoch), nil
+}
+
+// SetDeviceToken replaces the token hash of a device. The old token stops
+// working at once for new connections.
+func (s *Store) SetDeviceToken(ctx context.Context, id string, tokenHash []byte) error {
+	if len(tokenHash) == 0 {
+		return errors.New("token hash must not be empty")
+	}
+	defer s.writing()()
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE devices SET token_hash = ?, updated_at = ? WHERE id = ?`, tokenHash, s.nowMilli(), id)
+	if err != nil {
+		return fmt.Errorf("set token of device %s: %w", id, err)
+	}
+	return checkOneRow(result, id)
+}
+
+// A DeviceState is what decides whether a live connection may stay: the
+// status, the sequence epoch and the token hash of the device.
+type DeviceState struct {
+	Status    string
+	SeqEpoch  uint64
+	TokenHash []byte
+}
+
+// DeviceStates reads the state of every device, keyed by device id. The
+// device link compares it with its connections.
+func (s *Store) DeviceStates(ctx context.Context) (map[string]DeviceState, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, status, seq_epoch, token_hash FROM devices`)
+	if err != nil {
+		return nil, fmt.Errorf("device states: %w", err)
 	}
 	defer rows.Close()
-	var ids []string
+	states := map[string]DeviceState{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var (
+			id    string
+			state DeviceState
+			epoch int64
+		)
+		if err := rows.Scan(&id, &state.Status, &epoch, &state.TokenHash); err != nil {
 			return nil, err
 		}
-		ids = append(ids, id)
+		state.SeqEpoch = uint64(epoch)
+		states[id] = state
 	}
-	return ids, rows.Err()
+	return states, rows.Err()
 }
 
 // NewDeviceToken draws a device token: 32 bytes from crypto/rand, written as
@@ -274,16 +320,18 @@ func scanDevice(row rowScanner) (Device, error) {
 	var (
 		d                   Device
 		tokenHash           []byte
+		epoch               int64
 		firstSeen, lastSeen sql.NullInt64
 	)
 	err := row.Scan(
 		&d.ID, &d.Kind, &d.Class, &d.Name, &d.Room, &d.Zone, &d.Status, &tokenHash,
-		&d.FirmwareVersion, &d.ConfigJSON, &firstSeen, &lastSeen, &d.CreatedAt, &d.UpdatedAt,
+		&d.FirmwareVersion, &d.ConfigJSON, &epoch, &firstSeen, &lastSeen, &d.CreatedAt, &d.UpdatedAt,
 	)
 	if err != nil {
 		return Device{}, err
 	}
 	d.TokenHash = tokenHash
+	d.SeqEpoch = uint64(epoch)
 	d.FirstSeen = firstSeen.Int64
 	d.LastSeen = lastSeen.Int64
 	return d, nil

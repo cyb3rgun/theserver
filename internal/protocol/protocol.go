@@ -93,12 +93,15 @@ type Hello struct {
 }
 
 // Welcome answers a hello. Ses is nil when no session is running, and is
-// then sent as CBOR null.
+// then sent as CBOR null. Ep is the sequence epoch of the device, added in
+// S01-B04 (protocol section 8.8); a device whose journal belongs to another
+// epoch starts over at seq 1. It is 0 when a server does not send it.
 type Welcome struct {
 	T   string  `cbor:"t"`
 	Ack uint64  `cbor:"ack"`
 	Now int64   `cbor:"now"`
 	Ses *string `cbor:"ses"`
+	Ep  uint64  `cbor:"ep,omitempty"`
 }
 
 // Event is one journal entry of a device. D is the kind specific map exactly
