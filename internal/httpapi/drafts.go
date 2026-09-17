@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,6 +69,25 @@ type DraftLock struct {
 // (D-050). The editor refreshes every minute, so a lock falls away a few
 // refreshes after a browser stops answering.
 const DraftLockTTL = 5 * time.Minute
+
+// DraftVersion is one entry of the history of a draft (D-051): the state the
+// draft had before one change. Fields names the parts of the manifest that
+// change touched, so a list can say what happened without carrying the
+// manifest itself.
+type DraftVersion struct {
+	Version int64    `json:"version"`
+	At      int64    `json:"at"`
+	By      string   `json:"by"`
+	Fields  []string `json:"fields"`
+}
+
+// DraftHistoryList is the body of GET /drafts/{id}/history, the newest
+// version first.
+type DraftHistoryList struct {
+	Versions []DraftVersion `json:"versions"`
+	// Depth is how many versions the server keeps per draft.
+	Depth int `json:"depth"`
+}
 
 // TakeLock is the body of POST /drafts/{id}/lock.
 type TakeLock struct {
@@ -404,6 +425,66 @@ func (s *Server) unlockDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, s.draftJSON(r, d, false))
+}
+
+// draftHistory lists the versions of a draft the server kept (D-051).
+func (s *Server) draftHistory(w http.ResponseWriter, r *http.Request) {
+	drafts, err := s.content()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	list, err := drafts.DraftHistory(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	out := DraftHistoryList{Versions: []DraftVersion{}, Depth: store.DraftHistoryDepth}
+	for _, v := range list {
+		out.Versions = append(out.Versions, DraftVersion{
+			Version: v.ID, At: v.At, By: v.By, Fields: patchFields(v.Patch),
+		})
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, out)
+}
+
+// patchFields names the top level keys of a merge patch, in order, which is
+// what the history shows as the parts a change touched.
+func patchFields(patch []byte) []string {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(patch, &keys); err != nil {
+		return []string{}
+	}
+	return slices.Sorted(maps.Keys(keys))
+}
+
+// restoreDraftVersion writes one version of the history back into the draft.
+func (s *Server) restoreDraftVersion(w http.ResponseWriter, r *http.Request) {
+	drafts, err := s.content()
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.heldByAnother(r, r.PathValue("id")); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	version, err := strconv.ParseInt(r.PathValue("version"), 10, 64)
+	if err != nil {
+		s.fail(w, r, fmt.Errorf("%w: a version of the history is a number", errBadRequest))
+		return
+	}
+	token, _ := AdminFrom(r.Context())
+	id := r.PathValue("id")
+	d, err := drafts.RestoreDraftVersion(r.Context(), id, version, token.Name)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.audit(r, "draft version restored", "draft", id, "version", version)
+	out := s.draftJSON(r, d, true)
+	writeJSON(w, http.StatusOK, DraftChanged{Draft: out, Touched: []scenario.Problem{}})
 }
 
 // uploadDraftMedia takes one media file into the draft. The container and

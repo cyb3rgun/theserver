@@ -17,6 +17,7 @@ import (
 	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/mediakind"
 	"github.com/cyb3rgun/theserver/internal/scenario"
+	"github.com/cyb3rgun/theserver/internal/store"
 )
 
 // The scenario editor (D-041 to D-046): one page per draft with the video,
@@ -43,6 +44,28 @@ type editorData struct {
 	// writes a keyframe the check then refuses as not_in_tier.
 	ZonesMove bool
 	Lock      lockData
+	History   historyData
+}
+
+// historyData is the version list of a draft (D-051). The browser holds its
+// own fifty states for undo and redo; this is what the server kept, so a
+// person finds their way back after a reload or from another machine.
+type historyData struct {
+	Versions []historyVersion
+	Depth    int
+	// Undo and Redo are the texts of the two buttons, so the script needs no
+	// text of its own for them.
+	List string
+	alert
+}
+
+type historyVersion struct {
+	Version int64
+	At      int64
+	By      string
+	Fields  string
+	Restore string
+	Confirm string
 }
 
 // lockData is the notice about who holds a draft (D-050). Mine is the
@@ -233,7 +256,7 @@ func lockOf(lang string, draft httpapi.Draft) lockData {
 // page itself.
 func shortcutsIn(lang string, zonesMove bool) []shortcut {
 	keys := []string{"space", "arrows", "shift_arrows", "draw", "finish", "cancel", "remove",
-		"keyframe", "keyframe_delete", "appearance", "zoom", "save", "validate"}
+		"keyframe", "keyframe_delete", "appearance", "zoom", "save", "undo", "redo", "validate"}
 	if !zonesMove {
 		keys = slices.DeleteFunc(keys, func(key string) bool {
 			return key == "keyframe" || key == "keyframe_delete"
@@ -306,6 +329,7 @@ func (a *Admin) editorPage(w http.ResponseWriter, r *http.Request, s session) {
 	}
 	data.Panel = a.panelOf(s, draft, r.URL.Query().Get("select"))
 	data.Media = a.mediaOf(s, draft)
+	data.History = a.historyOf(r, s, draft)
 	data.Problems = problemsData{Problems: editorProblems(s.Lang, draft), Ready: len(draft.Problems) == 0}
 	a.render(w, s.Lang, http.StatusOK, "editor", "layout", data)
 }
@@ -324,6 +348,78 @@ func (a *Admin) takeLock(r *http.Request, s session, id string, takeOver bool) (
 func isLocked(err error) bool {
 	var ae *apiError
 	return errors.As(err, &ae) && ae.Code == "draft_locked"
+}
+
+// historyOf reads the versions of a draft from API v1 for the page.
+func (a *Admin) historyOf(r *http.Request, s session, draft httpapi.Draft) historyData {
+	id := url.PathEscape(draft.ID)
+	data := historyData{Depth: store.DraftHistoryDepth, List: "/admin/editor/" + id + "/history"}
+	var answer httpapi.DraftHistoryList
+	if err := a.call(r, s, http.MethodGet, "/drafts/"+id+"/history", nil, &answer); err != nil {
+		if !errors.Is(err, errSessionEnded) {
+			a.log.Error("the editor could not read a history", "draft", draft.ID, "error", err)
+		}
+		data.Error = i18n.T(s.Lang, "admin.error_generic")
+		return data
+	}
+	data.Depth = answer.Depth
+	for _, v := range answer.Versions {
+		data.Versions = append(data.Versions, historyVersion{
+			Version: v.Version, At: v.At, By: v.By,
+			Fields:  strings.Join(fieldNames(s.Lang, v.Fields), ", "),
+			Restore: "/admin/editor/" + id + "/history/" + strconv.FormatInt(v.Version, 10) + "/restore",
+			Confirm: i18n.T(s.Lang, "admin.editor.confirm_restore"),
+		})
+	}
+	return data
+}
+
+// fieldNames turns the manifest keys of a change into the group names the
+// panel uses, so the history reads like the editor and not like the file.
+func fieldNames(lang string, fields []string) []string {
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if key := "admin.editor.group." + field; i18n.Has(lang, key) {
+			out = append(out, i18n.T(lang, key))
+			continue
+		}
+		out = append(out, field)
+	}
+	return out
+}
+
+// editorHistory renders the version list again, which the script asks for
+// after every change.
+func (a *Admin) editorHistory(w http.ResponseWriter, r *http.Request, s session) {
+	draft, ok := a.draftOf(w, r, s)
+	if !ok {
+		return
+	}
+	a.render(w, s.Lang, http.StatusOK, "editor", "editor-history", a.historyOf(r, s, draft))
+}
+
+// editorRestore writes one version of the history back into the draft and
+// renders the version list again.
+func (a *Admin) editorRestore(w http.ResponseWriter, r *http.Request, s session) {
+	draft, ok := a.draftOf(w, r, s)
+	if !ok {
+		return
+	}
+	var changed httpapi.DraftChanged
+	err := a.call(r, s, http.MethodPost,
+		"/drafts/"+url.PathEscape(draft.ID)+"/history/"+url.PathEscape(r.PathValue("version"))+"/restore", nil, &changed)
+	if err != nil {
+		if errors.Is(err, errSessionEnded) {
+			a.sessionEnded(w, r)
+			return
+		}
+		data := a.historyOf(r, s, draft)
+		data.Error = i18n.T(s.Lang, "admin.editor.restore_failed")
+		data.ErrorDetail = detailOf(err)
+		a.render(w, s.Lang, http.StatusOK, "editor", "editor-history", data)
+		return
+	}
+	a.render(w, s.Lang, http.StatusOK, "editor", "editor-history", a.historyOf(r, s, changed.Draft))
 }
 
 // editorLock is the minute refresh of editor.js and the take over button.

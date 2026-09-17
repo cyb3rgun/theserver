@@ -336,7 +336,8 @@ func (c *Store) DeleteDraft(ctx context.Context, id string) error {
 // PatchDraft changes the manifest of a draft with a JSON merge patch (RFC
 // 7386): a key with a value replaces it, a key with null removes it, arrays
 // are replaced as a whole. The result must fit the scenario model, else
-// nothing is stored and the field is named.
+// nothing is stored and the field is named. A change that is stored writes
+// the state before it into the history of the draft (D-051).
 func (c *Store) PatchDraft(ctx context.Context, id string, patch []byte, by string) (store.Draft, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -358,8 +359,69 @@ func (c *Store) PatchDraft(ctx context.Context, id string, patch []byte, by stri
 	if err != nil {
 		return store.Draft{}, err
 	}
+	before := d.Manifest
 	d.Manifest = normalized
-	return c.db.UpdateDraft(ctx, d, by)
+	changed, err := c.db.UpdateDraft(ctx, d, by)
+	if err != nil {
+		return store.Draft{}, err
+	}
+	// A change that moved nothing is no version of its own; the editor sends
+	// one whenever a shape is dragged, and a history of identical states
+	// would push the interesting ones out.
+	if !bytes.Equal(before, normalized) {
+		if err := c.db.AddDraftVersion(ctx, store.DraftVersion{
+			DraftID: id, Patch: json.RawMessage(patch), Manifest: before, By: by,
+		}); err != nil {
+			return store.Draft{}, err
+		}
+	}
+	return changed, nil
+}
+
+// RestoreDraftVersion writes the manifest of one history entry back into the
+// draft (D-051). The state before the restore becomes a version of its own,
+// so a restore can itself be undone.
+func (c *Store) RestoreDraftVersion(ctx context.Context, id string, version int64, by string) (store.Draft, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, err := c.db.DraftVersionOf(ctx, id, version)
+	if err != nil {
+		return store.Draft{}, err
+	}
+	d, err := c.db.GetDraft(ctx, id)
+	if err != nil {
+		return store.Draft{}, err
+	}
+	m, err := DecodeManifest(v.Manifest)
+	if err != nil {
+		return store.Draft{}, err
+	}
+	normalized, err := json.Marshal(m)
+	if err != nil {
+		return store.Draft{}, err
+	}
+	before := d.Manifest
+	d.Manifest = normalized
+	changed, err := c.db.UpdateDraft(ctx, d, by)
+	if err != nil {
+		return store.Draft{}, err
+	}
+	if !bytes.Equal(before, normalized) {
+		if err := c.db.AddDraftVersion(ctx, store.DraftVersion{
+			DraftID: id, Patch: json.RawMessage(`{"restored":true}`), Manifest: before, By: by,
+		}); err != nil {
+			return store.Draft{}, err
+		}
+	}
+	return changed, nil
+}
+
+// DraftHistory lists the versions of a draft, the newest first.
+func (c *Store) DraftHistory(ctx context.Context, id string) ([]store.DraftVersion, error) {
+	if _, err := c.db.GetDraft(ctx, id); err != nil {
+		return nil, err
+	}
+	return c.db.DraftHistory(ctx, id)
 }
 
 // MergePatch applies a JSON merge patch to a JSON object.

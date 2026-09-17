@@ -153,6 +153,8 @@ func (s *Server) routes() []struct {
 		{Route{http.MethodGet, "/drafts/{id}", true, false}, s.getDraft},
 		{Route{http.MethodPatch, "/drafts/{id}", true, false}, s.patchDraft},
 		{Route{http.MethodDelete, "/drafts/{id}", true, false}, s.deleteDraft},
+		{Route{http.MethodGet, "/drafts/{id}/history", true, false}, s.draftHistory},
+		{Route{http.MethodPost, "/drafts/{id}/history/{version}/restore", true, false}, s.restoreDraftVersion},
 		{Route{http.MethodPost, "/drafts/{id}/lock", true, false}, s.lockDraft},
 		{Route{http.MethodDelete, "/drafts/{id}/lock", true, false}, s.unlockDraft},
 		{Route{http.MethodPost, "/drafts/{id}/media", true, false}, s.uploadDraftMedia},
@@ -270,6 +272,7 @@ const (
 	codeBadMedia         = "bad_media"
 	codeBadManifest      = "bad_manifest"
 	codeDraftLocked      = "draft_locked"
+	codeNoVersion        = "no_version"
 )
 
 // ErrorBody is the shape of every error answer of API v1.
@@ -323,6 +326,8 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, codeAgeRating, err.Error())
 	case errors.Is(err, store.ErrDraftLocked):
 		writeError(w, http.StatusConflict, codeDraftLocked, err.Error())
+	case errors.Is(err, store.ErrVersionNotFound):
+		writeError(w, http.StatusNotFound, codeNoVersion, err.Error())
 	case errors.Is(err, errBadRequest):
 		writeError(w, http.StatusBadRequest, codeBadRequest, err.Error())
 	case errors.Is(err, errConflict):

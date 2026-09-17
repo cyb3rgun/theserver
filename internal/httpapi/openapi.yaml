@@ -478,6 +478,62 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+  /drafts/{id}/history:
+    get:
+      summary: The versions of a draft the server kept (D-051).
+      description: |
+        Every change of a manifest keeps the state before it. The newest
+        twenty versions of a draft are kept; the next change drops the
+        oldest. The list is newest first and names the parts of the manifest
+        each change touched. Undo and redo happen in the browser, which
+        keeps its own fifty states; this history is what survives a reload
+        and what another machine sees.
+      operationId: draftHistory
+      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      responses:
+        "200":
+          description: The versions, newest first.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftHistory"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /drafts/{id}/history/{version}/restore:
+    post:
+      summary: Write one version of the history back into the draft (D-051).
+      description: |
+        The manifest of that version becomes the manifest of the draft. The
+        state before the restore becomes a version of its own, so a restore
+        can itself be undone. A draft somebody else holds is refused with
+        draft_locked.
+      operationId: restoreDraftVersion
+      parameters:
+        - {$ref: "#/components/parameters/DraftID"}
+        - name: version
+          in: path
+          required: true
+          description: The version from the history list.
+          schema: {type: integer, format: int64}
+      responses:
+        "200":
+          description: The draft as it stands after the restore.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftChanged"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404":
+          description: No such draft, or no such version; code no_version.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "409":
+          description: Somebody else holds this draft; code draft_locked.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
   /drafts/{id}/lock:
     post:
       summary: Take or refresh the lock of a draft (D-050).
@@ -1075,6 +1131,29 @@ components:
         locked_at: {type: integer, description: The last refresh in unix milliseconds.}
         ttl_ms: {type: integer, description: How long a lock lives without a refresh.}
       additionalProperties: false
+    DraftHistory:
+      type: object
+      description: The versions of a draft the server kept (D-051).
+      required: [versions, depth]
+      properties:
+        versions:
+          type: array
+          items: {$ref: "#/components/schemas/DraftVersion"}
+        depth: {type: integer, description: How many versions the server keeps per draft.}
+      additionalProperties: false
+    DraftVersion:
+      type: object
+      description: One state a draft had before a change.
+      required: [version, at, by, fields]
+      properties:
+        version: {type: integer, format: int64, description: What a restore names.}
+        at: {type: integer, description: "When the change was made, unix milliseconds."}
+        by: {type: string, description: The admin who made the change.}
+        fields:
+          type: array
+          description: The parts of the manifest the change touched.
+          items: {type: string}
+      additionalProperties: false
     TakeLock:
       type: object
       properties:
@@ -1193,7 +1272,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal, invalid_settings, invalid_package, too_large, published, has_problems, version_taken, not_published, age_rating, bad_media, bad_manifest, draft_locked]
+              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal, invalid_settings, invalid_package, too_large, published, has_problems, version_taken, not_published, age_rating, bad_media, bad_manifest, draft_locked, no_version]
             message: {type: string}
             fields:
               type: array

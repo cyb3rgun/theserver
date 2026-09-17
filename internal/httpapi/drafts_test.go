@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/cyb3rgun/theserver/internal/mediakind/mediakindtest"
 	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/scenario/scenariotest"
+	"github.com/cyb3rgun/theserver/internal/store"
 )
 
 // putMedia sends data as the file field of a multipart body.
@@ -449,4 +452,110 @@ func TestDraftLockHoldsTakesOverAndReleases(t *testing.T) {
 	if rec := h.call(http.MethodPatch, Prefix+"/drafts/"+draft, `{"rules":{"lives":4}}`); rec.Code != http.StatusOK {
 		t.Errorf("a free draft refused a change with %d", rec.Code)
 	}
+}
+
+// The history of a draft (D-051): every change keeps the state before it,
+// only the newest twenty are kept, a restore puts one back, and the state
+// before the restore becomes the newest version, so a restore can itself be
+// undone. A deleted zone comes back this way.
+func TestDraftHistoryKeepsAndRestores(t *testing.T) {
+	h := newAPI(t)
+	draft := decode[Draft](t, h.call(http.MethodPost, Prefix+"/drafts",
+		`{"id": "history-range", "tier": "video", "title": {"en": "History", "de": "Verlauf"}}`), http.StatusCreated).ID
+
+	// A new draft has no history yet.
+	if list := decode[DraftHistoryList](t, h.call(http.MethodGet, Prefix+"/drafts/"+draft+"/history", ""),
+		http.StatusOK); len(list.Versions) != 0 || list.Depth != store.DraftHistoryDepth {
+		t.Fatalf("the history of a new draft reads %+v", list)
+	}
+
+	// The manifest with two zones, then one of them deleted.
+	h.call(http.MethodPatch, Prefix+"/drafts/"+draft, videoManifest)
+	withTwo := decode[DraftChanged](t, h.call(http.MethodPatch, Prefix+"/drafts/"+draft,
+		`{"zone":[{"id":"z-plate","shape":"circle","points":[[540,960]],"radius":100,"zone_class":"none"},
+		          {"id":"z-gong","shape":"circle","points":[[300,600]],"radius":80,"zone_class":"none"}]}`),
+		http.StatusOK).Draft
+	if zones := zoneIDs(t, withTwo.Manifest); len(zones) != 2 {
+		t.Fatalf("the draft holds the zones %v", zones)
+	}
+	h.call(http.MethodPatch, Prefix+"/drafts/"+draft,
+		`{"zone":[{"id":"z-plate","shape":"circle","points":[[540,960]],"radius":100,"zone_class":"none"}]}`)
+
+	list := decode[DraftHistoryList](t, h.call(http.MethodGet, Prefix+"/drafts/"+draft+"/history", ""), http.StatusOK)
+	if len(list.Versions) != 3 {
+		t.Fatalf("the history holds %d versions, want 3", len(list.Versions))
+	}
+	// The newest first, and each one names the parts it touched.
+	if newest := list.Versions[0]; !slices.Equal(newest.Fields, []string{"zone"}) || newest.By != "tests" || newest.At == 0 {
+		t.Errorf("the newest version reads %+v", newest)
+	}
+	if oldest := list.Versions[2]; !slices.Contains(oldest.Fields, "scenario") {
+		t.Errorf("the oldest version reads %+v", oldest)
+	}
+
+	// Restoring the state before the delete brings the zone back.
+	restored := decode[DraftChanged](t, h.call(http.MethodPost,
+		Prefix+"/drafts/"+draft+"/history/"+strconv.FormatInt(list.Versions[0].Version, 10)+"/restore", ""),
+		http.StatusOK).Draft
+	if zones := zoneIDs(t, restored.Manifest); !slices.Equal(zones, []string{"z-plate", "z-gong"}) {
+		t.Fatalf("after the restore the zones are %v", zones)
+	}
+	// The restore is a version of its own, so it can be undone.
+	after := decode[DraftHistoryList](t, h.call(http.MethodGet, Prefix+"/drafts/"+draft+"/history", ""), http.StatusOK)
+	if len(after.Versions) != 4 {
+		t.Fatalf("the history holds %d versions after a restore, want 4", len(after.Versions))
+	}
+	back := decode[DraftChanged](t, h.call(http.MethodPost,
+		Prefix+"/drafts/"+draft+"/history/"+strconv.FormatInt(after.Versions[0].Version, 10)+"/restore", ""),
+		http.StatusOK).Draft
+	if zones := zoneIDs(t, back.Manifest); !slices.Equal(zones, []string{"z-plate"}) {
+		t.Errorf("undoing the restore left the zones %v", zones)
+	}
+
+	// A version that is not there, and one that is not a number.
+	expectError(t, h.call(http.MethodPost, Prefix+"/drafts/"+draft+"/history/999999/restore", ""),
+		http.StatusNotFound, codeNoVersion)
+	expectError(t, h.call(http.MethodPost, Prefix+"/drafts/"+draft+"/history/soon/restore", ""),
+		http.StatusBadRequest, codeBadRequest)
+
+	// Only the newest twenty survive, and a change that moves nothing is no
+	// version at all.
+	for i := range store.DraftHistoryDepth + 5 {
+		h.call(http.MethodPatch, Prefix+"/drafts/"+draft, fmt.Sprintf(`{"rules":{"lives":%d}}`, 1+i%9))
+	}
+	h.call(http.MethodPatch, Prefix+"/drafts/"+draft, `{"rules":{"lives":1}}`)
+	deep := decode[DraftHistoryList](t, h.call(http.MethodGet, Prefix+"/drafts/"+draft+"/history", ""), http.StatusOK)
+	if len(deep.Versions) != store.DraftHistoryDepth {
+		t.Errorf("the history holds %d versions, want %d", len(deep.Versions), store.DraftHistoryDepth)
+	}
+	rest := decode[DraftHistoryList](t, h.call(http.MethodGet, Prefix+"/drafts/"+draft+"/history", ""), http.StatusOK)
+	if len(rest.Versions) != len(deep.Versions) || rest.Versions[0].Version != deep.Versions[0].Version {
+		t.Error("a change that moved nothing wrote a version")
+	}
+
+	// The history goes with the draft.
+	if rec := h.call(http.MethodDelete, Prefix+"/drafts/"+draft, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("the delete answered %d", rec.Code)
+	}
+	if left, err := h.st.DraftHistory(t.Context(), draft); err != nil || len(left) != 0 {
+		t.Errorf("a deleted draft left %d versions behind: %v", len(left), err)
+	}
+}
+
+// zoneIDs lists the zone ids of a manifest, in order.
+func zoneIDs(t *testing.T, manifest json.RawMessage) []string {
+	t.Helper()
+	var m struct {
+		Zone []struct {
+			ID string `json:"id"`
+		} `json:"zone"`
+	}
+	if err := json.Unmarshal(manifest, &m); err != nil {
+		t.Fatalf("the manifest reads %s: %v", manifest, err)
+	}
+	out := []string{}
+	for _, z := range m.Zone {
+		out = append(out, z.ID)
+	}
+	return out
 }

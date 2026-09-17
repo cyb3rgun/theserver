@@ -151,6 +151,106 @@ func (s *Store) ListDrafts(ctx context.Context) ([]Draft, error) {
 	return list, rows.Err()
 }
 
+// DraftHistoryDepth is how many changes of one draft the server keeps
+// (D-051). The browser keeps its own 50 states for undo and redo; these are
+// the versions a person can go back to after a reload or from another
+// machine.
+const DraftHistoryDepth = 20
+
+// A DraftVersion is one entry of the history of a draft: the patch that was
+// applied and the manifest as it stood before it, which is what a restore
+// writes back.
+type DraftVersion struct {
+	ID       int64
+	DraftID  string
+	Patch    json.RawMessage
+	Manifest json.RawMessage
+	At       int64
+	By       string
+}
+
+// AddDraftVersion writes one entry of the history and drops everything
+// older than the newest DraftHistoryDepth entries of that draft.
+func (s *Store) AddDraftVersion(ctx context.Context, v DraftVersion) error {
+	patch, manifest := string(v.Patch), string(v.Manifest)
+	if !json.Valid([]byte(patch)) {
+		patch = "{}"
+	}
+	if !json.Valid([]byte(manifest)) {
+		manifest = "{}"
+	}
+	defer s.writing()()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO scenario_draft_history (draft_id, patch, manifest, at, by) VALUES (?, ?, ?, ?, ?)`,
+		v.DraftID, patch, manifest, s.nowMilli(), v.By); err != nil {
+		return fmt.Errorf("history of draft %s: %w", v.DraftID, err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+DELETE FROM scenario_draft_history
+WHERE draft_id = ? AND id NOT IN (
+  SELECT id FROM scenario_draft_history WHERE draft_id = ? ORDER BY id DESC LIMIT ?
+)`, v.DraftID, v.DraftID, DraftHistoryDepth); err != nil {
+		return fmt.Errorf("trim the history of draft %s: %w", v.DraftID, err)
+	}
+	return tx.Commit()
+}
+
+// DraftHistory lists the history of a draft, the newest entry first.
+func (s *Store) DraftHistory(ctx context.Context, id string) ([]DraftVersion, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, draft_id, patch, manifest, at, by FROM scenario_draft_history WHERE draft_id = ? ORDER BY id DESC`, id)
+	if err != nil {
+		return nil, fmt.Errorf("history of draft %s: %w", id, err)
+	}
+	defer rows.Close()
+	list := []DraftVersion{}
+	for rows.Next() {
+		v, err := scanVersion(rows)
+		if err != nil {
+			return nil, fmt.Errorf("history of draft %s: %w", id, err)
+		}
+		list = append(list, v)
+	}
+	return list, rows.Err()
+}
+
+// ErrVersionNotFound is returned for a history entry that is not there, or
+// no longer there because newer changes pushed it out.
+var ErrVersionNotFound = errors.New("draft version not found")
+
+// DraftVersionOf reads one entry of the history of a draft.
+func (s *Store) DraftVersionOf(ctx context.Context, id string, version int64) (DraftVersion, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, draft_id, patch, manifest, at, by FROM scenario_draft_history WHERE id = ? AND draft_id = ?`,
+		version, id)
+	v, err := scanVersion(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return DraftVersion{}, fmt.Errorf("version %d of %s: %w", version, id, ErrVersionNotFound)
+	}
+	if err != nil {
+		return DraftVersion{}, fmt.Errorf("version %d of draft %s: %w", version, id, err)
+	}
+	return v, nil
+}
+
+func scanVersion(row rowScanner) (DraftVersion, error) {
+	var (
+		v               DraftVersion
+		patch, manifest string
+	)
+	if err := row.Scan(&v.ID, &v.DraftID, &patch, &manifest, &v.At, &v.By); err != nil {
+		return DraftVersion{}, err
+	}
+	v.Patch = json.RawMessage(patch)
+	v.Manifest = json.RawMessage(manifest)
+	return v, nil
+}
+
 // ErrDraftLocked is returned when a draft is held by somebody else and the
 // caller did not ask to take it over.
 var ErrDraftLocked = errors.New("scenario draft is locked")
@@ -210,7 +310,12 @@ func (s *Store) UnlockDraft(ctx context.Context, id, by string) (Draft, error) {
 // remove.
 func (s *Store) DeleteDraft(ctx context.Context, id string) error {
 	defer s.writing()()
-	result, err := s.db.ExecContext(ctx, `DELETE FROM scenario_drafts WHERE id = ?`, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `DELETE FROM scenario_drafts WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete draft %s: %w", id, err)
 	}
@@ -219,7 +324,10 @@ func (s *Store) DeleteDraft(ctx context.Context, id string) error {
 	} else if n == 0 {
 		return fmt.Errorf("%s: %w", id, ErrDraftNotFound)
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx, `DELETE FROM scenario_draft_history WHERE draft_id = ?`, id); err != nil {
+		return fmt.Errorf("delete the history of draft %s: %w", id, err)
+	}
+	return tx.Commit()
 }
 
 const draftColumns = `id, scenario_id, manifest, media, created_at, created_by, updated_at, updated_by, published_version, locked_by, locked_name, locked_at`

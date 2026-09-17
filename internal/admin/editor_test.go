@@ -21,6 +21,7 @@ import (
 	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/mediakind/mediakindtest"
 	"github.com/cyb3rgun/theserver/internal/scenario"
+	"github.com/cyb3rgun/theserver/internal/store"
 )
 
 // otherAdmin adds a second admin token and returns its id, so a test can
@@ -126,18 +127,26 @@ func TestEditorPageShowsTheDraft(t *testing.T) {
 func TestEveryDraftEndpointIsReachableFromThePage(t *testing.T) {
 	h := newHarness(t)
 	id := h.draft("reachable", "interactive")
+	// One change, so that the history has a version the page can restore.
+	if rec := h.json(http.MethodPost, "/admin/editor/"+id+"/patch", `{"rules":{"lives":4}}`); rec.Code != http.StatusOK {
+		t.Fatalf("the first change answered %d: %s", rec.Code, rec.Body.String())
+	}
 	page := h.html("GET", "/admin/editor/"+id, nil)
+	restore := regexp.MustCompile(`action="(/admin/editor/[^"]*/history/\d+/restore)"`).FindStringSubmatch(page)
+	if restore == nil {
+		t.Fatal("the page carries no restore form")
+	}
 	h.putMedia(id, "clip.mp4", mediakindtest.Clip())
 	media := h.html("GET", "/admin/editor/"+id+"/media", nil)
 	catalogue := h.html("GET", "/admin/scenarios", nil)
 	preview := h.html("GET", "/admin/editor/"+id+"/preview", nil)
 
-	attributes := regexp.MustCompile(`data-(draft|patch|panel|media|file|measure|validate|publish|trace|lock|unlock)="([^"]*)"`)
+	attributes := regexp.MustCompile(`data-(draft|patch|panel|media|file|measure|validate|publish|trace|lock|unlock|history)="([^"]*)"`)
 	found := map[string]string{}
 	for _, m := range attributes.FindAllStringSubmatch(page+preview, -1) {
 		found[m[1]] = m[2]
 	}
-	for _, name := range []string{"draft", "patch", "panel", "media", "file", "measure", "validate", "publish", "trace", "lock", "unlock"} {
+	for _, name := range []string{"draft", "patch", "panel", "media", "file", "measure", "validate", "publish", "trace", "lock", "unlock", "history"} {
 		if found[name] == "" {
 			t.Fatalf("the page carries no address for %s", name)
 		}
@@ -158,6 +167,8 @@ func TestEveryDraftEndpointIsReachableFromThePage(t *testing.T) {
 		{"GET /drafts/{id}", "data-draft", found["draft"], http.MethodGet, found["draft"], ""},
 		{"PATCH /drafts/{id}", "data-patch", found["patch"], http.MethodPost, found["patch"], `{"rules":{"lives":4}}`},
 		{"DELETE /drafts/{id}", "the delete form", "/admin/editor/" + id + "/delete", http.MethodPost, "/admin/editor/" + id + "/delete", ""},
+		{"GET /drafts/{id}/history", "data-history", found["history"], http.MethodGet, found["history"], ""},
+		{"POST /drafts/{id}/history/{version}/restore", "the restore form", restore[1], http.MethodPost, restore[1], ""},
 		{"POST /drafts/{id}/lock", "data-lock", found["lock"], http.MethodPost, found["lock"], ""},
 		{"DELETE /drafts/{id}/lock", "data-unlock", found["unlock"], http.MethodPost, found["unlock"], ""},
 		{"POST /drafts/{id}/media", "the upload form", found["media"], http.MethodPost, found["media"], ""},
@@ -447,4 +458,61 @@ func TestEditorLockNoticeAndTakeOver(t *testing.T) {
 	if strings.Contains(free, `id="editor-lock"`) {
 		t.Error("a released draft still shows the lock notice")
 	}
+}
+
+// The history panel of the editor (D-051): the versions the server kept, a
+// restore that brings a deleted zone back, and the two buttons undo and redo
+// with their shortcuts on the page.
+func TestEditorHistoryAndRestore(t *testing.T) {
+	h := newHarness(t)
+	id := h.draft("history-range", "video")
+
+	page := h.html("GET", "/admin/editor/"+id, nil)
+	contains(t, page, `id="editor-undo"`, `id="editor-redo"`,
+		i18n.T("en", "admin.editor.undo"), i18n.T("en", "admin.editor.redo"),
+		`id="history"`, i18n.T("en", "admin.editor.no_history"),
+		i18n.T("en", "admin.editor.history_hint", store.DraftHistoryDepth),
+		i18n.T("en", "admin.editor.key.undo.what"))
+
+	// Two zones, then one deleted.
+	both := `{"zone":[{"id":"z-plate","shape":"circle","points":[[540,960]],"radius":100,"zone_class":"none"},` +
+		`{"id":"z-gong","shape":"circle","points":[[300,600]],"radius":80,"zone_class":"none"}]}`
+	if rec := h.json(http.MethodPost, "/admin/editor/"+id+"/patch", both); rec.Code != http.StatusOK {
+		t.Fatalf("the first change answered %d: %s", rec.Code, rec.Body.String())
+	}
+	if rec := h.json(http.MethodPost, "/admin/editor/"+id+"/patch",
+		`{"zone":[{"id":"z-plate","shape":"circle","points":[[540,960]],"radius":100,"zone_class":"none"}]}`); rec.Code != http.StatusOK {
+		t.Fatalf("the delete answered %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// The panel names the part of the scenario each change touched, in the
+	// language of the page.
+	for _, lang := range []string{"en", "de"} {
+		h.lang = lang
+		list := h.html("GET", "/admin/editor/"+id+"/history", nil)
+		contains(t, list, i18n.T(lang, "admin.editor.group.zone"), i18n.T(lang, "admin.editor.restore"),
+			`data-confirm="`+i18n.T(lang, "admin.editor.confirm_restore")+`"`, "founder")
+	}
+	h.lang = ""
+
+	// Restoring the newest version brings the zone back.
+	versions := regexp.MustCompile(`/history/(\d+)/restore`).FindAllStringSubmatch(
+		h.html("GET", "/admin/editor/"+id+"/history", nil), -1)
+	if len(versions) < 2 {
+		t.Fatalf("the history holds %d versions", len(versions))
+	}
+	restored := h.html("POST", "/admin/editor/"+id+"/history/"+versions[0][1]+"/restore", nil)
+	contains(t, restored, i18n.T("en", "admin.editor.restore"))
+	var draft httpapi.Draft
+	rec := h.do(http.MethodGet, "/admin/editor/"+id+"/draft", nil, true)
+	if err := json.Unmarshal(rec.Body.Bytes(), &draft); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(draft.Manifest), "z-gong") {
+		t.Errorf("the restored draft holds %s", draft.Manifest)
+	}
+
+	// A version that is gone says so and leaves the draft alone.
+	gone := h.html("POST", "/admin/editor/"+id+"/history/999999/restore", nil)
+	contains(t, gone, i18n.T("en", "admin.editor.restore_failed"))
 }

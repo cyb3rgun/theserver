@@ -917,13 +917,42 @@ form.settings.dirty .savebar #unsaved-count {
 
 .editor-lower {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 1rem;
   align-items: start;
 }
 
+/* The version list of a draft (D-051). */
+.version-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.version-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.version-list .when {
+  font-variant-numeric: tabular-nums;
+}
+
+.version-list .who,
+.version-list .fields {
+  color: var(--muted);
+}
+
+.version-list form {
+  margin-left: auto;
+}
+
 .media,
-.problems {
+.problems,
+.history {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -931,7 +960,8 @@ form.settings.dirty .savebar #unsaved-count {
 }
 
 .media h2,
-.problems h2 {
+.problems h2,
+.history h2 {
   margin-top: 0;
 }
 

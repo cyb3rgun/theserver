@@ -38,7 +38,15 @@
     pxPerMs: 0.08,
     pending: 0,
     clip: '', // the media path the video element holds
+    // past and future are the manifest states of undo and redo in this
+    // browser (D-051), the newest last. The server keeps its own history of
+    // the last twenty changes, which survives a reload; these do not.
+    past: [],
+    future: [],
   };
+
+  // UNDO_DEPTH is what D-051 asks the browser to keep.
+  const UNDO_DEPTH = 50;
 
   // --- small helpers ---------------------------------------------------
 
@@ -109,9 +117,11 @@
   }
 
   // patch sends a JSON merge patch on the manifest and takes the answer. A
-  // draft this page does not hold takes none.
-  async function patch(body, keepPanel) {
+  // draft this page does not hold takes none. Every change that goes through
+  // remembers the state before it, so that it can be undone.
+  async function patch(body, keepPanel, remember) {
     if (readOnly) return false;
+    const before = state.manifest ? JSON.parse(JSON.stringify(state.manifest)) : null;
     const answer = await send(urls.patch, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -119,11 +129,77 @@
     });
     if (!answer) return false;
     const data = await answer.json();
+    if (remember !== false && before) {
+      state.past.push(before);
+      if (state.past.length > UNDO_DEPTH) state.past.shift();
+      state.future = [];
+    }
     take(data.draft);
     const stale = document.getElementById('problems-stale');
     if (stale) stale.hidden = false;
     if (!keepPanel) refreshPanel();
+    refreshHistory();
+    setUndo();
     return true;
+  }
+
+  // --- undo and redo ---------------------------------------------------
+
+  // diff is the JSON merge patch (RFC 7386) that turns from into to: a key
+  // that is gone becomes null, a key that changed carries its new value.
+  // Undo cannot send the manifest as it stands, because a merge would leave
+  // behind whatever the state it goes back to no longer has.
+  function diff(from, to) {
+    const out = {};
+    const source = from && typeof from === 'object' ? from : {};
+    const target = to && typeof to === 'object' ? to : {};
+    Object.keys(source).forEach((key) => {
+      if (!(key in target)) out[key] = null;
+    });
+    Object.keys(target).forEach((key) => {
+      const a = source[key];
+      const b = target[key];
+      if (JSON.stringify(a) === JSON.stringify(b)) return;
+      const plain = (v) => v && typeof v === 'object' && !Array.isArray(v);
+      out[key] = plain(a) && plain(b) ? diff(a, b) : b;
+    });
+    return out;
+  }
+
+  function setUndo() {
+    const undo = document.getElementById('editor-undo');
+    const redo = document.getElementById('editor-redo');
+    if (undo) undo.disabled = readOnly || state.past.length === 0;
+    if (redo) redo.disabled = readOnly || state.future.length === 0;
+  }
+
+  // step moves one state between the two stacks and sends the difference.
+  async function step(from, to) {
+    if (readOnly || from.length === 0) return;
+    const target = from[from.length - 1];
+    const here = state.manifest ? JSON.parse(JSON.stringify(state.manifest)) : {};
+    const change = diff(here, target);
+    if (Object.keys(change).length === 0) {
+      from.pop();
+      to.push(here);
+      setUndo();
+      return;
+    }
+    if (!(await patch(change, false, false))) return;
+    from.pop();
+    to.push(here);
+    if (to.length > UNDO_DEPTH) to.shift();
+    setUndo();
+  }
+
+  const undo = () => step(state.past, state.future);
+  const redo = () => step(state.future, state.past);
+
+  async function refreshHistory() {
+    if (!urls.history) return;
+    const answer = await send(urls.history, { headers: { 'Accept': 'text/html' } });
+    if (!answer) return;
+    swap('history', await answer.text());
   }
 
   // take keeps a draft the server answered with.
@@ -150,6 +226,7 @@
     const answer = await send(urls.draft, {});
     if (!answer) return;
     take(await answer.json());
+    setUndo();
     measureMedia();
   }
 
@@ -921,6 +998,7 @@
       }
       if (ok) return;
       readOnly = true;
+      setUndo();
       stateBox.textContent = words.lost || stateBox.dataset.failed;
       stateBox.classList.add('failed');
     }, every);
@@ -936,6 +1014,17 @@
   }
 
   window.addEventListener('pagehide', releaseLock);
+
+  // A restore from the history panel goes through HTMX and changes the
+  // manifest behind the canvas, so the page reads the draft again and starts
+  // its undo stack over: what is on the screen is the state that was
+  // restored, and the way back is the newest entry of the history.
+  document.body.addEventListener('htmx:afterSwap', (event) => {
+    if (!event.target || event.target.id !== 'history') return;
+    state.past = [];
+    state.future = [];
+    load();
+  });
 
   // --- events ----------------------------------------------------------
 
@@ -959,6 +1048,8 @@
     }
     if (event.target.id === 'editor-validate') validate();
     if (event.target.id === 'editor-publish') publish(event.target);
+    if (event.target.id === 'editor-undo') undo();
+    if (event.target.id === 'editor-redo') redo();
   });
 
   function run(what) {
@@ -1023,6 +1114,12 @@
   document.addEventListener('keydown', (event) => {
     const tag = (event.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'select' || tag === 'textarea' || event.target.isContentEditable) return;
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'z') {
+      if (event.shiftKey) redo();
+      else undo();
+      event.preventDefault();
+      return;
+    }
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     const step = event.shiftKey ? 1000 : 40;
     switch (event.key) {

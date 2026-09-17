@@ -22,6 +22,7 @@
      data-validate="/admin/editor/{{path .Draft.ID}}/validate"
      data-publish="/admin/editor/{{path .Draft.ID}}/publish"
      data-tier="{{.Draft.Tier}}"
+     data-history="{{.History.List}}"
      data-lock="{{.Lock.Take}}"
      data-unlock="{{.Lock.Release}}"
      data-lock-every="{{.Lock.RefreshMs}}"
@@ -31,6 +32,10 @@
     <span id="editor-state" class="state" role="status"
           data-idle="{{t "admin.editor.saved"}}" data-busy="{{t "admin.editor.saving"}}"
           data-failed="{{t "admin.editor.save_failed"}}">{{t "admin.editor.saved"}}</span>
+    <button type="button" class="button" id="editor-undo" disabled
+            aria-keyshortcuts="Control+Z">{{t "admin.editor.undo"}}</button>
+    <button type="button" class="button" id="editor-redo" disabled
+            aria-keyshortcuts="Control+Shift+Z">{{t "admin.editor.redo"}}</button>
     <button type="button" class="button" id="editor-validate">{{t "admin.editor.validate"}}</button>
     <button type="button" class="button primary" id="editor-publish"{{if not .Problems.Ready}} disabled{{end}}
             data-confirm="{{t "admin.editor.confirm_publish"}}">{{t "admin.editor.publish"}}</button>
@@ -86,6 +91,7 @@
   <div class="editor-lower">
     <section class="media" id="media" aria-label="{{t "admin.editor.media"}}">{{template "editor-media" .Media}}</section>
     <section class="problems" id="problems" aria-label="{{t "admin.editor.problems"}}">{{template "editor-problems" .Problems}}</section>
+    <section class="history" id="history" aria-label="{{t "admin.editor.history"}}">{{template "editor-history" .History}}</section>
   </div>
 
   <details class="shortcuts" id="shortcuts">
@@ -222,6 +228,29 @@
   {{end}}
   </tbody>
 </table>
+{{end}}
+
+{{define "editor-history"}}
+<h2>{{t "admin.editor.history"}}</h2>
+{{template "error" .}}
+{{if .Versions}}
+<ol class="version-list">
+  {{range .Versions}}
+  <li>
+    <span class="when">{{when .At}}</span>
+    <span class="who">{{.By}}</span>
+    <span class="fields">{{if .Fields}}{{.Fields}}{{else}}{{t "admin.editor.restore_all"}}{{end}}</span>
+    <form method="post" action="{{.Restore}}" hx-post="{{.Restore}}" hx-target="#history" hx-swap="innerHTML"
+          data-confirm="{{.Confirm}}">
+      <button class="button quiet" type="submit">{{t "admin.editor.restore"}}</button>
+    </form>
+  </li>
+  {{end}}
+</ol>
+{{else}}
+<p class="muted">{{t "admin.editor.no_history"}}</p>
+{{end}}
+<p class="muted">{{t "admin.editor.history_hint" .Depth}}</p>
 {{end}}
 
 {{define "editor-problems"}}
