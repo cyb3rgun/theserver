@@ -513,7 +513,9 @@
       return;
     }
     const chosen = selection();
-    if (chosen.group === 'zone' && chosen.index >= 0) {
+    // The selection can point at a zone that is no longer there, right after
+    // it was deleted or undone; then there is nothing to grab.
+    if (chosen.group === 'zone' && chosen.index >= 0 && zones()[chosen.index]) {
       const zone = zones()[chosen.index];
       const shape = shapeAt(zone, state.time);
       const grabbed = handles(zone, shape).findIndex((p) => Math.hypot(p[0] - point.x, p[1] - point.y) < 26);
@@ -686,7 +688,7 @@
       inner.appendChild(row);
     });
 
-    if (chosen.group === 'zone' && chosen.index >= 0) {
+    if (chosen.group === 'zone' && chosen.index >= 0 && zones()[chosen.index]) {
       const zone = zones()[chosen.index];
       const row = document.createElement('div');
       row.className = 'lane keyframes';
@@ -1015,15 +1017,39 @@
 
   window.addEventListener('pagehide', releaseLock);
 
-  // A restore from the history panel goes through HTMX and changes the
-  // manifest behind the canvas, so the page reads the draft again and starts
-  // its undo stack over: what is on the screen is the state that was
+  // The property panel changes the manifest through HTMX, not through patch,
+  // so the state before such a change is put on the undo stack here and the
+  // draft is read again after it. Without this, a field or a delete from the
+  // panel would be the one change undo could not take back.
+  function remember() {
+    if (readOnly || !state.manifest) return;
+    state.past.push(JSON.parse(JSON.stringify(state.manifest)));
+    if (state.past.length > UNDO_DEPTH) state.past.shift();
+    state.future = [];
+    setUndo();
+  }
+
+  document.body.addEventListener('htmx:beforeRequest', (event) => {
+    const el = event.target;
+    if (el && el.closest && el.closest('#panel')) remember();
+  });
+
+  // A restore from the history panel goes through HTMX as well and changes
+  // the manifest behind the canvas, so the page reads the draft again and
+  // starts its undo stack over: what is on the screen is the state that was
   // restored, and the way back is the newest entry of the history.
   document.body.addEventListener('htmx:afterSwap', (event) => {
-    if (!event.target || event.target.id !== 'history') return;
-    state.past = [];
-    state.future = [];
-    load();
+    if (!event.target) return;
+    if (event.target.id === 'history') {
+      state.past = [];
+      state.future = [];
+      load();
+      return;
+    }
+    if (event.target.id === 'panel') {
+      load();
+      refreshHistory();
+    }
   });
 
   // --- events ----------------------------------------------------------

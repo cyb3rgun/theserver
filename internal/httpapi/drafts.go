@@ -411,7 +411,10 @@ func (s *Server) lockDraft(w http.ResponseWriter, r *http.Request) {
 		s.audit(r, "draft lock taken over", "draft", id, "from", before.Lock.Name, "to", token.Name)
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, s.draftJSON(r, d, false))
+	// With the manifest: the editor page renders its property panel from this
+	// answer when it takes the lock, and a draft without its manifest would
+	// draw a page whose panel lists no zone and no appearance.
+	writeJSON(w, http.StatusOK, s.draftJSON(r, d, true))
 }
 
 // unlockDraft releases a lock this token holds, which the editor does when
@@ -424,7 +427,7 @@ func (s *Server) unlockDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, s.draftJSON(r, d, false))
+	writeJSON(w, http.StatusOK, s.draftJSON(r, d, true))
 }
 
 // draftHistory lists the versions of a draft the server kept (D-051).

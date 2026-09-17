@@ -392,8 +392,17 @@ func TestEditorLockNoticeAndTakeOver(t *testing.T) {
 	h := newHarness(t)
 	id := h.draft("shared-range", "video")
 
+	// The zones of the draft stand in the panel navigation of the page the
+	// lock was taken on: the lock answer carries the manifest the panel is
+	// built from.
+	if rec := h.json(http.MethodPost, "/admin/editor/"+id+"/patch",
+		`{"zone":[{"id":"z-plate","shape":"circle","points":[[540,960]],"radius":100,"zone_class":"none"}]}`); rec.Code != http.StatusOK {
+		t.Fatalf("the zone was not added: %d %s", rec.Code, rec.Body.String())
+	}
+
 	// The page that opened the draft holds it and says nothing about a lock.
 	mine := h.html("GET", "/admin/editor/"+id, nil)
+	contains(t, mine, `<button type="button" class="chip" data-select="zone:0">z-plate</button>`)
 	if strings.Contains(mine, `id="editor-lock"`) || strings.Contains(mine, `data-readonly="1"`) {
 		t.Error("the page of the holder shows the lock notice")
 	}
