@@ -2,6 +2,38 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-051 Undo and redo in the browser, a history on the server
+
+- Date: 18 September 2026 (S01-B09)
+- Decision: The editor keeps the last 50 manifest states in the browser for undo and redo, and the server keeps the last 20 changes of every draft in `scenario_draft_history`. Undo and redo happen in the browser; "restore version" from the history happens on the server.
+- Details: A version is the manifest as it stood before one change, plus the merge patch that was applied, so the list can name the parts of the scenario a change touched without carrying the manifest. `GET /api/v1/drafts/{id}/history` lists them newest first, `POST /api/v1/drafts/{id}/history/{version}/restore` writes one back; the state before a restore becomes the newest version, so a restore can itself be undone. A change that moved nothing writes no version, and the history goes when the draft goes. In the browser, undo does not send the manifest as it stands, because a merge patch would leave behind whatever the older state no longer has: `editor.js` builds the patch that turns one state into the other, with a null for every key that went away. The keys are Ctrl and Z, Ctrl and Shift and Z.
+- Reason: Every change of the editor saves itself at once, which was right and left no way back. Fifty states in the browser cover the wrong drag; twenty on the server cover the reload, the other machine and the person who comes back tomorrow. Keeping every version of every draft forever would be a second content store.
+- Versions: none.
+
+## D-050 A draft is locked while somebody edits it
+
+- Date: 18 September 2026 (S01-B09)
+- Decision: A draft carries `locked_by`, `locked_name` and `locked_at`. Opening the editor takes the lock for the session, the page refreshes it every minute and releases it when it is left; another admin sees who holds it and can take it over with a confirmation that logs both names.
+- Details: `locked_by` is the id of the admin token, which is the identity the server compares; `locked_name` is the name that token carried when the lock was taken, so a notice can name the holder even after the token is gone. A lock lives five minutes after its last refresh, so a closed browser or a machine that went to sleep does not hold a draft forever. The lock is not only a notice: `POST` and `DELETE /api/v1/drafts/{id}/lock` and every endpoint that changes a draft, its media, its history or its publish answer 409 `draft_locked` while somebody else holds it, while reading and the check stay open. The page of somebody who does not hold the draft reads only and offers the takeover; the browser releases with `sendBeacon`, which survives a closing tab.
+- Reason: Two people on one draft used to overwrite each other silently, and the draft carried nothing that could tell them. A lock that can be taken over is honest in a venue where one person may have walked away from the screen; a lock nobody can break would leave a draft stuck until the database is edited.
+- Versions: none.
+
+## D-049 Tags version the public surface
+
+- Date: 18 September 2026 (S01-B09)
+- Decision: The public packages of theserver are versioned by git tags. `v0.1.0` is tagged at the close of S01-B09 and theclient pins it. A later pass that changes anything under `pkg/` bumps the tag.
+- Details: The tag is an annotated tag on `main`, pushed to origin, so `go get github.com/cyb3rgun/theserver@v0.1.0` resolves. The zero major version says what is true: the surface may still change between minor versions, and a change that breaks a caller raises the minor number while the major is zero.
+- Reason: theclient cannot import a moving branch. A tag is the smallest thing that gives it something to pin, and it costs nothing while `pkg/` stays small.
+- Versions: none.
+
+## D-048 pkg/ is the public surface of theserver
+
+- Date: 18 September 2026 (S01-B09)
+- Decision: `pkg/protocol`, `pkg/scenario` and `pkg/journal` are public: theclient and the firmware tooling may import them, and their API is versioned by tags. Everything else stays under `internal/`. D-004 held that nothing is importable from outside except by a later recorded decision; this is that decision.
+- Details: `pkg/protocol` is the device link envelope, its message types and its codec. `pkg/scenario` is the manifest model, the loader, the validation and the rule engine of section 7, with `pkg/scenario/scenariotest` for the fixtures. `pkg/journal` is the device side journal, taken out of `internal/simtarget`: sequence, epoch, the events the server has not acknowledged, replay after a dropped connection. The move was one commit with `git mv`, so the history of every file follows, and nothing else changed with it.
+- Reason: theclient runs the same rules a target runs and speaks the same link. Writing them a second time would be two engines drifting apart, which D-044 already calls the thing to avoid. The three packages are the ones a client needs and nothing more: no store, no HTTP server, no admin pages.
+- Versions: none.
+
 ## D-047 The OpenAPI description is parsed in a test
 
 - Date: 17 September 2026 (S01-B08)

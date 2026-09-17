@@ -4,7 +4,7 @@
 
 | Season | Goal | Status | Start | Passes |
 |--------|------|--------|-------|--------|
-| S01 | theserver runs as one binary on the M150, accepts events from a simulated target over the device link, journals them in SQLite, replays correctly after a dropped connection, and shows a ranking through the API and a first admin page. | running | 15 September 2026 | B01 (D-001 to D-008), B02 (D-009 to D-015), B03 (D-016 to D-022), B04 (D-023 to D-028), B05 (D-029), B06 (D-030 to D-034), B07 (D-035 to D-040), B08 (D-041 to D-047) |
+| S01 | theserver runs as one binary on the M150, accepts events from a simulated target over the device link, journals them in SQLite, replays correctly after a dropped connection, and shows a ranking through the API and a first admin page. | running | 15 September 2026 | B01 (D-001 to D-008), B02 (D-009 to D-015), B03 (D-016 to D-022), B04 (D-023 to D-028), B05 (D-029), B06 (D-030 to D-034), B07 (D-035 to D-040), B08 (D-041 to D-047), B09 (D-048 to D-051) |
 
 ## S01 in progress
 
@@ -18,8 +18,10 @@
 
 - **S01-B06.** The settings foundation: one registry that describes every setting with type, range, restart flag and texts in English and German; the admin interface in both languages; the configuration file written back from the registry with live changes where possible; the settings API and an editable settings page with help; the generated reference `docs/settings.md` (D-030 to D-034).
 
-- **S01-B07.** Scenario packages and the catalogue: `docs/scenario.md` with its implementation `internal/scenario`, the content store with immutable published versions, holdings and announcements on the device link, the scenario API with the package download for targets and the assignment with the age check, the catalogue pages, and the whole chain from upload to installed with the simulated target; a server without `--config` creates its configuration file with the first saved change (D-035 to D-040).
+- **S01-B07.** Scenario packages and the catalogue: `docs/scenario.md` with its implementation `pkg/scenario`, which was `internal/scenario` until B09, the content store with immutable published versions, holdings and announcements on the device link, the scenario API with the package download for targets and the assignment with the age check, the catalogue pages, and the whole chain from upload to installed with the simulated target; a server without `--config` creates its configuration file with the first saved change (D-035 to D-040).
 
 - **S01-B08.** The scenario editor for VIDEO and INTERACTIVE: drafts on the server with their media, the package assembled and published by the server, the canvas with the zones and their keyframes, the timeline, the property panel from a field registry with help at every field in both languages, the media check that reads containers and codecs from the header, and the preview that plays the rules of section 7 in the browser and compares them with the same engine in Go (D-041 to D-047).
+
+- **S01-B09.** The forward fixes of B08 and the public surface: the keyframe control follows the tier, a draft is locked while somebody edits it and can be taken over, undo and redo in the browser with a version history on the server, and `pkg/protocol`, `pkg/scenario` and `pkg/journal` moved out of `internal/` and tagged `v0.1.0` for theclient (D-048 to D-051).
 
 The run of the full chain on the M150 was dropped on 17 September 2026 by Sascha's decision. Linux binaries are built when a Linux target is due, not before.

@@ -182,13 +182,15 @@ writes every setting with its label, description, default and range. The section
 
 ## Scenarios
 
-A scenario is a package: a `manifest.toml`, its media, a `cover.png`, one directory or zip. [docs/scenario.md](https://github.com/cyb3rgun/theserver/blob/main/docs/scenario.md) defines it, and `internal/scenario` is the one piece of code that reads and checks it, for theserver and later for the targets and the editor. The manifest lists every file of the package with its SHA-256.
+A scenario is a package: a `manifest.toml`, its media, a `cover.png`, one directory or zip. [docs/scenario.md](https://github.com/cyb3rgun/theserver/blob/main/docs/scenario.md) defines it, and `pkg/scenario` is the one piece of code that reads and checks it, for theserver, for the editor and for theclient. The manifest lists every file of the package with its SHA-256.
 
 **Upload.** On `/admin/scenarios`, or `POST /api/v1/scenarios` with the zip. The package is checked at once: every problem is named with its field, in English or German, and a package with problems is kept as a draft that cannot be published. The manifest carries the version; an upload of a version that is published already is refused.
 
 **Publish.** A draft without problems is published on its page. A published version never changes and is never deleted; a fix is a new version. Every version is kept in `content/<id>/<version>/package.zip` below the data directory, exactly as it was uploaded.
 
 **Build.** The scenario editor builds a scenario in the browser, without touching a file: `/admin/scenarios` opens a draft, empty or as a copy of a published version, and `/admin/editor/<draft id>` is the editor. Upload a video, draw zones on the paused frame, move them through time with keyframes, give them values and classes, put appearances on the timeline, choose the reactions and the rules, play it with the mouse as the pistol, check it and publish. Drafts live on the server with their media; the server writes the manifest, computes the hashes, zips the package and publishes it through the same chain an upload takes. Every field carries a description and a longer why, in English and German. [docs/editor.en.md](https://github.com/cyb3rgun/theserver/blob/main/docs/editor.en.md) is the guide.
+
+**Two people, one draft.** Opening the editor takes the lock of that draft; the page keeps it while it is open and lets it go when it is left. Somebody who comes to a draft another person is holding gets a page that reads only and names the holder, with a button that takes it over after a confirmation; both names go into the log. Every change is saved at once, and there are two ways back: undo and redo in the browser, Ctrl and Z, and the version list beside the media panel, which holds the last twenty changes of the draft on the server and restores any of them.
 
 **Play.** A created session gets one published version on `/admin/sessions`. A scenario rated above the age a device of the session is set for is refused; a device is set for 18 unless it is set lower with `--min-age` or on its page. Every device of the session that does not hold the version is told over the device link, a device that is offline when it connects again. The target downloads the package over HTTPS with its own token, checks it and reports it installed; the device page shows what every target holds and whether it is current.
 
@@ -275,14 +277,16 @@ theserver/
 |   +-- i18n/               # English and German texts of the admin pages
 |   +-- link/               # Device link: handshake, replay, commands, keepalive
 |   +-- mediakind/          # Container and codec of a media file, from its header
-|   +-- protocol/           # CBOR message types and codec for link v1
-|   +-- scenario/           # The scenario model: manifest, checks, hash, rules, fixtures
 |   +-- scoring/            # Rankings from the journal
 |   +-- settings/           # The registry of every setting
-|   +-- simtarget/          # Simulator logic: journal, generator, device loop, installs
+|   +-- simtarget/          # Simulator logic: generator, device loop, installs
 |   +-- store/              # SQLite, migrations, devices, sessions, events, tokens, scenarios
 |   +-- tlsboot/            # Self signed certificate bootstrap
 |   +-- version/            # Build information
++-- pkg/                    # The public surface, versioned by tags (D-048, D-049)
+|   +-- journal/            # Device side journal: sequence, epoch, unacked, ack, replay
+|   +-- protocol/           # CBOR message types and codec for link v1
+|   +-- scenario/           # The scenario model: manifest, checks, hash, rules, fixtures
 +-- docs/                   # Concept, protocol, capabilities, decisions, seasons,
 |   +-- briefings/          #   one briefing per pass
 |   +-- handovers/          #   one handover per pass
@@ -314,6 +318,8 @@ theserver/
 | Time base broadcast and beacon multiplex direction | Planned |
 | Scenario packages: check, catalogue, publish, download, holdings, age check | Working |
 | Scenario editor: drafts, zones with keyframes, timeline, media, preview, publish | Working |
+| Scenario editor: draft locking, undo and redo, version history | Working |
+| Public packages for theclient: protocol, scenario, journal | Working |
 | Staged distribution, signed packages and updates | Planned |
 | Director screen, spectator screens | Planned |
 | Members, wristbands, owned pistols, skill rating, leagues | Planned |
