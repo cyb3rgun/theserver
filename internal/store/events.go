@@ -400,7 +400,8 @@ func (s *Store) ListEvents(ctx context.Context, f Filter) ([]Event, error) {
 		limit = DefaultListLimit
 	}
 	var events []Event
-	err := s.eachEvent(ctx, f, limit, max(f.Offset, 0), func(e Event) error {
+	query, args := pageQuery(f, limit, max(f.Offset, 0))
+	err := s.eachEvent(ctx, query, args, func(e Event) error {
 		events = append(events, e)
 		return nil
 	})
@@ -410,18 +411,53 @@ func (s *Store) ListEvents(ctx context.Context, f Filter) ([]Event, error) {
 	return events, nil
 }
 
-// EachEvent calls fn for every event the filter selects, in the order of
-// ListEvents but without a page limit; Limit and Offset are ignored. An error
-// from fn stops the walk and is returned.
+// EachEvent calls fn for every event the filter selects, without a page
+// limit and in no particular order, for callers that only add up, such as a
+// ranking; ListEvents gives the order of arrival. Leaving out the sort saves
+// about a third of the time on a large journal (D-029). Limit and Offset are
+// ignored. An error from fn stops the walk and is returned.
 func (s *Store) EachEvent(ctx context.Context, f Filter, fn func(Event) error) error {
-	if err := s.eachEvent(ctx, f, -1, 0, fn); err != nil {
+	query, args := walkQuery(f)
+	if err := s.eachEvent(ctx, query, args, fn); err != nil {
 		return fmt.Errorf("read events: %w", err)
 	}
 	return nil
 }
 
-// eachEvent runs the filtered query; a limit of -1 means no limit.
-func (s *Store) eachEvent(ctx context.Context, f Filter, limit, offset int, fn func(Event) error) error {
+// eachEvent runs an event query and calls fn for every row.
+func (s *Store) eachEvent(ctx context.Context, query string, args []any, fn func(Event) error) error {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		e, err := scanEvent(rows)
+		if err != nil {
+			return err
+		}
+		if err := fn(e); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// pageQuery is the statement of ListEvents: one page in the order of arrival.
+func pageQuery(f Filter, limit, offset int) (string, []any) {
+	return eventQuery(f, true, limit, offset)
+}
+
+// walkQuery is the statement of EachEvent: every match, unsorted. Its query
+// plan is tested.
+func walkQuery(f Filter) (string, []any) {
+	return eventQuery(f, false, -1, 0)
+}
+
+// eventQuery builds an event query, sorted by arrival when ordered is set; a
+// limit of -1 means no limit.
+func eventQuery(f Filter, ordered bool, limit, offset int) (string, []any) {
 	query := strings.Builder{}
 	query.WriteString(`
 SELECT event_id, device_id, seq_epoch, seq, kind, controller_id, session_id, ts_device, ts_server, payload
@@ -451,25 +487,12 @@ SELECT event_id, device_id, seq_epoch, seq, kind, controller_id, session_id, ts_
 	if f.To != 0 {
 		add(" AND ts_server < ?", f.To)
 	}
-	query.WriteString(" ORDER BY ts_server, device_id, seq_epoch, seq LIMIT ? OFFSET ?")
+	if ordered {
+		query.WriteString(" ORDER BY ts_server, device_id, seq_epoch, seq")
+	}
+	query.WriteString(" LIMIT ? OFFSET ?")
 	args = append(args, limit, offset)
-
-	rows, err := s.db.QueryContext(ctx, query.String(), args...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		e, err := scanEvent(rows)
-		if err != nil {
-			return err
-		}
-		if err := fn(e); err != nil {
-			return err
-		}
-	}
-	return rows.Err()
+	return query.String(), args
 }
 
 func scanEvent(row rowScanner) (Event, error) {

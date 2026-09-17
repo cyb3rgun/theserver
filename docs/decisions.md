@@ -2,6 +2,14 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-029 Rankings find a session by session and kind, and read unsorted
+
+- Date: 17 September 2026 (S01-B05)
+- Decision: Migration 0004 adds the index `events (session_id, kind)`. `EachEvent`, which a ranking reads through, no longer sorts; `ListEvents` keeps the order of arrival. The ranking over everything scans the journal.
+- Reason: The briefing asked for indexes on `events (kind)` and `events (kind, controller_id)`. Measured on homelab (Intel Core i9-11900K) with modernc.org/sqlite and 270,000 events in 30 sessions, they made rankings slower: the planner took `events_kind` for a session ranking and read the hits of every session (22 ms became 118 ms), and the ranking over everything became slower too (538 ms to 715 ms), because hits and misses are about half the journal and an index lookup per row costs more than a scan. `events (kind, controller_id)` was used by no query. With both changes of this decision, the session ranking took 14 ms and the ranking over everything about 420 ms. A test pins the query plans.
+- Agreed with the architect during this pass: `events (session_id, kind)` instead of the two briefed indexes, and no sort in `EachEvent`, which a sum does not need.
+- Versions: none. SQLite 3.53.4 as built into modernc.org/sqlite v1.59.0.
+
 ## D-028 OpenAPI is written by hand
 
 - Date: 17 September 2026 (S01-B04)
