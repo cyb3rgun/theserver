@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/cyb3rgun/theserver/internal/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // The controls a field is shown with.

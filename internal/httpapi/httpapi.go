@@ -17,9 +17,9 @@ import (
 
 	"github.com/cyb3rgun/theserver/internal/content"
 	"github.com/cyb3rgun/theserver/internal/link"
-	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
 	"github.com/cyb3rgun/theserver/internal/version"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // Prefix is where API v1 lives.

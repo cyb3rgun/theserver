@@ -20,10 +20,11 @@ import (
 	"github.com/cyb3rgun/theserver/internal/config"
 	"github.com/cyb3rgun/theserver/internal/content"
 	"github.com/cyb3rgun/theserver/internal/link"
-	"github.com/cyb3rgun/theserver/internal/protocol"
 	"github.com/cyb3rgun/theserver/internal/settings"
 	"github.com/cyb3rgun/theserver/internal/simtarget"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/journal"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
 )
 
 type apiHarness struct {
@@ -794,11 +795,11 @@ func TestRankingEndToEnd(t *testing.T) {
 	}
 }
 
-func mustJournal(t *testing.T) *simtarget.Journal {
+func mustJournal(t *testing.T) *journal.Journal {
 	t.Helper()
-	journal, err := simtarget.OpenJournal(t.TempDir())
+	j, err := journal.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return journal
+	return j
 }

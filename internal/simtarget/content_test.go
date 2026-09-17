@@ -17,10 +17,11 @@ import (
 	"time"
 
 	"github.com/cyb3rgun/theserver/internal/link"
-	"github.com/cyb3rgun/theserver/internal/protocol"
-	"github.com/cyb3rgun/theserver/internal/scenario"
-	"github.com/cyb3rgun/theserver/internal/scenario/scenariotest"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/journal"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario/scenariotest"
 )
 
 // packageServer stands in for the download of the API in this package's
@@ -147,14 +148,14 @@ func (h *contentHarness) run(journalDir string, opts Options) (stop func() Stats
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	journal, err := OpenJournal(journalDir)
+	j, err := journal.Open(journalDir)
 	if err != nil {
 		h.t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan Stats, 1)
 	go func() {
-		stats, err := Run(ctx, opts, journal)
+		stats, err := Run(ctx, opts, j)
 		if err != nil {
 			h.t.Errorf("Run: %v", err)
 		}

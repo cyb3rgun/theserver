@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/cyb3rgun/theserver/internal/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 var (

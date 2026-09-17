@@ -8,7 +8,7 @@ import (
 
 	"github.com/cyb3rgun/theserver/internal/editor"
 	"github.com/cyb3rgun/theserver/internal/i18n"
-	"github.com/cyb3rgun/theserver/internal/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // Every field of the editor names a place in the scenario model, so the

@@ -13,7 +13,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/cyb3rgun/theserver/internal/protocol"
+	"github.com/cyb3rgun/theserver/pkg/journal"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
 )
 
 // ErrUnauthorized is returned when the server refuses the token. A target
@@ -97,7 +98,7 @@ type Stats struct {
 // Run drives the simulated target until the duration is over and every event
 // is acknowledged, or until ctx ends. It returns ErrUnauthorized when the
 // server refuses the token.
-func Run(ctx context.Context, opts Options, journal *Journal) (Stats, error) {
+func Run(ctx context.Context, opts Options, j *journal.Journal) (Stats, error) {
 	opts.defaults()
 	base, err := httpBase(opts.Server)
 	if err != nil {
@@ -105,7 +106,7 @@ func Run(ctx context.Context, opts Options, journal *Journal) (Stats, error) {
 	}
 	d := &device{
 		opts:       opts,
-		journal:    journal,
+		journal:    j,
 		gen:        NewGenerator(opts.Controllers, opts.Seed, time.Now()),
 		log:        opts.Logger.With("device", opts.DeviceID),
 		fresh:      make(chan struct{}, 1),
@@ -123,7 +124,7 @@ func Run(ctx context.Context, opts Options, journal *Journal) (Stats, error) {
 
 type device struct {
 	opts    Options
-	journal *Journal
+	journal *journal.Journal
 	log     *slog.Logger
 	baseURL string // the API, https://host:port
 	client  *http.Client
@@ -225,7 +226,7 @@ func (d *device) generate(ctx context.Context) error {
 	}
 
 	for {
-		var draft Draft
+		var draft journal.Draft
 		select {
 		case <-ctx.Done():
 			return nil
@@ -246,7 +247,7 @@ func (d *device) generate(ctx context.Context) error {
 }
 
 // healthDraft is a health report with what the target holds.
-func (d *device) healthDraft(now time.Time) Draft {
+func (d *device) healthDraft(now time.Time) journal.Draft {
 	held := d.holdings()
 	d.genMu.Lock()
 	defer d.genMu.Unlock()
@@ -254,7 +255,7 @@ func (d *device) healthDraft(now time.Time) Draft {
 }
 
 // appendDraft journals an event and wakes the connection that sends it.
-func (d *device) appendDraft(draft Draft) error {
+func (d *device) appendDraft(draft journal.Draft) error {
 	event, err := d.journal.Append(draft, time.Now().UnixMilli())
 	if err != nil {
 		return err

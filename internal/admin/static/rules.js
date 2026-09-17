@@ -1,5 +1,5 @@
 // rules.js is the rule engine of docs/scenario.md section 7 in the browser
-// (D-044): the same decisions as internal/scenario/rules.go, in the same
+// (D-044): the same decisions as pkg/scenario/rules.go, in the same
 // order, with the same numbers. The preview plays with it, and the browser
 // proof compares its trace with the trace of the Go engine on the same
 // fixture; a difference between the two is a bug in one of them.

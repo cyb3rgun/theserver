@@ -16,10 +16,11 @@ import (
 	"time"
 
 	"github.com/cyb3rgun/theserver/internal/i18n"
-	"github.com/cyb3rgun/theserver/internal/scenario"
-	"github.com/cyb3rgun/theserver/internal/scenario/scenariotest"
 	"github.com/cyb3rgun/theserver/internal/simtarget"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/journal"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario/scenariotest"
 )
 
 // upload posts data as the package field, as the upload form does.
@@ -301,7 +302,7 @@ func TestScenarioChainThroughThePages(t *testing.T) {
 
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan simtarget.Stats, 1)
-	journal, err := simtarget.OpenJournal(t.TempDir())
+	j, err := journal.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,7 +322,7 @@ func TestScenarioChainThroughThePages(t *testing.T) {
 			Rate: 2, Health: time.Hour, Reconnect: 100 * time.Millisecond,
 			ContentDir: filepath.Join(t.TempDir(), "content"),
 			Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
-		}, journal)
+		}, j)
 		if err != nil {
 			t.Errorf("simtarget: %v", err)
 		}

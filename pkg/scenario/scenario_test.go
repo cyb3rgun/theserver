@@ -15,8 +15,8 @@ import (
 	"testing"
 
 	"github.com/cyb3rgun/theserver/internal/i18n"
-	"github.com/cyb3rgun/theserver/internal/scenario"
-	"github.com/cyb3rgun/theserver/internal/scenario/scenariotest"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario/scenariotest"
 )
 
 var update = flag.Bool("update", false, "write the broken fixtures under testdata/invalid again")
@@ -289,7 +289,7 @@ func TestBrokenFixtures(t *testing.T) {
 				}
 			}
 			if got := scenariotest.Files(t, dir); !reflect.DeepEqual(got, map[string][]byte(want)) {
-				t.Fatalf("testdata/%s is not what the breakage writes; run go test ./internal/scenario -update", scenariotest.Broken(name))
+				t.Fatalf("testdata/%s is not what the breakage writes; run go test ./pkg/scenario -update", scenariotest.Broken(name))
 			}
 			expectOnly(t, problemsOf(t, dir), b.code)
 		})
@@ -304,7 +304,7 @@ func TestBrokenFixtures(t *testing.T) {
 			}
 		}
 		if got, err := os.ReadFile(file); err != nil || !bytes.Equal(got, want) {
-			t.Fatalf("testdata/%s is not what the breakage writes (%v); run go test ./internal/scenario -update", scenariotest.Broken(scenario.CodeBadPackage), err)
+			t.Fatalf("testdata/%s is not what the breakage writes (%v); run go test ./pkg/scenario -update", scenariotest.Broken(scenario.CodeBadPackage), err)
 		}
 		expectOnly(t, problemsOf(t, file), scenario.CodeBadPackage)
 	})

@@ -12,8 +12,8 @@ import (
 
 	"github.com/cyb3rgun/theserver/internal/content"
 	"github.com/cyb3rgun/theserver/internal/link"
-	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // UploadField is the multipart field of POST /scenarios that carries the

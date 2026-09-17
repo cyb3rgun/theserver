@@ -1,4 +1,4 @@
-// Package scenariotest hands the fixtures of internal/scenario to the tests
+// Package scenariotest hands the fixtures of pkg/scenario to the tests
 // of other packages: a valid VIDEO and a valid INTERACTIVE package, and one
 // broken package per problem code, as a directory or as the zip a person
 // uploads.
@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cyb3rgun/theserver/internal/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // The valid fixtures, by name.

@@ -11,8 +11,8 @@ import (
 
 	"github.com/cyb3rgun/theserver/internal/httpapi"
 	"github.com/cyb3rgun/theserver/internal/i18n"
-	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // The scenario pages (D-036 to D-040): the catalogue with the upload, a page

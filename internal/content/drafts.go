@@ -19,8 +19,8 @@ import (
 	"strings"
 
 	"github.com/cyb3rgun/theserver/internal/mediakind"
-	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // draftsDir is the directory below the content directory that holds the

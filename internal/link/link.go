@@ -25,9 +25,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/cyb3rgun/theserver/internal/protocol"
-	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // Path is where the device link is mounted.

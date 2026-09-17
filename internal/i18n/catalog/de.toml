@@ -559,7 +559,7 @@ env = "Umgebung"
 flag = "Kommandozeile"
 
 # Die Probleme eines Szenario-Pakets (D-040), nach den Codes von
-# internal/scenario. Eine Seite zeigt den Text und darunter das Detail.
+# pkg/scenario. Eine Seite zeigt den Text und darunter das Detail.
 [scenario.problem]
 bad_package = "Der Upload ist kein lesbares Szenario-Paket."
 no_manifest = "Das Paket enthält keine manifest.toml."

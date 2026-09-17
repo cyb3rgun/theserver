@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/cyb3rgun/theserver/internal/scenario"
-	"github.com/cyb3rgun/theserver/internal/scenario/scenariotest"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario/scenariotest"
 )
 
 // runsFile is the fixture of the rule engine: the shots of every run and the
@@ -75,14 +75,14 @@ func TestRulesOfSectionSevenOnTheFixture(t *testing.T) {
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {
-		t.Fatalf("%v; run go test ./internal/scenario -update", err)
+		t.Fatalf("%v; run go test ./pkg/scenario -update", err)
 	}
 	var recorded recordedRuns
 	if err := json.Unmarshal(data, &recorded); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(recorded, want) {
-		t.Fatalf("the engine no longer writes the recorded trace; run go test ./internal/scenario -update to see the difference")
+		t.Fatalf("the engine no longer writes the recorded trace; run go test ./pkg/scenario -update to see the difference")
 	}
 
 	// The first run is read here in full, so that a change of the rules is

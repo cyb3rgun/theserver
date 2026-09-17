@@ -558,7 +558,7 @@ env = "environment"
 flag = "flag"
 
 # The problems of a scenario package (D-040), by the codes of
-# internal/scenario. A page shows the text and the detail below it.
+# pkg/scenario. A page shows the text and the detail below it.
 [scenario.problem]
 bad_package = "The upload is not a readable scenario package."
 no_manifest = "The package has no manifest.toml."

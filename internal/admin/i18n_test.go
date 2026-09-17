@@ -15,9 +15,9 @@ import (
 
 	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/mediakind/mediakindtest"
-	"github.com/cyb3rgun/theserver/internal/scenario"
-	"github.com/cyb3rgun/theserver/internal/scenario/scenariotest"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario/scenariotest"
 )
 
 // syncBuffer collects log output from the handlers.

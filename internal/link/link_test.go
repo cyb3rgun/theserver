@@ -16,8 +16,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/cyb3rgun/theserver/internal/protocol"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
 )
 
 // testConfig keeps the link fast enough for tests.
@@ -151,7 +151,7 @@ func eventually(t *testing.T, wait time.Duration, what string, cond func() bool)
 	t.Fatalf("%s did not happen within %s", what, wait)
 }
 
-// client is a minimal device written against internal/protocol only.
+// client is a minimal device written against pkg/protocol only.
 type client struct {
 	t  *testing.T
 	ws *websocket.Conn

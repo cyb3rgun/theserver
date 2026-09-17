@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cyb3rgun/theserver/internal/scenario"
-	"github.com/cyb3rgun/theserver/internal/scenario/scenariotest"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario/scenariotest"
 )
 
 // The manifest the server writes for a published draft (D-042) reads back as

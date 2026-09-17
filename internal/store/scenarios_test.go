@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cyb3rgun/theserver/internal/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 func draft(id string, version int) Scenario {

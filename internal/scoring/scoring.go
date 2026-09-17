@@ -13,8 +13,8 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 
-	"github.com/cyb3rgun/theserver/internal/protocol"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
 )
 
 // Scope selects the events of a ranking. An empty SessionID means all

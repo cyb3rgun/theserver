@@ -619,7 +619,7 @@ paths:
       summary: What a publish of this draft would find.
       description: |
         The server builds the manifest with the files table it would write,
-        validates it with internal/scenario and answers the problems, the
+        validates it with pkg/scenario and answers the problems, the
         same ones the package would have.
       operationId: validateDraft
       parameters: [{$ref: "#/components/parameters/DraftID"}]

@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/cyb3rgun/theserver/internal/scenario"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // The states of a scenario version (D-037).

@@ -25,8 +25,8 @@ import (
 	"github.com/cyb3rgun/theserver/internal/httpapi"
 	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/link"
-	"github.com/cyb3rgun/theserver/internal/protocol"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
 )
 
 type harness struct {

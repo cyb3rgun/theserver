@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/cyb3rgun/theserver/internal/protocol"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
 )
 
 type seed struct {

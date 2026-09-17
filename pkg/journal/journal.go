@@ -1,7 +1,9 @@
-// Package simtarget is a simulated target: it journals events the way a
-// target does, speaks the device link, replays after a dropped connection and
-// answers commands, so the whole path can be tested without firmware.
-package simtarget
+// Package journal is the device side journal of the link protocol: the
+// sequence number a device hands out, the epoch it counts in, the events the
+// server has not acknowledged yet, and the replay after a dropped
+// connection. The simulated target runs on it and so does theclient, which
+// is why it is public (D-048).
+package journal
 
 import (
 	"errors"
@@ -15,15 +17,21 @@ import (
 
 	"github.com/fxamacker/cbor/v2"
 
-	"github.com/cyb3rgun/theserver/internal/protocol"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
 )
 
-// journalFile is the name of the journal inside its directory.
-const journalFile = "journal.cbor"
+// FileName is the name of the journal inside its directory.
+const FileName = "journal.cbor"
 
-// A Journal is the persisted memory of the simulated target: the last
-// sequence number it handed out and every event the server has not
-// acknowledged yet. Each change is written to a temporary file and renamed
+// A Draft is an event before the journal gives it a sequence number and an
+// id.
+type Draft struct {
+	Kind string
+	Data cbor.RawMessage
+}
+
+// A Journal is the persisted memory of a device: the last sequence number
+// it handed out and every event the server has not acknowledged yet. Each change is written to a temporary file and renamed
 // over the journal, so a killed process leaves either the old or the new
 // state. It does not fsync; a simulator does not need to survive a power cut.
 type Journal struct {
@@ -41,12 +49,12 @@ type journalState struct {
 	Pending []protocol.Event `cbor:"pending"`
 }
 
-// OpenJournal loads the journal in dir, or starts an empty one.
-func OpenJournal(dir string) (*Journal, error) {
+// Open loads the journal in dir, or starts an empty one.
+func Open(dir string) (*Journal, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("journal directory %s: %w", dir, err)
 	}
-	j := &Journal{path: filepath.Join(dir, journalFile)}
+	j := &Journal{path: filepath.Join(dir, FileName)}
 	data, err := os.ReadFile(j.path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

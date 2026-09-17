@@ -16,8 +16,8 @@ import (
 	"github.com/cyb3rgun/theserver/internal/httpapi"
 	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/mediakind"
-	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // The scenario editor (D-041 to D-046): one page per draft with the video,

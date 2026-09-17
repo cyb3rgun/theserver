@@ -16,8 +16,8 @@ import (
 
 	"github.com/cyb3rgun/theserver/internal/content"
 	"github.com/cyb3rgun/theserver/internal/mediakind"
-	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // MediaField is the multipart field of POST /drafts/{id}/media that carries

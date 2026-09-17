@@ -17,8 +17,8 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // PackageName is the file a version is kept in.

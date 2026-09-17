@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cyb3rgun/theserver/internal/protocol"
-	"github.com/cyb3rgun/theserver/internal/scenario"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // The simulated target keeps what it installs in its content directory,

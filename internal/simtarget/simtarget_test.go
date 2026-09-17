@@ -8,8 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -17,83 +15,16 @@ import (
 	"time"
 
 	"github.com/cyb3rgun/theserver/internal/link"
-	"github.com/cyb3rgun/theserver/internal/protocol"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/journal"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
 )
-
-func TestJournalSurvivesRestart(t *testing.T) {
-	dir := t.TempDir()
-	journal, err := OpenJournal(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if journal.LastSeq() != 0 || journal.Pending() != 0 {
-		t.Fatalf("a new journal has last %d and %d pending", journal.LastSeq(), journal.Pending())
-	}
-
-	gen := NewGenerator(2, 7, time.Now())
-	var written []protocol.Event
-	for range 5 {
-		event, err := journal.Append(gen.Next(), time.Now().UnixMilli())
-		if err != nil {
-			t.Fatal(err)
-		}
-		written = append(written, event)
-	}
-	if err := journal.Acked(2); err != nil {
-		t.Fatal(err)
-	}
-
-	// The process ends here; a new one opens the same directory.
-	reopened, err := OpenJournal(dir)
-	if err != nil {
-		t.Fatalf("reopen: %v", err)
-	}
-	if reopened.LastSeq() != 5 {
-		t.Errorf("last seq after the restart is %d, want 5", reopened.LastSeq())
-	}
-	replay := reopened.After(2)
-	if len(replay) != 3 {
-		t.Fatalf("the replay after the restart holds %d events, want 3", len(replay))
-	}
-	for i, event := range replay {
-		want := written[i+2]
-		if event.ID != want.ID || event.Seq != want.Seq || event.K != want.K || event.Ts != want.Ts || !bytes.Equal(event.D, want.D) {
-			t.Errorf("replayed event %d is %+v, want %+v", i, event, want)
-		}
-	}
-
-	// The next event continues the sequence.
-	next, err := reopened.Append(gen.Next(), time.Now().UnixMilli())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if next.Seq != 6 {
-		t.Errorf("the first event after the restart has seq %d, want 6", next.Seq)
-	}
-	if err := reopened.Acked(6); err != nil {
-		t.Fatal(err)
-	}
-	if reopened.Pending() != 0 {
-		t.Errorf("%d events pending after acking everything", reopened.Pending())
-	}
-}
-
-func TestJournalRefusesACorruptFile(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, journalFile), []byte("not cbor"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := OpenJournal(dir); err == nil {
-		t.Error("a corrupt journal was opened")
-	}
-}
 
 // TestGeneratorProducesValidFrames checks every generated event against the
 // protocol codec and the rules of the simulated target.
 func TestGeneratorProducesValidFrames(t *testing.T) {
 	gen := NewGenerator(3, 42, time.Now().Add(-time.Minute))
-	journal, err := OpenJournal(t.TempDir())
+	journal, err := journal.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,9 +261,9 @@ func TestRunStopsOnRefusedToken(t *testing.T) {
 	}
 }
 
-func mustJournal(t *testing.T) *Journal {
+func mustJournal(t *testing.T) *journal.Journal {
 	t.Helper()
-	journal, err := OpenJournal(t.TempDir())
+	journal, err := journal.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,49 +295,6 @@ func (b *lockedBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
-}
-
-func TestJournalEpoch(t *testing.T) {
-	dir := t.TempDir()
-	journal, err := OpenJournal(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if journal.Epoch() != 1 {
-		t.Errorf("a new journal counts in epoch %d, want 1", journal.Epoch())
-	}
-	gen := NewGenerator(1, 3, time.Now())
-	for range 4 {
-		if _, err := journal.Append(gen.Next(), 1); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := journal.Acked(1); err != nil {
-		t.Fatal(err)
-	}
-
-	dropped, err := journal.Reset(2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if dropped != 3 {
-		t.Errorf("Reset dropped %d events, want the 3 unacknowledged", dropped)
-	}
-
-	reopened, err := OpenJournal(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reopened.Epoch() != 2 || reopened.LastSeq() != 0 || reopened.Pending() != 0 {
-		t.Fatalf("after the reset the journal is epoch %d, last %d, %d pending", reopened.Epoch(), reopened.LastSeq(), reopened.Pending())
-	}
-	next, err := reopened.Append(gen.Next(), 2)
-	if err != nil || next.Seq != 1 {
-		t.Errorf("the first event of epoch 2 has seq %d, %v; want 1", next.Seq, err)
-	}
-	if err := reopened.Acked(1); err != nil || reopened.Epoch() != 2 {
-		t.Errorf("an ack moved the epoch to %d, %v", reopened.Epoch(), err)
-	}
 }
 
 // TestRunThroughAReset resets the device in the middle of a run: the target

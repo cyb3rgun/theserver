@@ -20,8 +20,8 @@ import (
 	"github.com/cyb3rgun/theserver/internal/httpapi"
 	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/mediakind/mediakindtest"
-	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
+	"github.com/cyb3rgun/theserver/pkg/scenario"
 )
 
 // otherAdmin adds a second admin token and returns its id, so a test can
@@ -256,7 +256,7 @@ func TestPreviewPage(t *testing.T) {
 		}
 	}
 
-	// The trace of the server is the one the engine of internal/scenario
+	// The trace of the server is the one the engine of pkg/scenario
 	// writes; the browser compares it with its own.
 	answer := h.json(http.MethodPost, "/admin/editor/"+id+"/trace", `{"shots":[{"t_ms":500,"x":10,"y":10}]}`)
 	if answer.Code != http.StatusOK {

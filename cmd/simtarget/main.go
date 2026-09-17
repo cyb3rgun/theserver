@@ -22,6 +22,7 @@ import (
 
 	"github.com/cyb3rgun/theserver/internal/simtarget"
 	"github.com/cyb3rgun/theserver/internal/version"
+	"github.com/cyb3rgun/theserver/pkg/journal"
 )
 
 func main() {
@@ -90,7 +91,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *contentDir == "" {
 		*contentDir = filepath.Join(*journalDir, "content")
 	}
-	journal, err := simtarget.OpenJournal(*journalDir)
+	j, err := journal.Open(*journalDir)
 	if err != nil {
 		fmt.Fprintf(stderr, "simtarget: %v\n", err)
 		return 1
@@ -114,7 +115,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		Logger:      logger,
 		Holdings:    holdings,
 		ContentDir:  *contentDir,
-	}, journal)
+	}, j)
 
 	fmt.Fprintf(stdout, "simtarget %s summary after %s\n", *id, time.Since(started).Round(time.Millisecond))
 	firstSeq := "none"

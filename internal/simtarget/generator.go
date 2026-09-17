@@ -5,17 +5,9 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/fxamacker/cbor/v2"
-
-	"github.com/cyb3rgun/theserver/internal/protocol"
+	"github.com/cyb3rgun/theserver/pkg/journal"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
 )
-
-// A Draft is an event before the journal gives it a sequence number and an
-// id.
-type Draft struct {
-	Kind string
-	Data cbor.RawMessage
-}
 
 // HitProbability is the share of shots that hit.
 const HitProbability = 0.7
@@ -39,7 +31,7 @@ type Generator struct {
 	controllers []string
 	turn        int
 	cseq        map[string]uint64
-	queue       []Draft
+	queue       []journal.Draft
 	started     time.Time
 }
 
@@ -65,7 +57,7 @@ func (g *Generator) Controllers() []string {
 }
 
 // Next returns the next shot or outcome.
-func (g *Generator) Next() Draft {
+func (g *Generator) Next() journal.Draft {
 	if len(g.queue) == 0 {
 		g.queue = g.shot()
 	}
@@ -75,7 +67,7 @@ func (g *Generator) Next() Draft {
 }
 
 // shot returns a shot and its outcome.
-func (g *Generator) shot() []Draft {
+func (g *Generator) shot() []journal.Draft {
 	ctl := g.controllers[g.turn%len(g.controllers)]
 	g.turn++
 	g.cseq[ctl]++
@@ -83,7 +75,7 @@ func (g *Generator) shot() []Draft {
 
 	shot := ShotDraft(protocol.KindShot, ctl, cseq)
 	if g.rng.Float64() >= HitProbability {
-		return []Draft{shot, ShotDraft(protocol.KindMiss, ctl, cseq)}
+		return []journal.Draft{shot, ShotDraft(protocol.KindMiss, ctl, cseq)}
 	}
 	zone := zones[g.rng.IntN(len(zones))]
 	hit := mustDraft(protocol.KindHit, protocol.HitData{
@@ -94,12 +86,12 @@ func (g *Generator) shot() []Draft {
 		Zone: zone.name,
 		Pts:  zone.points,
 	})
-	return []Draft{shot, hit}
+	return []journal.Draft{shot, hit}
 }
 
 // Health returns the periodic health report with the scenario versions the
 // target holds; nil leaves them out.
-func (g *Generator) Health(now time.Time, held []protocol.Holding) Draft {
+func (g *Generator) Health(now time.Time, held []protocol.Holding) journal.Draft {
 	return mustDraft(protocol.KindHealth, protocol.HealthData{
 		Up:   uint64(now.Sub(g.started).Seconds()),
 		RSSI: -45 - int64(g.rng.IntN(30)),
@@ -110,16 +102,16 @@ func (g *Generator) Health(now time.Time, held []protocol.Holding) Draft {
 }
 
 // ShotDraft is the payload of a shot or a miss.
-func ShotDraft(kind, ctl string, cseq uint64) Draft {
+func ShotDraft(kind, ctl string, cseq uint64) journal.Draft {
 	return mustDraft(kind, protocol.ShotData{Ctl: ctl, Cseq: cseq})
 }
 
-func mustDraft(kind string, data any) Draft {
+func mustDraft(kind string, data any) journal.Draft {
 	raw, err := protocol.EncodeData(data)
 	if err != nil {
 		panic(fmt.Sprintf("simtarget: encode %s: %v", kind, err))
 	}
-	return Draft{Kind: kind, Data: raw}
+	return journal.Draft{Kind: kind, Data: raw}
 }
 
 func round3(v float64) float64 {
