@@ -1,5 +1,6 @@
 // Package store is the memory of theserver: the SQLite connection with its
-// pragmas, the versioned schema, the device registry and the event journal.
+// pragmas, the versioned schema, the device registry, the event journal and
+// the index of scenario packages with what each device holds.
 //
 // One database file, theserver.db, lives in the data directory. Every
 // connection of the pool is opened in WAL mode with synchronous NORMAL,
