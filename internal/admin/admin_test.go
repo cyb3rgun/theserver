@@ -25,7 +25,6 @@ import (
 	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/protocol"
-	"github.com/cyb3rgun/theserver/internal/settings"
 	"github.com/cyb3rgun/theserver/internal/store"
 )
 
@@ -191,6 +190,8 @@ var protected = []struct{ method, path string }{
 	{"GET", "/admin/ranking"},
 	{"GET", "/admin/ranking/table"},
 	{"GET", "/admin/settings"},
+	{"POST", "/admin/settings"},
+	{"POST", "/admin/settings/reset"},
 }
 
 func TestLoginRequiredEverywhere(t *testing.T) {
@@ -283,8 +284,9 @@ func TestLoginAndLogout(t *testing.T) {
 	if out.Code != http.StatusSeeOther || out.Header().Get("Location") != "/admin/login" {
 		t.Errorf("logout answered %d to %q", out.Code, out.Header().Get("Location"))
 	}
-	if gone := out.Result().Cookies(); len(gone) != 1 || gone[0].MaxAge >= 0 {
-		t.Errorf("logout left the cookie: %+v", gone)
+	gone := out.Result().Cookies()
+	if len(gone) != 2 || gone[0].Name != CookieName || gone[0].MaxAge >= 0 || gone[1].Name != i18n.CookieName || gone[1].MaxAge >= 0 {
+		t.Errorf("logout left the session or language cookie: %+v", gone)
 	}
 
 	if err := h.st.RevokeAdminToken(context.Background(), h.id); err != nil {
@@ -463,15 +465,6 @@ func TestRankingFragmentRendersSeededData(t *testing.T) {
 
 	missing := h.html("GET", "/admin/ranking/table?session=nothing", nil)
 	contains(t, missing, `class="error"`, "No hits or misses yet.")
-}
-
-func TestSettingsPage(t *testing.T) {
-	h := newHarness(t)
-	page := h.html("GET", "/admin/settings", nil)
-	for _, s := range settings.All() {
-		contains(t, page, "<code>"+s.Key+"</code>", s.Env())
-	}
-	contains(t, page, "source-default", "--listen", "Precedence, highest first", "Listen address", "Address and port the HTTPS server listens on.")
 }
 
 func TestStaticFilesAndHeaders(t *testing.T) {

@@ -12,6 +12,15 @@
 <body>
 <header class="top">
   <span class="brand">{{t "admin.brand"}} <span class="muted">{{t "admin.brand_admin"}}</span></span>
+  <form class="language" method="post" action="/admin/language">
+    <input type="hidden" name="back" value="{{.Back}}">
+    <label for="language">{{t "admin.language.label"}}</label>
+    <select id="language" name="lang">
+      <option value="en"{{if eq .Lang "en"}} selected{{end}}>{{t "admin.language.en"}}</option>
+      <option value="de"{{if eq .Lang "de"}} selected{{end}}>{{t "admin.language.de"}}</option>
+    </select>
+    <button class="button quiet" type="submit">{{t "admin.language.switch"}}</button>
+  </form>
   {{if .Admin}}
   <nav aria-label="{{t "admin.nav.label"}}">
     <a href="/admin/devices"{{if eq .Active "devices"}} class="active" aria-current="page"{{end}}>{{t "admin.nav.devices"}}</a>

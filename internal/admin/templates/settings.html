@@ -1,25 +1,62 @@
 {{define "content"}}
 <h1>{{t "admin.settings.title"}}</h1>
-<p class="muted">{{t "admin.settings.intro"}}</p>
+{{with .File}}<p class="muted">{{t "admin.settings.intro" .}}</p>{{end}}
 {{template "messages" .}}
-<div class="scroll">
-<table>
-  <thead>
-    <tr><th>{{t "admin.settings.col_setting"}}</th><th>{{t "admin.settings.col_value"}}</th><th>{{t "admin.settings.col_source"}}</th><th>{{t "admin.settings.col_default"}}</th><th>{{t "admin.settings.col_env"}}</th><th>{{t "admin.settings.col_flag"}}</th><th>{{t "admin.settings.col_meaning"}}</th></tr>
-  </thead>
-  <tbody>
-  {{range .Settings}}
-    <tr>
-      <td><strong>{{.Label}}</strong><br><code>{{.Key}}</code></td>
-      <td><code>{{.Value}}</code></td>
-      <td><span class="badge source-{{.Source}}">{{word "admin.source" (printf "%s" .Source)}}</span></td>
-      <td><code>{{.Default}}</code></td>
-      <td><code>{{.Env}}</code></td>
-      <td>{{with .Flag}}<code>{{.}}</code>{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</td>
-      <td>{{.Description}}</td>
-    </tr>
-  {{end}}
-  </tbody>
-</table>
-</div>
+{{if .RestartLabels}}
+<section class="banner restart" role="status" id="restart-banner">
+  <h2>{{t "admin.settings.restart_title"}}</h2>
+  <p>{{t "admin.settings.restart_text"}}</p>
+  <ul>{{range .RestartLabels}}<li>{{.}}</li>{{end}}</ul>
+</section>
+{{end}}
+<form id="settings-form" class="settings" method="post" action="/admin/settings" novalidate data-confirm-reset="{{t "admin.settings.confirm_reset"}}">
+{{range .Sections}}
+  <fieldset class="settings-section" id="section-{{.Name}}">
+    <legend>{{.Title}}</legend>
+    {{range .Fields}}
+    <div class="field{{if .Error}} invalid{{end}}{{if .Locked}} locked{{end}}" id="field-{{.ID}}">
+      <div class="field-head">
+        <label for="{{.ID}}">{{.Label}}</label>
+        <span class="help" tabindex="0" aria-describedby="tip-{{.ID}}">?<span class="tip" role="tooltip" id="tip-{{.ID}}">{{.Description}}</span></span>
+        {{if .Restart}}<span class="badge restart">{{t "admin.settings.needs_restart"}}</span>{{end}}
+        <code class="key">{{.Key}}</code>
+      </div>
+      <div class="control">
+        {{if eq .Control "select"}}
+        {{$field := .}}
+        <select id="{{.ID}}" name="{{.Key}}" data-initial="{{.Initial}}"{{if .Locked}} disabled{{end}}>
+          {{range .Enum}}<option value="{{.}}"{{if eq . $field.Input}} selected{{end}}>{{option $field.Key .}}</option>{{end}}
+        </select>
+        {{else if eq .Control "switch"}}
+        <input type="hidden" name="{{.Key}}" value="false"{{if .Locked}} disabled{{end}}>
+        <input type="checkbox" role="switch" id="{{.ID}}" name="{{.Key}}" value="true" data-initial="{{.Initial}}"{{if eq .Input "true"}} checked{{end}}{{if .Locked}} disabled{{end}}>
+        {{else if eq .Control "number"}}
+        <input type="number" id="{{.ID}}" name="{{.Key}}" value="{{.Input}}" data-initial="{{.Initial}}" step="1"{{with .MinText}} min="{{.}}"{{end}}{{with .MaxText}} max="{{.}}"{{end}}{{if .Locked}} disabled{{end}}>
+        {{else}}
+        <input type="text" id="{{.ID}}" name="{{.Key}}" value="{{.Input}}" data-initial="{{.Initial}}" spellcheck="false"{{if .Locked}} disabled{{end}}>
+        {{end}}
+        {{with .Unit}}<span class="unit">{{.}}</span>{{end}}
+        <button class="button quiet" type="submit" formaction="/admin/settings/reset" name="reset" value="{{.Key}}"{{if or .Locked (eq .Source "default") (not $.File)}} disabled{{end}}>{{t "admin.settings.reset"}}</button>
+      </div>
+      {{with .Error}}<p class="field-error" role="alert">{{.}}</p>{{end}}
+      {{with .LockedNote}}<p class="muted">{{.}}</p>{{end}}
+      <dl class="facts">
+        <dt>{{t "admin.settings.current"}}</dt><dd>{{.CurrentText}}</dd>
+        {{with .PendingText}}<dt>{{t "admin.settings.after_restart"}}</dt><dd><strong>{{.}}</strong></dd>{{end}}
+        <dt>{{t "admin.settings.default"}}</dt><dd>{{.DefaultText}}</dd>
+        {{with .RangeText}}<dt>{{t "admin.settings.range"}}</dt><dd>{{.}}</dd>{{end}}
+        <dt>{{t "admin.settings.source"}}</dt><dd><span class="badge source-{{.Source}}">{{word "admin.source" .Source}}</span></dd>
+      </dl>
+      <details class="why"><summary>{{t "admin.settings.why"}}</summary><p>{{.Why}}</p></details>
+    </div>
+    {{end}}
+  </fieldset>
+{{end}}
+  <div class="savebar">
+    <span id="unsaved-count" data-singular="{{t "admin.settings.unsaved_one"}}" data-plural="{{t "admin.settings.unsaved_many"}}">{{t "admin.settings.unsaved_many" 0}}</span>
+    <button class="button quiet" type="reset">{{t "admin.settings.discard"}}</button>
+    <button class="button primary" id="save-button" type="submit"{{if not .File}} disabled{{end}}>{{t "admin.settings.save"}}</button>
+  </div>
+</form>
+<script src="/admin/static/settings.js" integrity="{{.Script}}" defer></script>
 {{end}}

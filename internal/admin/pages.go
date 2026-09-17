@@ -352,20 +352,3 @@ func (a *Admin) rankingTable(w http.ResponseWriter, r *http.Request, s session) 
 		a.render(w, s.Lang, http.StatusOK, "ranking", "ranking-table", data)
 	}
 }
-
-// Settings
-
-type settingsData struct {
-	layout
-	Settings []httpapi.SettingView
-}
-
-func (a *Admin) settingsPage(w http.ResponseWriter, r *http.Request, s session) {
-	data := settingsData{layout: a.layout("admin.settings.title", "settings", s)}
-	var list httpapi.SettingsList
-	if a.failed(w, r, a.call(r, s, http.MethodGet, "/settings?lang="+url.QueryEscape(s.Lang), nil, &list), &data.Error) {
-		return
-	}
-	data.Settings = list.Settings
-	a.render(w, s.Lang, http.StatusOK, "settings", "layout", data)
-}

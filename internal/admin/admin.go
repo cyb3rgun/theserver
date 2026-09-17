@@ -66,6 +66,7 @@ type Admin struct {
 	log       *slog.Logger
 	pages     map[string]map[string]*template.Template // by language, then page
 	integrity string
+	scripts   map[string]string // subresource integrity of our own scripts, by file
 	handler   http.Handler
 }
 
@@ -97,6 +98,15 @@ func New(opts Options) (*Admin, error) {
 		log:       opts.Logger.With("component", "admin"),
 		pages:     map[string]map[string]*template.Template{},
 		integrity: "sha384-" + base64.StdEncoding.EncodeToString(sum[:]),
+		scripts:   map[string]string{},
+	}
+	for _, name := range []string{"settings.js"} {
+		script, err := staticFS.ReadFile("static/" + name)
+		if err != nil {
+			return nil, err
+		}
+		sum := sha512.Sum384(script)
+		a.scripts[name] = "sha384-" + base64.StdEncoding.EncodeToString(sum[:])
 	}
 	for _, lang := range i18n.Languages() {
 		a.pages[lang] = map[string]*template.Template{}
@@ -121,6 +131,7 @@ func New(opts Options) (*Admin, error) {
 	mux.HandleFunc("GET /admin/login", a.loginPage)
 	mux.HandleFunc("POST /admin/login", a.login)
 	mux.HandleFunc("POST /admin/logout", a.logout)
+	mux.HandleFunc("POST /admin/language", a.setLanguage)
 	mux.Handle("GET /admin/static/", staticHandler(http.StripPrefix("/admin/static/", http.FileServerFS(static))))
 
 	mux.Handle("GET /admin/devices", a.page(a.devicesPage))
@@ -132,6 +143,8 @@ func New(opts Options) (*Admin, error) {
 	mux.Handle("GET /admin/ranking", a.page(a.rankingPage))
 	mux.Handle("GET /admin/ranking/table", a.page(a.rankingTable))
 	mux.Handle("GET /admin/settings", a.page(a.settingsPage))
+	mux.Handle("POST /admin/settings", a.page(a.saveSettings))
+	mux.Handle("POST /admin/settings/reset", a.page(a.resetSetting))
 
 	a.handler = securityHeaders(http.NewCrossOriginProtection().Handler(mux))
 	return a, nil
@@ -195,11 +208,17 @@ type layout struct {
 	Notice       string
 	Error        string
 	SessionHours int
+	// Back is where the language switch returns to.
+	Back string
 }
 
 // layout fills the frame of a page; titleKey names its title in the
 // catalogue.
 func (a *Admin) layout(titleKey, active string, s session) layout {
+	back := "/admin/login"
+	if active != "" {
+		back = "/admin/" + active
+	}
 	return layout{
 		Lang:         s.Lang,
 		Title:        i18n.T(s.Lang, titleKey),
@@ -208,6 +227,7 @@ func (a *Admin) layout(titleKey, active string, s session) layout {
 		Integrity:    a.integrity,
 		Version:      version.Version,
 		SessionHours: int(a.sessionLifetime().Hours()),
+		Back:         back,
 	}
 }
 
@@ -238,6 +258,13 @@ func templateFuncs(lang string) template.FuncMap {
 		},
 		"word": func(group, value string) string {
 			if key := group + "." + value; i18n.Has(lang, key) {
+				return i18n.T(lang, key)
+			}
+			return value
+		},
+		// option names an allowed value of a setting, such as a language.
+		"option": func(setting, value string) string {
+			if key := "admin.settings.option." + setting + "." + value; i18n.Has(lang, key) {
 				return i18n.T(lang, key)
 			}
 			return value

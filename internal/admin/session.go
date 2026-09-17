@@ -240,5 +240,6 @@ func (a *Admin) logout(w http.ResponseWriter, r *http.Request) {
 		a.log.Info("admin logged out", "admin_token", s.TokenID, "admin_name", s.Name)
 	}
 	http.SetCookie(w, expiredCookie())
+	http.SetCookie(w, expiredLanguageCookie())
 	http.Redirect(w, r, "/admin/login", http.StatusSeeOther)
 }
