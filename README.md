@@ -1,4 +1,4 @@
-![CYB3RGUN](.github/assets/theserver-banner.png)
+![CYB3RGUN](.github/assets/cyb3rgun-theserver-banner.png)
 
 # CYB3RGUN THESERVER
 
