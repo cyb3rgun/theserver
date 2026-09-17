@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/cyb3rgun/theserver/internal/i18n"
+	"github.com/cyb3rgun/theserver/internal/scenario"
+	"github.com/cyb3rgun/theserver/internal/scenario/scenariotest"
 	"github.com/cyb3rgun/theserver/internal/store"
 )
 
@@ -43,15 +45,34 @@ func TestEveryPageInEveryLanguage(t *testing.T) {
 	defer slog.SetDefault(old)
 
 	h := newHarness(t)
+	ctx := context.Background()
 	h.device("tgt-01", store.StatusApproved)
 	h.device("tgt-02", store.StatusPending)
-	if err := h.st.CreateSession(context.Background(), store.Session{ID: "s-1"}); err != nil {
+	if err := h.st.CreateSession(ctx, store.Session{ID: "s-1"}); err != nil {
+		t.Fatal(err)
+	}
+	// Scenario content in every state the pages show: published, a draft
+	// with a problem, held, held by an older version, and assigned.
+	h.publish(scenariotest.Video)
+	broken, err := h.content.Put(ctx, bytes.NewReader(scenariotest.Zip(t, scenariotest.Broken(scenario.CodeUnknownMediaState))), 1<<30, "founder")
+	if err != nil || !broken.Stored {
+		t.Fatalf("the broken draft: %+v, %v", broken, err)
+	}
+	if err := h.st.AddSessionDevice(ctx, "s-1", "tgt-02"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.RecordDeviceScenarios(ctx, "tgt-01", []store.Holding{{ScenarioID: "night-range", Version: 1}, {ScenarioID: "zombie-alley", Version: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.RecordDeviceScenarios(ctx, "tgt-01", []store.Holding{{ScenarioID: "zombie-alley", Version: 1}}); err != nil {
 		t.Fatal(err)
 	}
 
 	titles := map[string]map[string]string{
-		"en": {"/admin/devices": "Devices", "/admin/sessions": "Sessions", "/admin/ranking": "Ranking", "/admin/settings": "Settings"},
-		"de": {"/admin/devices": "Geräte", "/admin/sessions": "Sitzungen", "/admin/ranking": "Rangliste", "/admin/settings": "Einstellungen"},
+		"en": {"/admin/devices": "Devices", "/admin/sessions": "Sessions", "/admin/ranking": "Ranking", "/admin/settings": "Settings",
+			"/admin/scenarios": "Scenarios", "/admin/scenarios/zombie-alley": "Zombie Alley", "/admin/devices/tgt-01/view": "Device tgt-01"},
+		"de": {"/admin/devices": "Geräte", "/admin/sessions": "Sitzungen", "/admin/ranking": "Rangliste", "/admin/settings": "Einstellungen",
+			"/admin/scenarios": "Szenarien", "/admin/scenarios/zombie-alley": "Zombie-Gasse", "/admin/devices/tgt-01/view": "Gerät tgt-01"},
 	}
 	for _, lang := range i18n.Languages() {
 		h.lang = lang
@@ -65,6 +86,18 @@ func TestEveryPageInEveryLanguage(t *testing.T) {
 		h.html("POST", "/admin/devices/tgt-02/approve", url.Values{})
 		h.html("POST", "/admin/devices/tgt-01/token", url.Values{})
 		h.html("POST", "/admin/sessions/s-1/devices", url.Values{"device_id": {"tgt-01"}})
+		h.html("POST", "/admin/sessions/s-1/scenario", url.Values{"scenario": {""}})
+		h.html("POST", "/admin/sessions/s-1/scenario", url.Values{"scenario": {"night-range@1"}})
+		for _, page := range []string{"/admin/scenarios/night-range?uploaded=1", "/admin/scenarios/night-range?uploaded=1&replaced=1",
+			"/admin/scenarios/night-range?published=1", "/admin/scenarios/night-range?deleted=2", "/admin/scenarios?deleted=x+1",
+			"/admin/devices/tgt-02/view?age=16"} {
+			h.html("GET", page, nil)
+		}
+		h.upload(scenariotest.Zip(t, scenariotest.Broken(scenario.CodeBadPackage)))
+		h.do("GET", "/admin/scenarios/nowhere", nil, true)
+		h.do("GET", "/admin/devices/nobody/view", nil, true)
+		h.do("POST", "/admin/devices/tgt-02/age", url.Values{"min_age": {"0"}}, true)
+		h.do("POST", "/admin/scenarios/zombie-alley/1/publish", url.Values{}, true)
 
 		login := h.do("GET", "/admin/login", nil, false)
 		contains(t, login.Body.String(), i18n.T(lang, "admin.login.token"), i18n.T(lang, "admin.login.lasts", 12))

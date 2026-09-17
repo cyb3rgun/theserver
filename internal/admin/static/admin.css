@@ -254,6 +254,32 @@ select {
   color: var(--muted);
 }
 
+.badge.draft,
+.badge.outdated {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.badge.published,
+.badge.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.badge.problems {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.lang {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color: var(--muted);
+}
+
+.announcements {
+  margin: 0.25rem 0 0.75rem;
+}
+
 .badge.source-file,
 .badge.source-env,
 .badge.source-flag {
@@ -279,6 +305,48 @@ select {
   color: var(--danger);
 }
 
+/* Scenario pages */
+
+section.card {
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+img.cover {
+  display: block;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--ground);
+}
+
+.scenario-head {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.card.check {
+  margin: 0.75rem 0;
+}
+
+.problems {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.problem {
+  margin: 0.4rem 0;
+}
+
+.problem code {
+  margin-left: 0.4rem;
+}
+
+.problem .detail,
 .error .detail {
   display: block;
   margin-top: 0.25rem;

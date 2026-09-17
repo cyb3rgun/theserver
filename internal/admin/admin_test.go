@@ -21,6 +21,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/cyb3rgun/theserver/internal/config"
+	"github.com/cyb3rgun/theserver/internal/content"
 	"github.com/cyb3rgun/theserver/internal/httpapi"
 	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/link"
@@ -43,10 +44,16 @@ type harness struct {
 	settings   *config.Runtime
 	configPath string
 
-	// Set by newLinkedHarness: a device link on a test server.
+	// content keeps the scenario packages behind the API.
+	content *content.Store
+
+	// Set by newLinkedHarness: a device link on a test server, which also
+	// serves the API, so a simulated target can download packages.
 	link    *link.Server
 	linkSrv *httptest.Server
 	linkURL string
+	// server is the address of the link for a simulated target.
+	server string
 }
 
 func quiet() *slog.Logger {
@@ -75,21 +82,15 @@ func buildHarness(t *testing.T, withLink bool) *harness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var (
-		deviceLink *link.Server
-		linkSrv    *httptest.Server
-	)
+	var deviceLink *link.Server
 	if withLink {
-		deviceLink = link.New(st, link.DefaultConfig(), quiet())
-		mux := http.NewServeMux()
-		mux.Handle(link.Path, deviceLink)
-		linkSrv = httptest.NewTLSServer(mux)
-		t.Cleanup(func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			deviceLink.Close(ctx)
-			linkSrv.Close()
-		})
+		cfg := link.DefaultConfig()
+		cfg.AckInterval = 20 * time.Millisecond
+		deviceLink = link.New(st, cfg, quiet())
+	}
+	packages, err := content.New(filepath.Join(t.TempDir(), "content"), st)
+	if err != nil {
+		t.Fatal(err)
 	}
 	configPath := filepath.Join(t.TempDir(), "theserver.toml")
 	if err := config.Write(configPath, nil); err != nil {
@@ -106,12 +107,23 @@ func buildHarness(t *testing.T, withLink bool) *harness {
 	opts := httpapi.Options{
 		Store:    st,
 		Settings: runtime,
+		Content:  packages,
 		Logger:   quiet(),
 	}
 	if deviceLink != nil {
 		opts.Link = deviceLink
 	}
 	api := httpapi.New(opts)
+	var linkSrv *httptest.Server
+	if deviceLink != nil {
+		linkSrv = httptest.NewTLSServer(api)
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			deviceLink.Close(ctx)
+			linkSrv.Close()
+		})
+	}
 	key := bytes.Repeat([]byte{7}, 32)
 	a, err := New(Options{API: api.API(), Store: st, Key: key, Logger: quiet()})
 	if err != nil {
@@ -121,10 +133,11 @@ func buildHarness(t *testing.T, withLink bool) *harness {
 		t: t, st: st, admin: a, key: key, token: token, id: row.ID,
 		cookie: NewSessionCookie(key, row.ID, time.Now()),
 		link:   deviceLink, linkSrv: linkSrv,
-		settings: runtime, configPath: configPath,
+		settings: runtime, configPath: configPath, content: packages,
 	}
 	if linkSrv != nil {
-		h.linkURL = "wss" + strings.TrimPrefix(linkSrv.URL, "https") + link.Path
+		h.server = "wss" + strings.TrimPrefix(linkSrv.URL, "https")
+		h.linkURL = h.server + link.Path
 	}
 	return h
 }
@@ -187,6 +200,16 @@ var protected = []struct{ method, path string }{
 	{"POST", "/admin/sessions/s-1/start"},
 	{"POST", "/admin/sessions/s-1/stop"},
 	{"POST", "/admin/sessions/s-1/devices"},
+	{"POST", "/admin/sessions/s-1/scenario"},
+	{"GET", "/admin/scenarios"},
+	{"POST", "/admin/scenarios/upload"},
+	{"GET", "/admin/scenarios/night-range"},
+	{"GET", "/admin/scenarios/night-range/1/cover.png"},
+	{"GET", "/admin/scenarios/night-range/1/package.zip"},
+	{"POST", "/admin/scenarios/night-range/1/publish"},
+	{"POST", "/admin/scenarios/night-range/1/delete"},
+	{"GET", "/admin/devices/tgt-01/view"},
+	{"POST", "/admin/devices/tgt-01/age"},
 	{"GET", "/admin/ranking"},
 	{"GET", "/admin/ranking/table"},
 	{"GET", "/admin/settings"},
@@ -411,8 +434,8 @@ func TestSessionsPageAndActions(t *testing.T) {
 	page := h.html("GET", "/admin/sessions", nil)
 	contains(t, page, "No sessions yet.", `hx-post="/admin/sessions"`)
 
-	created := h.html("POST", "/admin/sessions", url.Values{"id": {"evening"}, "scenario": {"range"}, "room": {"hall"}})
-	contains(t, created, "Session evening is created.", "evening", "range", "created",
+	created := h.html("POST", "/admin/sessions", url.Values{"id": {"evening"}, "room": {"hall"}})
+	contains(t, created, "Session evening is created.", "evening", "created",
 		`hx-post="/admin/sessions/evening/start"`, `hx-post="/admin/sessions/evening/devices"`, `<option value="tgt-01">`)
 
 	duplicate := h.html("POST", "/admin/sessions", url.Values{"id": {"evening"}})

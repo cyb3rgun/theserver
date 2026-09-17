@@ -1,0 +1,69 @@
+{{define "content"}}
+<p><a href="/admin/devices">{{t "admin.device.back"}}</a></p>
+<h1>{{t "admin.device.heading" .Device.ID}}</h1>
+{{template "messages" .}}
+{{if .Device.ID}}
+<section class="card">
+  <dl class="facts">
+    <dt>{{t "admin.devices.col_kind"}}</dt><dd>{{word "admin.kind" .Device.Kind}}</dd>
+    <dt>{{t "admin.devices.col_class"}}</dt><dd>{{.Device.Class}}</dd>
+    <dt>{{t "admin.devices.col_room"}}</dt><dd>{{.Device.Room}}</dd>
+    <dt>{{t "admin.devices.col_status"}}</dt><dd><span class="badge {{.Device.Status}}">{{word "admin.status" .Device.Status}}</span></dd>
+    <dt>{{t "admin.devices.col_online"}}</dt><dd>{{if .Device.Online}}<span class="badge online">{{t "admin.devices.online"}}</span>{{else}}<span class="badge offline">{{t "admin.devices.offline"}}</span>{{end}}</dd>
+    <dt>{{t "admin.devices.col_firmware"}}</dt><dd>{{.Device.FirmwareVersion}}</dd>
+  </dl>
+  <form class="inline" id="age-form" method="post" action="/admin/devices/{{path .Device.ID}}/age">
+    <label for="min-age">{{t "admin.device.min_age"}}</label>
+    <select id="min-age" name="min_age">
+      {{$current := .Device.MinAge}}
+      {{range .Ages}}<option value="{{.}}"{{if eq . $current}} selected{{end}}>{{age .}}</option>{{end}}
+    </select>
+    <button class="button" type="submit">{{t "admin.device.set_age"}}</button>
+  </form>
+  <p class="muted">{{t "admin.device.min_age_help"}}</p>
+</section>
+
+<h2>{{t "admin.device.assignments"}}</h2>
+<div class="scroll">
+<table id="assignments">
+  <thead>
+    <tr><th>{{t "admin.device.col_session"}}</th><th>{{t "admin.device.col_state"}}</th><th>{{t "admin.device.col_scenario"}}</th><th>{{t "admin.device.col_installed"}}</th></tr>
+  </thead>
+  <tbody>
+  {{range .Assignments}}
+    <tr>
+      <td>{{.SessionID}}</td>
+      <td><span class="badge {{.State}}">{{word "admin.state" .State}}</span></td>
+      <td><a href="/admin/scenarios/{{path .ScenarioID}}">{{or (index $.Titles .ScenarioID) .ScenarioID}}</a> <span class="muted">{{t "admin.scenarios.version" .Version}}</span></td>
+      <td>{{if .Installed}}<span class="badge ok">{{t "admin.device.installed_yes"}}</span>{{else}}<span class="badge outdated">{{t "admin.device.installed_no"}}</span>{{end}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="4">{{t "admin.device.no_assignments"}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+<h2>{{t "admin.device.holdings"}}</h2>
+<div class="scroll">
+<table id="holdings">
+  <thead>
+    <tr><th>{{t "admin.device.col_scenario"}}</th><th class="number">{{t "admin.scenario.col_version"}}</th><th>{{t "admin.scenario.col_held"}}</th><th>{{t "admin.scenario.col_installed"}}</th><th>{{t "admin.scenarios.col_latest"}}</th></tr>
+  </thead>
+  <tbody>
+  {{range .Holdings}}
+    <tr>
+      <td><a href="/admin/scenarios/{{path .ScenarioID}}">{{.Title}}</a><br><code>{{.ScenarioID}}</code></td>
+      <td class="number">{{.Version}}</td>
+      <td>{{template "holding-state" .}}</td>
+      <td>{{when .InstalledAt}}</td>
+      <td>{{if .Latest}}{{t "admin.scenarios.version" .Latest}}{{else}}<span class="muted">{{t "admin.scenarios.none_published"}}</span>{{end}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="5">{{t "admin.device.no_holdings"}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+{{end}}

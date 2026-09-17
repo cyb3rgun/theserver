@@ -6,9 +6,9 @@
 {{define "sessions-area"}}
 <section id="sessions">
   {{template "messages" .}}
+  {{with .Lines}}<ul class="announcements" id="announcements">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
   <form class="inline card" hx-post="/admin/sessions" hx-target="#sessions" hx-swap="outerHTML">
     <label>{{t "admin.sessions.id"}} <input name="id" placeholder="{{t "admin.sessions.id_placeholder"}}" maxlength="64"></label>
-    <label>{{t "admin.sessions.scenario"}} <input name="scenario"></label>
     <label>{{t "admin.sessions.room"}} <input name="room"></label>
     <button class="button primary" type="submit">{{t "admin.sessions.create"}}</button>
   </form>
@@ -22,7 +22,7 @@
     {{range .Sessions}}
       <tr id="session-{{.ID}}">
         <td><strong>{{.ID}}</strong></td>
-        <td>{{.Scenario}}</td>
+        <td>{{if .ScenarioVersion}}<a href="/admin/scenarios/{{path .Scenario}}">{{or (index $.Titles .Scenario) .Scenario}}</a> <span class="muted">{{t "admin.scenarios.version" .ScenarioVersion}}</span>{{else if .Scenario}}<span class="muted">{{.Scenario}}</span>{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</td>
         <td>{{.Room}}</td>
         <td><span class="badge {{.State}}">{{word "admin.state" .State}}</span></td>
         <td>{{if .StartedAt}}{{when .StartedAt}}{{else}}<span class="muted">{{t "admin.not_yet"}}</span>{{end}}</td>
@@ -30,6 +30,12 @@
         <td>{{range $i, $d := .Devices}}{{if $i}}, {{end}}{{$d}}{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</td>
         <td class="actions">
           {{if eq .State "created"}}
+          <form class="inline" hx-post="/admin/sessions/{{path .ID}}/scenario" hx-target="#sessions" hx-swap="outerHTML">
+            <select name="scenario" aria-label="{{t "admin.sessions.scenario_for" .ID}}">
+              {{range $.Choices}}<option value="{{.Value}}">{{.Title}} ({{t "admin.scenarios.version" .Version}}, {{age .AgeRating}})</option>{{else}}<option value="">{{t "admin.sessions.no_published"}}</option>{{end}}
+            </select>
+            <button class="button" type="submit">{{t "admin.sessions.assign"}}</button>
+          </form>
           <button class="button primary" hx-post="/admin/sessions/{{path .ID}}/start" hx-target="#sessions" hx-swap="outerHTML">{{t "admin.sessions.start"}}</button>
           {{end}}
           {{if eq .State "running"}}

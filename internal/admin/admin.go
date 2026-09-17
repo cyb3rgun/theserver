@@ -70,7 +70,7 @@ type Admin struct {
 	handler   http.Handler
 }
 
-var pageNames = []string{"login", "devices", "sessions", "ranking", "settings"}
+var pageNames = []string{"login", "devices", "device", "sessions", "ranking", "scenarios", "scenario", "settings"}
 
 // New returns the admin handler.
 func New(opts Options) (*Admin, error) {
@@ -100,7 +100,7 @@ func New(opts Options) (*Admin, error) {
 		integrity: "sha384-" + base64.StdEncoding.EncodeToString(sum[:]),
 		scripts:   map[string]string{},
 	}
-	for _, name := range []string{"settings.js"} {
+	for _, name := range []string{"settings.js", "scenarios.js"} {
 		script, err := staticFS.ReadFile("static/" + name)
 		if err != nil {
 			return nil, err
@@ -136,10 +136,18 @@ func New(opts Options) (*Admin, error) {
 
 	mux.Handle("GET /admin/devices", a.page(a.devicesPage))
 	mux.Handle("GET /admin/devices/table", a.page(a.devicesTable))
+	mux.Handle("GET /admin/devices/{id}/view", a.page(a.devicePage))
+	mux.Handle("POST /admin/devices/{id}/age", a.page(a.setDeviceAge))
 	mux.Handle("POST /admin/devices/{id}/{action}", a.page(a.deviceAction))
 	mux.Handle("GET /admin/sessions", a.page(a.sessionsPage))
 	mux.Handle("POST /admin/sessions", a.page(a.createSession))
 	mux.Handle("POST /admin/sessions/{id}/{action}", a.page(a.sessionAction))
+	mux.Handle("GET /admin/scenarios", a.page(a.scenariosPage))
+	mux.Handle("POST /admin/scenarios/upload", a.page(a.uploadScenario))
+	mux.Handle("GET /admin/scenarios/{id}", a.page(a.scenarioPage))
+	mux.Handle("GET /admin/scenarios/{id}/{version}/cover.png", a.page(a.scenarioCover))
+	mux.Handle("GET /admin/scenarios/{id}/{version}/package.zip", a.page(a.scenarioPackage))
+	mux.Handle("POST /admin/scenarios/{id}/{version}/{action}", a.page(a.scenarioAction))
 	mux.Handle("GET /admin/ranking", a.page(a.rankingPage))
 	mux.Handle("GET /admin/ranking/table", a.page(a.rankingTable))
 	mux.Handle("GET /admin/settings", a.page(a.settingsPage))
@@ -160,7 +168,8 @@ func (a *Admin) toDevices(w http.ResponseWriter, r *http.Request) {
 }
 
 // securityHeaders keeps the pages to their own origin: scripts and styles only
-// from /admin/static, no frames, no referrer, nothing cached.
+// from /admin/static, no frames, no referrer, nothing cached but the static
+// files and the covers.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -293,5 +302,42 @@ func templateFuncs(lang string) template.FuncMap {
 			return i18n.T(lang, "admin.percent", strconv.FormatFloat(share, 'f', 0, 64))
 		},
 		"plus": func(a, b int) int { return a + b },
+		// text is a text of a manifest in the language of the page.
+		"text": func(texts map[string]string, fallback string) string {
+			return titleIn(lang, texts, fallback)
+		},
+		// age names an age rating or the age a device is set for.
+		"age": func(age any) string {
+			return i18n.T(lang, "admin.age."+fmt.Sprint(age))
+		},
+		// bytes writes a size for a person.
+		"bytes": func(n int64) string {
+			return sizeIn(lang, n)
+		},
+		// short is the start of a hash.
+		"short": func(hash string) string {
+			if len(hash) > 12 {
+				return hash[:12]
+			}
+			return hash
+		},
 	}
+}
+
+// sizeIn writes a size with one decimal and the decimal mark of lang.
+func sizeIn(lang string, n int64) string {
+	units := []string{"B", "KB", "MB", "GB"}
+	value, unit := float64(n), 0
+	for value >= 1024 && unit < len(units)-1 {
+		value /= 1024
+		unit++
+	}
+	text := strconv.FormatFloat(value, 'f', 1, 64)
+	if unit == 0 {
+		text = strconv.FormatInt(n, 10)
+	}
+	if lang == "de" {
+		text = strings.Replace(text, ".", ",", 1)
+	}
+	return text + " " + units[unit]
 }

@@ -1,0 +1,92 @@
+{{define "content"}}
+<p><a href="/admin/scenarios">{{t "admin.scenario.back"}}</a></p>
+<h1>{{.Name}}</h1>
+{{template "messages" .}}
+{{if .Current.ID}}
+<section class="card scenario-head">
+  <img class="cover large" src="/admin/scenarios/{{path .ID}}/{{.Current.Version}}/cover.png" alt="{{t "admin.scenarios.cover_of" .Name}}" width="90" height="160">
+  <dl class="facts">
+    <dt>{{t "admin.scenario.id"}}</dt><dd><code>{{.ID}}</code></dd>
+    <dt>{{t "admin.scenarios.col_tier"}}</dt><dd>{{word "admin.tier" .Current.Tier}}</dd>
+    <dt>{{t "admin.scenarios.col_age"}}</dt><dd>{{age .Current.AgeRating}}</dd>
+    <dt>{{t "admin.scenarios.col_latest"}}</dt><dd>{{if .Latest}}{{t "admin.scenarios.version" .Latest}}{{else}}{{t "admin.scenarios.none_published"}}{{end}}</dd>
+    <dt>{{t "admin.scenario.titles"}}</dt><dd>{{range $lang, $text := .Current.Title}}<span class="lang">{{$lang}}</span> {{$text}} {{end}}</dd>
+  </dl>
+</section>
+
+<h2>{{t "admin.scenario.versions"}}</h2>
+<div class="scroll">
+<table>
+  <thead>
+    <tr>
+      <th class="number">{{t "admin.scenario.col_version"}}</th><th>{{t "admin.scenario.col_status"}}</th><th>{{t "admin.scenario.col_uploaded"}}</th>
+      <th>{{t "admin.scenario.col_published"}}</th><th class="number">{{t "admin.scenarios.col_size"}}</th><th>{{t "admin.scenario.col_hash"}}</th>
+      <th>{{t "admin.scenario.col_check"}}</th><th>{{t "admin.scenario.col_actions"}}</th>
+    </tr>
+  </thead>
+  <tbody>
+  {{range .Versions}}
+    <tr id="version-{{.Version}}">
+      <td class="number">{{.Version}}</td>
+      <td><span class="badge {{.Status}}">{{word "admin.version_state" .Status}}</span></td>
+      <td>{{when .UploadedAt}}<br><span class="muted">{{.UploadedBy}}</span></td>
+      <td>{{if .PublishedAt}}{{when .PublishedAt}}{{else}}<span class="muted">{{t "admin.not_yet"}}</span>{{end}}</td>
+      <td class="number">{{bytes .Size}}</td>
+      <td><code title="{{.ManifestHash}}">{{short .ManifestHash}}</code></td>
+      <td>{{if .Checks}}<a class="badge problems" href="#check-{{.Version}}">{{t "admin.scenarios.problem_count" (len .Checks)}}</a>{{else}}<span class="badge ok">{{t "admin.scenario.valid"}}</span>{{end}}</td>
+      <td class="actions">
+        {{if eq .Status "draft"}}
+        <form class="inline" method="post" action="/admin/scenarios/{{path .ID}}/{{.Version}}/publish">
+          <button class="button primary" type="submit"{{if not .Publishable}} disabled{{end}}>{{t "admin.scenario.publish"}}</button>
+        </form>
+        <form class="inline" method="post" action="/admin/scenarios/{{path .ID}}/{{.Version}}/delete" data-confirm="{{t "admin.scenario.confirm_delete" .Version}}">
+          <button class="button danger" type="submit">{{t "admin.scenario.delete"}}</button>
+        </form>
+        {{end}}
+        <a class="button quiet" href="/admin/scenarios/{{path .ID}}/{{.Version}}/package.zip">{{t "admin.scenario.download"}}</a>
+      </td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+{{range .Versions}}{{if eq .Status "draft"}}
+<section class="card check" id="check-{{.Version}}">
+  <h3>{{t "admin.scenario.check_title" .Version}}</h3>
+  {{if .Checks}}
+  <p class="warning">{{t "admin.scenario.cannot_publish"}}</p>
+  <ul class="problems">
+    {{range .Checks}}<li class="problem"><strong>{{.Text}}</strong> <code>{{.Field}}</code><small class="detail">{{.Detail}}</small></li>{{end}}
+  </ul>
+  {{else if .Stale}}
+  <p class="warning">{{t "admin.scenario.stale" $.Latest}}</p>
+  {{else}}
+  <p class="notice">{{t "admin.scenario.ready"}}</p>
+  {{end}}
+</section>
+{{end}}{{end}}
+
+<h2>{{t "admin.scenario.holdings"}}</h2>
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>{{t "admin.scenario.col_device"}}</th><th class="number">{{t "admin.scenario.col_version"}}</th><th>{{t "admin.scenario.col_held"}}</th><th>{{t "admin.scenario.col_installed"}}</th></tr>
+  </thead>
+  <tbody>
+  {{range .Holdings}}
+    <tr id="holding-{{.DeviceID}}-{{.Version}}">
+      <td><a href="/admin/devices/{{path .DeviceID}}/view">{{.DeviceID}}</a></td>
+      <td class="number">{{.Version}}</td>
+      <td>{{template "holding-state" .}}</td>
+      <td>{{when .InstalledAt}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="4">{{t "admin.scenario.no_holdings"}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
+<script src="/admin/static/scenarios.js" integrity="{{.Script}}" defer></script>
+{{end}}

@@ -18,7 +18,7 @@
     <tbody>
     {{range .Devices}}
       <tr id="device-{{.ID}}">
-        <td><strong>{{.ID}}</strong>{{with .Name}}<br><span class="muted">{{.}}</span>{{end}}</td>
+        <td><a href="/admin/devices/{{path .ID}}/view"><strong>{{.ID}}</strong></a>{{with .Name}}<br><span class="muted">{{.}}</span>{{end}}</td>
         <td>{{word "admin.kind" .Kind}}</td>
         <td>{{.Class}}</td>
         <td>{{.Room}}</td>

@@ -51,23 +51,27 @@ func (r *recorder) WriteHeader(status int) {
 	}
 }
 
-// call runs one API v1 request in process as the admin of the session and
-// decodes the answer into out.
+// call runs one API v1 request in process as the admin of the session, with
+// body as JSON, and decodes the answer into out.
 func (a *Admin) call(r *http.Request, s session, method, path string, body, out any) error {
-	var reader io.Reader
-	if body != nil {
-		encoded, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reader = bytes.NewReader(encoded)
+	if body == nil {
+		return a.send(r, s, method, path, nil, "", out)
 	}
-	req, err := http.NewRequestWithContext(httpapi.AsAdmin(r.Context(), s.TokenID), method, httpapi.Prefix+path, reader)
+	encoded, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	return a.send(r, s, method, path, bytes.NewReader(encoded), "application/json", out)
+}
+
+// send is call with a body of any content type, such as an upload.
+func (a *Admin) send(r *http.Request, s session, method, path string, body io.Reader, contentType string, out any) error {
+	req, err := http.NewRequestWithContext(httpapi.AsAdmin(r.Context(), s.TokenID), method, httpapi.Prefix+path, body)
+	if err != nil {
+		return err
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	req.RemoteAddr = r.RemoteAddr
 
@@ -222,6 +226,12 @@ type sessionsData struct {
 	layout
 	Sessions []httpapi.Session
 	Devices  []httpapi.Device
+	// Choices are the scenario versions a session can play, Titles the
+	// titles of all scenarios by id.
+	Choices []scenarioChoice
+	Titles  map[string]string
+	// Lines tell what an assignment announced.
+	Lines []string
 }
 
 func (a *Admin) loadSessions(w http.ResponseWriter, r *http.Request, s session, data *sessionsData) bool {
@@ -237,7 +247,12 @@ func (a *Admin) loadSessions(w http.ResponseWriter, r *http.Request, s session, 
 	if a.failed(w, r, a.call(r, s, http.MethodGet, "/devices", nil, &devices), &data.alert) {
 		return false
 	}
+	var list httpapi.ScenarioList
+	if a.failed(w, r, a.call(r, s, http.MethodGet, "/scenarios", nil, &list), &data.alert) {
+		return false
+	}
 	data.Sessions, data.Devices = sessions.Sessions, devices.Devices
+	data.Choices, data.Titles = choicesIn(s.Lang, list)
 	return true
 }
 
@@ -251,9 +266,8 @@ func (a *Admin) sessionsPage(w http.ResponseWriter, r *http.Request, s session) 
 func (a *Admin) createSession(w http.ResponseWriter, r *http.Request, s session) {
 	data := sessionsData{layout: a.layout("admin.sessions.title", "sessions", s)}
 	body := httpapi.NewSession{
-		ID:       strings.TrimSpace(r.PostFormValue("id")),
-		Scenario: strings.TrimSpace(r.PostFormValue("scenario")),
-		Room:     strings.TrimSpace(r.PostFormValue("room")),
+		ID:   strings.TrimSpace(r.PostFormValue("id")),
+		Room: strings.TrimSpace(r.PostFormValue("room")),
 	}
 	var created httpapi.Session
 	if a.failed(w, r, a.call(r, s, http.MethodPost, "/sessions", body, &created), &data.alert) {
@@ -274,6 +288,8 @@ func (a *Admin) sessionAction(w http.ResponseWriter, r *http.Request, s session)
 
 	var err error
 	var result httpapi.Session
+	var playing string // the scenario an assignment names, for its title
+	var playingVersion int
 	switch action {
 	case "start":
 		err = a.call(r, s, http.MethodPost, path, nil, &result)
@@ -285,6 +301,16 @@ func (a *Admin) sessionAction(w http.ResponseWriter, r *http.Request, s session)
 		device := strings.TrimSpace(r.PostFormValue("device_id"))
 		err = a.call(r, s, http.MethodPost, path, httpapi.SessionDevice{DeviceID: device}, &result)
 		data.Notice = i18n.T(s.Lang, "admin.sessions.device_added", device, id)
+	case "scenario":
+		scenarioID, version, ok := parseChoice(r.PostFormValue("scenario"))
+		if !ok {
+			data.Error = i18n.T(s.Lang, "admin.sessions.choose_first")
+			break
+		}
+		var assigned httpapi.SessionAssignment
+		err = a.call(r, s, http.MethodPost, path, httpapi.ScenarioAssignment{ID: scenarioID, Version: version}, &assigned)
+		playing, playingVersion = scenarioID, version
+		data.Lines = announcementLines(s.Lang, assigned.Announcements)
 	default:
 		data.Error = i18n.T(s.Lang, "admin.unknown_action", action)
 	}
@@ -292,11 +318,19 @@ func (a *Admin) sessionAction(w http.ResponseWriter, r *http.Request, s session)
 		return
 	}
 	if data.Error != "" {
-		data.Notice = ""
+		data.Notice, data.Lines, playing = "", nil, ""
 	}
-	if a.loadSessions(w, r, s, &data) {
-		a.render(w, s.Lang, http.StatusOK, "sessions", "sessions-area", data)
+	if !a.loadSessions(w, r, s, &data) {
+		return
 	}
+	if playing != "" {
+		title := data.Titles[playing]
+		if title == "" {
+			title = playing
+		}
+		data.Notice = i18n.T(s.Lang, "admin.sessions.assigned", id, title, playingVersion)
+	}
+	a.render(w, s.Lang, http.StatusOK, "sessions", "sessions-area", data)
 }
 
 // Ranking

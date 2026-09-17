@@ -1,0 +1,51 @@
+{{define "content"}}
+<h1>{{t "admin.scenarios.title"}}</h1>
+<p class="muted">{{t "admin.scenarios.intro"}}</p>
+<section class="card upload">
+  <h2>{{t "admin.scenarios.upload_title"}}</h2>
+  <form id="upload-form" method="post" action="/admin/scenarios/upload" enctype="multipart/form-data"
+        data-progress="{{t "admin.scenarios.upload_progress"}}" data-failed="{{t "admin.scenarios.upload_failed"}}">
+    <label for="package">{{t "admin.scenarios.upload_label"}}</label>
+    <input type="file" id="package" name="package" accept=".zip,application/zip" required>
+    <button class="button primary" id="upload-button" type="submit">{{t "admin.scenarios.upload_button"}}</button>
+    <progress id="upload-progress" max="100" value="0" hidden></progress>
+    <span id="upload-status" class="muted" role="status"></span>
+  </form>
+  {{with .MaxUploadMB}}<p class="muted">{{t "admin.scenarios.upload_limit" .}}</p>{{end}}
+</section>
+<section id="catalogue">
+  {{template "messages" .}}
+  {{with .Problems}}
+  <ul class="problems" id="upload-problems">
+    {{range .}}<li class="problem"><strong>{{.Text}}</strong> <code>{{.Field}}</code><small class="detail">{{.Detail}}</small></li>{{end}}
+  </ul>
+  {{end}}
+  <div class="scroll">
+  <table class="catalogue">
+    <thead>
+      <tr>
+        <th>{{t "admin.scenarios.col_cover"}}</th><th>{{t "admin.scenarios.col_title"}}</th><th>{{t "admin.scenarios.col_tier"}}</th>
+        <th>{{t "admin.scenarios.col_latest"}}</th><th>{{t "admin.scenarios.col_drafts"}}</th><th>{{t "admin.scenarios.col_age"}}</th>
+        <th class="number">{{t "admin.scenarios.col_size"}}</th>
+      </tr>
+    </thead>
+    <tbody>
+    {{range .Scenarios}}
+      <tr id="scenario-{{.ID}}">
+        <td><a href="/admin/scenarios/{{path .ID}}"><img class="cover" src="/admin/scenarios/{{path .ID}}/{{.Current.Version}}/cover.png" alt="{{t "admin.scenarios.cover_of" .Title}}" width="45" height="80"></a></td>
+        <td><a href="/admin/scenarios/{{path .ID}}"><strong>{{.Title}}</strong></a><br><code>{{.ID}}</code></td>
+        <td>{{word "admin.tier" .Current.Tier}}</td>
+        <td>{{with .Latest}}<span class="badge published">{{t "admin.scenarios.version" .Version}}</span>{{else}}<span class="muted">{{t "admin.scenarios.none_published"}}</span>{{end}}</td>
+        <td>{{range .Drafts}}<span class="badge draft">{{t "admin.scenarios.version" .Version}}</span>{{with .Problems}} <span class="badge problems">{{t "admin.scenarios.problem_count" (len .)}}</span>{{end}} {{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</td>
+        <td>{{age .Current.AgeRating}}</td>
+        <td class="number">{{bytes .Current.Size}}</td>
+      </tr>
+    {{else}}
+      <tr><td colspan="7">{{t "admin.scenarios.empty"}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+<script src="/admin/static/scenarios.js" integrity="{{.Script}}" defer></script>
+{{end}}
