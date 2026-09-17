@@ -9,6 +9,11 @@
   const urls = root.dataset;
   const words = JSON.parse(root.dataset.words || '{}');
   const tier = root.dataset.tier || 'video';
+  // Zones move through time in the interactive and the layered tier only.
+  // The page leaves the keyframe buttons out elsewhere; the keyboard and
+  // the drag of a shape follow the same rule, so nothing here writes a
+  // keyframe the check would refuse as not_in_tier.
+  const zonesMove = tier === 'interactive' || tier === 'layered';
 
   const video = document.getElementById('stage-video');
   const canvas = document.getElementById('stage-canvas');
@@ -293,7 +298,7 @@
   function writeShape(index, shape) {
     const list = zones().slice();
     const zone = Object.assign({}, list[index]);
-    const frames = (zone.keyframe || []).slice();
+    const frames = zonesMove ? (zone.keyframe || []).slice() : [];
     if (frames.length === 0) {
       zone.points = shape.points;
       if (zone.shape === 'circle') zone.radius = shape.radius;
@@ -338,6 +343,7 @@
   }
 
   function addKeyframe() {
+    if (!zonesMove) return;
     const chosen = selection();
     if (chosen.group !== 'zone' || chosen.index < 0) return;
     const list = zones().slice();
@@ -357,6 +363,7 @@
   }
 
   function deleteKeyframe() {
+    if (!zonesMove) return;
     const chosen = selection();
     if (chosen.group !== 'zone' || chosen.index < 0) return;
     const list = zones().slice();

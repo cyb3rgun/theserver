@@ -17,6 +17,7 @@ import (
 	"github.com/cyb3rgun/theserver/internal/httpapi"
 	"github.com/cyb3rgun/theserver/internal/i18n"
 	"github.com/cyb3rgun/theserver/internal/mediakind/mediakindtest"
+	"github.com/cyb3rgun/theserver/internal/scenario"
 )
 
 // draft opens a draft through the catalogue form and returns its id.
@@ -87,7 +88,7 @@ func TestEditorPageShowsTheDraft(t *testing.T) {
 		contains(t, page, texts.Label, texts.Description, texts.Why, `id="field-`+f.ID()+`"`)
 	}
 	// The shortcuts are on the page, as the briefing asks.
-	for _, s := range shortcutsIn("en") {
+	for _, s := range shortcutsIn("en", false) {
 		contains(t, page, "<kbd>"+s.Keys+"</kbd>", s.What)
 	}
 	// A fresh draft cannot be published yet and says why.
@@ -291,4 +292,62 @@ func TestEditorOfAMissingDraft(t *testing.T) {
 	if target := redirected(t, rec); !strings.Contains(target, "draft_gone") {
 		t.Errorf("a missing draft led to %q", target)
 	}
+}
+
+// The keyframe control knows the tier. Zones move in the interactive and the
+// layered tier; in the video tier the buttons are not on the page at all and
+// a hint says why, so nobody can write a keyframe the check then refuses as
+// not_in_tier.
+func TestKeyframeControlFollowsTheTier(t *testing.T) {
+	h := newHarness(t)
+	video := h.html("GET", "/admin/editor/"+h.draft("still-range", "video"), nil)
+	moving := h.html("GET", "/admin/editor/"+h.draft("walking-range", "interactive"), nil)
+
+	for _, button := range []string{`data-act="keyframe"`, `data-act="keyframe-delete"`} {
+		if strings.Contains(video, button) {
+			t.Errorf("the video editor carries %s", button)
+		}
+		if !strings.Contains(moving, button) {
+			t.Errorf("the interactive editor lacks %s", button)
+		}
+	}
+	// The hint stands in their place, in the language of the page.
+	contains(t, video, `id="keyframe-hint"`, i18n.T("en", "admin.editor.keyframe_fixed"))
+	if strings.Contains(moving, `id="keyframe-hint"`) {
+		t.Error("the interactive editor shows the hint for a tier without keyframes")
+	}
+	h.lang = "de"
+	contains(t, h.html("GET", "/admin/editor/"+h.draft("stille-bahn", "video"), nil),
+		i18n.T("de", "admin.editor.keyframe_fixed"))
+	h.lang = ""
+
+	// The keyboard list follows the buttons: no shortcut for a key that does
+	// nothing in this tier.
+	for _, key := range []string{"admin.editor.key.keyframe.what", "admin.editor.key.keyframe_delete.what"} {
+		if strings.Contains(video, i18n.T("en", key)) {
+			t.Errorf("the video editor documents the shortcut %s", key)
+		}
+		if !strings.Contains(moving, i18n.T("en", key)) {
+			t.Errorf("the interactive editor lacks the shortcut %s", key)
+		}
+	}
+	if got, want := len(shortcutsIn("en", false))+2, len(shortcutsIn("en", true)); got != want {
+		t.Errorf("the tier drops %d shortcuts, wanted 2", want-len(shortcutsIn("en", false)))
+	}
+
+	// The rule the button now follows is the rule of the validator: a
+	// keyframe in a video scenario stays a problem.
+	id := h.draft("still-check", "video")
+	h.putMedia(id, "clip.mp4", mediakindtest.Clip())
+	if rec := h.json(http.MethodPost, "/admin/editor/"+id+"/media/clip.mp4/measure",
+		`{"duration_ms":2000,"width":64,"height":64}`); rec.Code >= 400 {
+		t.Fatalf("the measurement answered %d: %s", rec.Code, rec.Body.String())
+	}
+	rec := h.json(http.MethodPost, "/admin/editor/"+id+"/patch",
+		`{"zone":[{"id":"z-1","shape":"rect","points":[[0,0],[10,0],[10,10],[0,10]],"zone_class":"none","keyframe":[{"t_ms":0,"points":[[0,0],[10,0],[10,10],[0,10]]}]}]}`)
+	if rec.Code >= 400 {
+		t.Fatalf("the patch answered %d: %s", rec.Code, rec.Body.String())
+	}
+	problems := h.html("POST", "/admin/editor/"+id+"/validate", nil)
+	contains(t, problems, i18n.T("en", "scenario.problem."+scenario.CodeNotInTier))
 }

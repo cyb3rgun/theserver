@@ -44,12 +44,15 @@
           <button type="button" class="button" data-tool="rect">{{t "admin.editor.tool_rect"}}</button>
           <button type="button" class="button" data-tool="circle">{{t "admin.editor.tool_circle"}}</button>
           <button type="button" class="button" data-tool="polygon">{{t "admin.editor.tool_polygon"}}</button>
+          {{if .ZonesMove}}
           <button type="button" class="button" data-act="keyframe">{{t "admin.editor.keyframe_add"}}</button>
           <button type="button" class="button" data-act="keyframe-delete">{{t "admin.editor.keyframe_delete"}}</button>
+          {{end}}
           <button type="button" class="button" data-act="cover">{{t "admin.editor.cover"}}</button>
         </span>
       </div>
       <p class="muted" id="stage-hint">{{t "admin.editor.stage_hint"}}</p>
+      {{if not .ZonesMove}}<p class="muted" id="keyframe-hint">{{t "admin.editor.keyframe_fixed"}}</p>{{end}}
     </section>
 
     <aside class="panel" id="panel" aria-label="{{t "admin.editor.panel"}}">{{template "editor-panel" .Panel}}</aside>

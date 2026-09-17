@@ -37,6 +37,11 @@ type editorData struct {
 	Words     template.JS
 	Shortcuts []shortcut
 	Preview   string
+	// ZonesMove says the tier of this draft moves zones through time, so the
+	// keyframe controls belong on the page. In the video tier they do not
+	// exist and a hint stands in their place, instead of a button that
+	// writes a keyframe the check then refuses as not_in_tier.
+	ZonesMove bool
 }
 
 // panelData is the property panel for one selected object.
@@ -169,18 +174,30 @@ func (a *Admin) newEditorData(s session, draft httpapi.Draft) editorData {
 		Name:   titleIn(s.Lang, draft.Title, draft.ScenarioID),
 		Script: a.scripts["editor.js"],
 	}
+	data.ZonesMove = zonesMove(draft.Tier)
 	data.Title = i18n.T(s.Lang, "admin.editor.title")
 	data.Preview = "/admin/editor/" + url.PathEscape(draft.ID) + "/preview"
-	data.Shortcuts = shortcutsIn(s.Lang)
+	data.Shortcuts = shortcutsIn(s.Lang, data.ZonesMove)
 	data.Words = editorWords(s.Lang)
 	return data
 }
 
+// zonesMove is the rule of the validator, seen from the page: a zone carries
+// keyframes in the interactive and the layered tier and nowhere else.
+func zonesMove(tier string) bool {
+	return tier == scenario.TierInteractive || tier == scenario.TierLayered
+}
+
 // shortcutsIn lists the keyboard shortcuts of the editor, documented on the
 // page itself.
-func shortcutsIn(lang string) []shortcut {
+func shortcutsIn(lang string, zonesMove bool) []shortcut {
 	keys := []string{"space", "arrows", "shift_arrows", "draw", "finish", "cancel", "remove",
 		"keyframe", "keyframe_delete", "appearance", "zoom", "save", "validate"}
+	if !zonesMove {
+		keys = slices.DeleteFunc(keys, func(key string) bool {
+			return key == "keyframe" || key == "keyframe_delete"
+		})
+	}
 	out := make([]shortcut, 0, len(keys))
 	for _, key := range keys {
 		out = append(out, shortcut{
