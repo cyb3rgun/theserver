@@ -21,8 +21,8 @@ Season S01. theserver serves HTTPS, keeps its SQLite journal in the data directo
 Windows, from PowerShell or cmd:
 
 ```
-go build -trimpath -ldflags "-s -w -X github.com/cyb3rgun/theserver/internal/version.Version=0.4.0-dev" -o dist/theserver.exe ./cmd/theserver
-go build -trimpath -ldflags "-s -w -X github.com/cyb3rgun/theserver/internal/version.Version=0.4.0-dev" -o dist/simtarget.exe ./cmd/simtarget
+go build -trimpath -ldflags "-s -w -X github.com/cyb3rgun/theserver/internal/version.Version=0.5.0-dev" -o dist/theserver.exe ./cmd/theserver
+go build -trimpath -ldflags "-s -w -X github.com/cyb3rgun/theserver/internal/version.Version=0.5.0-dev" -o dist/simtarget.exe ./cmd/simtarget
 ```
 
 Cross compile for Linux ARM64 (Raspberry Pi), from cmd:
@@ -172,6 +172,7 @@ Commits follow Conventional Commits, `type(scope): description`, in English. The
 - [docs/openapi.yaml](docs/openapi.yaml): API v1
 - [docs/decisions.md](docs/decisions.md): numbered decisions with reasons and pinned versions
 - [docs/seasons.md](docs/seasons.md): the S track
+- [docs/season-01-log.md](docs/season-01-log.md): what Season S01 built, decided, measured and left open
 - `docs/briefings/` and `docs/handovers/`: one briefing and one handover per pass
 
 ## Legal Notice
