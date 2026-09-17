@@ -1,0 +1,50 @@
+{{define "content"}}
+<h1>Ranking</h1>
+<form class="inline card" method="get" action="/admin/ranking">
+  <label>Session
+    <select name="session" hx-get="/admin/ranking/table" hx-include="this" hx-target="#ranking" hx-swap="outerHTML">
+      <option value=""{{if eq .Selected ""}} selected{{end}}>All sessions</option>
+      {{range .Sessions}}
+      <option value="{{.ID}}"{{if eq .ID $.Selected}} selected{{end}}>{{.ID}} ({{.State}})</option>
+      {{end}}
+    </select>
+  </label>
+  <button class="button" type="submit">Show</button>
+</form>
+<p class="muted">Computed from the journal on every refresh, every 2 seconds.</p>
+{{template "ranking-table" .}}
+{{end}}
+
+{{define "ranking-table"}}
+<section id="ranking" hx-get="/admin/ranking/table?session={{query .Selected}}" hx-trigger="every 2s" hx-swap="outerHTML">
+  {{template "messages" .}}
+  <div class="scroll">
+  <table class="ranking">
+    <thead>
+      <tr><th class="number">Place</th><th>Controller</th><th class="number">Points</th><th class="number">Hits</th><th class="number">Misses</th><th class="number">Hit rate</th><th>Last hit</th></tr>
+    </thead>
+    <tbody>
+    {{range $i, $e := .Ranking.Entries}}
+      <tr>
+        <td class="number">{{plus $i 1}}</td>
+        <td><strong>{{$e.ControllerID}}</strong></td>
+        <td class="number points">{{$e.Points}}</td>
+        <td class="number">{{$e.Hits}}</td>
+        <td class="number">{{$e.Misses}}</td>
+        <td class="number">{{percent $e.Hits (plus $e.Hits $e.Misses)}}</td>
+        <td>{{when $e.LastHit}}</td>
+      </tr>
+    {{else}}
+      <tr><td colspan="7">No hits or misses yet.</td></tr>
+    {{end}}
+    </tbody>
+    {{if .Ranking.Entries}}
+    <tfoot>
+      <tr><td></td><td>Total</td><td class="number">{{.Points}}</td><td class="number">{{.Hits}}</td><td class="number">{{.Misses}}</td><td class="number">{{percent .Hits (plus .Hits .Misses)}}</td><td></td></tr>
+    </tfoot>
+    {{end}}
+  </table>
+  </div>
+  <p class="muted">{{if .Selected}}Session {{.Selected}}{{else}}All sessions{{end}}, computed {{.Computed}}</p>
+</section>
+{{end}}

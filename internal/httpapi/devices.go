@@ -143,7 +143,7 @@ func (s *Server) newDeviceToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, NewToken{
 		DeviceID: id,
 		Token:    token,
-		Warning:  "this token is shown once and cannot be shown again; put it into the device now",
+		Warning:  "This token is shown once and cannot be shown again. Put it into the device now.",
 	})
 }
 

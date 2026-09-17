@@ -1,0 +1,35 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="htmx-config" content='{"includeIndicatorCSS": false}'>
+<title>{{.Title}} | theserver admin</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/admin/static/admin.css">
+<script src="/admin/static/htmx.min.js" integrity="{{.Integrity}}" defer></script>
+</head>
+<body>
+<header class="top">
+  <span class="brand">theserver <span class="muted">admin</span></span>
+  {{if .Admin}}
+  <nav>
+    <a href="/admin/devices"{{if eq .Active "devices"}} class="active" aria-current="page"{{end}}>Devices</a>
+    <a href="/admin/sessions"{{if eq .Active "sessions"}} class="active" aria-current="page"{{end}}>Sessions</a>
+    <a href="/admin/ranking"{{if eq .Active "ranking"}} class="active" aria-current="page"{{end}}>Ranking</a>
+    <a href="/admin/settings"{{if eq .Active "settings"}} class="active" aria-current="page"{{end}}>Settings</a>
+  </nav>
+  <form class="logout" method="post" action="/admin/logout">
+    <span class="muted">Signed in with token {{.Admin}}</span>
+    <button class="button quiet" type="submit">Log out</button>
+  </form>
+  {{end}}
+</header>
+<main>
+{{template "content" .}}
+</main>
+<div id="dialog"></div>
+<footer class="muted">theserver {{.Version}}</footer>
+</body>
+</html>
+{{end}}

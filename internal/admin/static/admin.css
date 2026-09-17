@@ -1,0 +1,322 @@
+/* Base stylesheet of the theserver admin pages: readable, plain, nothing
+   decorative. The visual design comes in a later pass. */
+
+:root {
+  --text: #1c1e21;
+  --muted: #5f6368;
+  --line: #d6d9dd;
+  --ground: #f6f7f9;
+  --panel: #ffffff;
+  --accent: #1a5fb4;
+  --danger: #b3261e;
+  --ok: #1e7a3e;
+  --warn: #8a5a00;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--ground);
+}
+
+body {
+  margin: 0;
+}
+
+header.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 2rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+nav {
+  display: flex;
+  gap: 0.25rem;
+}
+
+nav a {
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+nav a:hover {
+  background: var(--ground);
+}
+
+nav a.active {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+form.logout {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+main {
+  padding: 1rem 1.5rem 2rem;
+  max-width: 1400px;
+}
+
+footer {
+  padding: 1rem 1.5rem;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin: 0.5rem 0 0.25rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: 0 0 0.5rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+code {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.92em;
+}
+
+td code {
+  white-space: nowrap;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  margin: 0.75rem 0;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+th {
+  background: var(--ground);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+tbody tr:hover {
+  background: #fafbfc;
+}
+
+tfoot td {
+  font-weight: 600;
+  border-bottom: none;
+}
+
+th.number,
+td.number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+td.points {
+  font-weight: 700;
+}
+
+td.actions {
+  white-space: nowrap;
+}
+
+td.actions > * {
+  margin: 0 0.25rem 0.25rem 0;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.35rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:hover {
+  border-color: var(--accent);
+}
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+
+.button.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.button.quiet {
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.button.htmx-request,
+.htmx-request .button {
+  opacity: 0.6;
+}
+
+form.inline {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+form.card {
+  display: flex;
+  padding: 0.75rem;
+  margin: 0.5rem 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+input,
+select {
+  font: inherit;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.badge.approved,
+.badge.online,
+.badge.running {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.badge.blocked {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.badge.pending,
+.badge.created {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.badge.offline,
+.badge.stopped,
+.badge.source-default {
+  color: var(--muted);
+}
+
+.badge.source-file,
+.badge.source-env,
+.badge.source-flag {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.notice,
+.error,
+.warning {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  margin: 0.5rem 0;
+}
+
+.notice {
+  background: #e7f3ec;
+  color: var(--ok);
+}
+
+.error {
+  background: #fbe9e7;
+  color: var(--danger);
+}
+
+.warning {
+  background: #fff4dc;
+  color: var(--warn);
+}
+
+section.login {
+  max-width: 28rem;
+  margin: 3rem auto;
+  padding: 1.5rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+section.login form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+dialog.dialog {
+  position: fixed;
+  inset: 12vh 0 auto 0;
+  margin: 0 auto;
+  width: min(36rem, 90vw);
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+
+code.token {
+  display: block;
+  padding: 0.5rem;
+  background: var(--ground);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  word-break: break-all;
+  user-select: all;
+}

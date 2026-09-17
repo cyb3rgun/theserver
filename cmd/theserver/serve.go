@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cyb3rgun/theserver/internal/admin"
 	"github.com/cyb3rgun/theserver/internal/config"
 	"github.com/cyb3rgun/theserver/internal/httpapi"
 	"github.com/cyb3rgun/theserver/internal/link"
@@ -137,6 +138,16 @@ func serve(ctx context.Context, cfg config.Config, sources config.Sources, confi
 		Settings: func() []config.Setting { return config.Describe(cfg, sources) },
 		Logger:   logger,
 	})
+	key, err := admin.LoadOrCreateKey(filepath.Join(cfg.Server.DataDir, admin.KeyFileName))
+	if err != nil {
+		return fmt.Errorf("admin cookie key: %w", err)
+	}
+	pages, err := admin.New(admin.Options{API: router.API(), Store: db, Key: key, Logger: logger})
+	if err != nil {
+		return err
+	}
+	router.Mount("/admin", pages)
+	router.Mount("/admin/", pages)
 
 	srv := &http.Server{
 		Handler:           router,
@@ -152,7 +163,7 @@ func serve(ctx context.Context, cfg config.Config, sources config.Sources, confi
 	go func() {
 		served <- srv.ServeTLS(ln, "", "")
 	}()
-	logger.Info("listening", "addr", ln.Addr().String(), "scheme", "https", "device_link", link.Path, "api", httpapi.Prefix)
+	logger.Info("listening", "addr", ln.Addr().String(), "scheme", "https", "device_link", link.Path, "api", httpapi.Prefix, "admin", "/admin")
 
 	select {
 	case err := <-served:

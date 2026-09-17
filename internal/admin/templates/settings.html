@@ -1,0 +1,25 @@
+{{define "content"}}
+<h1>Settings</h1>
+<p class="muted">The effective configuration of the running server, read only in S01. Precedence, highest first: flag, environment, file, default.</p>
+{{template "messages" .}}
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Setting</th><th>Value</th><th>Source</th><th>Default</th><th>Environment</th><th>Flag</th><th>Meaning</th></tr>
+  </thead>
+  <tbody>
+  {{range .Settings}}
+    <tr>
+      <td><code>{{.Key}}</code></td>
+      <td><code>{{.Value}}</code></td>
+      <td><span class="badge source-{{.Source}}">{{.Source}}</span></td>
+      <td><code>{{.Default}}</code></td>
+      <td><code>{{.Env}}</code></td>
+      <td>{{with .Flag}}<code>{{.}}</code>{{else}}<span class="muted">none</span>{{end}}</td>
+      <td>{{.Comment}}</td>
+    </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{end}}
