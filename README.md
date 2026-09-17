@@ -1,180 +1,420 @@
-# theserver
+![CYB3RGUN](.github/assets/banner.png)
 
-theserver is the local venue server of the CYB3RGUN system.
-It brings together everything that is not real time: players, sessions, scores, rankings, scenario content, devices, configuration and administration.
-It is never in the hit path; every target decides, reacts and scores on its own and keeps playing when theserver is gone.
-The same binary runs on a Raspberry Pi inside a target, on a Mini PC at home and on a rack machine in a venue hall.
-One binary, no external runtime, no database service, no message broker: copy, start, done.
+# CYB3RGUN THESERVER
 
-## Status
+**Digital Shooting Cinema. The venue server.** The nervous system of a CYB3RGUN cinema: scores, sessions, devices, rankings, direction. One binary, no external services, built in Go.
 
-Season S01. theserver serves HTTPS, keeps its SQLite journal in the data directory, and speaks the device link of [docs/protocol.md](docs/protocol.md): targets connect over WebSocket, authenticate with a token, replay what the server has not acknowledged, and receive commands. `simtarget` is a simulated target that exercises the whole path without firmware. API v1 under `/api/v1` manages devices and sessions and computes rankings from the journal, and the admin pages under `/admin` put all of it in a browser. See [docs/seasons.md](docs/seasons.md) and [docs/capabilities.md](docs/capabilities.md).
+> [!IMPORTANT]
+> **For adults only.** CYB3RGUN is not suitable for anyone under 18 and is developed with an 18+ classification as its target.
+>
+> **No finished release is published, and none ever will be.** There is no download, no installer and no binary. Whoever wants to run it compiles, configures, sets up and administers it themselves.
 
-## Requirements
+---
 
-- Go at the version named by the `go` directive in [go.mod](go.mod)
-- Git
-- Python 3, for `tools/check_dashes.py`
+CYB3RGUN is a shooting cinema. Players shoot at screens, projections, mannequins and moving targets with a pistol that carries an infrared camera. Nobody shoots at people, and nothing shoots back: a target that is not hit within its time window counts against the player, and that is the whole rule. The pistol sees four infrared beacons around every target, computes where it points at the moment of the shot, and tells the target by radio. The target reacts in milliseconds, on its own, without asking anyone.
 
-## Build
+theserver is everything that is not that moment. It collects what the targets journal, counts the points, runs the sessions, directs the room, keeps the devices, and later the members, the bookings, the leagues and the franchise statement. It runs on a Raspberry Pi built into a single target at home and on a rack machine in a hall with 500 targets, from the same binary.
 
-Windows, from PowerShell or cmd:
+One rule holds it together: **the hit reacts locally, the server directs, the cloud is optional.** If theserver disappears, every target keeps playing and delivers later. Nothing is lost, nothing is counted twice.
 
-```
-go build -trimpath -ldflags "-s -w -X github.com/cyb3rgun/theserver/internal/version.Version=0.5.0-dev" -o dist/theserver.exe ./cmd/theserver
-go build -trimpath -ldflags "-s -w -X github.com/cyb3rgun/theserver/internal/version.Version=0.5.0-dev" -o dist/simtarget.exe ./cmd/simtarget
-```
+---
 
-Cross compile for Linux ARM64 (Raspberry Pi), from cmd:
+## What This Repository Is
 
-```
-set GOOS=linux& set GOARCH=arm64& go build -trimpath -ldflags "-s -w" -o dist/theserver-linux-arm64 ./cmd/theserver
-```
+This repository is **source available.** The code can be read, compiled and run for personal, non commercial evaluation. The licence text is being finalised and will be published in `LICENSE`; until then no right to redistribute the code or anything derived from it is granted, and commercial use requires a written agreement with IT and More Systems.
 
-The same from PowerShell:
+- **No release.** No download, no installer, no binary, now or later. The distribution is the source itself.
+- **Build it yourself.** One `go build` produces the whole server. The steps are under [Development](#development).
+- **No content.** theserver ships no scenarios, no characters, no media. Scenario packages are a separate, closed tier delivered as signed content under a rental and server agreement.
+- **Everything is documented.** Every architectural choice is written down with its reason in [docs/decisions.md](https://github.com/cyb3rgun/theserver/blob/main/docs/decisions.md), and every pass of work leaves a briefing and a handover.
 
-```
-$env:GOOS = "linux"; $env:GOARCH = "arm64"; go build -trimpath -ldflags "-s -w" -o dist/theserver-linux-arm64 ./cmd/theserver; Remove-Item Env:GOOS, Env:GOARCH
-```
+---
 
-`Version`, `Commit` and `BuildDate` in `internal/version` are set with `-ldflags "-X ..."` and read `dev` otherwise. Build output goes to `dist/`, which is not tracked.
+## The System
 
-## Run
+CYB3RGUN is one product in five repositories. They share one protocol, one set of rules and one naming scheme.
 
-`theserver` takes a subcommand; without one it serves.
-
-| Command | What it does |
-| --- | --- |
-| `theserver serve` | runs the server; the default when no subcommand is given |
-| `theserver serve --version` | prints version, commit, build date and Go version |
-| `theserver serve --write-default-config <path>` | writes a configuration file with every setting and its default |
-| `theserver device add --id <id> --kind target\|controller\|bridge [--class esp\|pi\|pc]` | registers an approved device and prints its token once |
-| `theserver device list` | lists id, kind, class, status, sequence epoch and last seen |
-| `theserver device reset <id>` | starts a new sequence epoch; the device starts over at seq 1 and earlier events stay |
-| `theserver device revoke --id <id>` | blocks a device; a running server drops its connection within a second |
-| `theserver admin token add --name <name>` | creates an admin token for the API and the admin pages and prints it once |
-| `theserver admin token list` | lists id, name, created, last used and revoked |
-| `theserver admin token revoke <id>` | revokes an admin token; the API answers it with 403 from then on |
-| `theserver db info` | prints the database path, schema version, journal mode, foreign keys, busy timeout and row counts |
-
-Every subcommand takes `--config <path>` and `--data-dir <dir>`. `--db-info` still works in S01 as a deprecated alias of `db info`.
-
-A first run:
-
-```
-dist\theserver.exe serve --write-default-config data\theserver.toml
-dist\theserver.exe device add --id tgt-01 --kind target --class esp
-dist\theserver.exe admin token add --name founder
-dist\theserver.exe serve --config data\theserver.toml
-```
-
-`device add` and `admin token add` print their token only once; the database keeps just its hash. Check that the server is up:
-
-```
-curl -k https://127.0.0.1:8443/healthz
-```
-
-The answer is `{"status":"ok","version":"...","db":"ok"}`, and 503 with `"db":"error"` when the database does not answer. Ctrl+C stops the server; open requests and device connections get 5 seconds, and every device connection stores what it received before it closes.
-
-## Admin pages
-
-Open `https://127.0.0.1:8443/admin`, accept the self signed certificate and log in with an admin token. The login lasts 12 hours in a signed cookie; its key is `<data_dir>/admin.key`. Every page works through API v1, in process and as the admin token that logged in.
-
-| Page | What it does |
-| --- | --- |
-| `/admin/devices` | lists devices with status, epoch, online state and last ack; approve, block, reset, issue a new token (shown once) |
-| `/admin/sessions` | creates, starts and stops sessions and assigns devices |
-| `/admin/ranking` | the ranking of one session or of everything, refreshed every 2 seconds |
-| `/admin/settings` | the effective configuration, read only, with the source of every setting |
-
-HTMX is embedded in the binary; the pages load nothing from elsewhere.
-
-## API v1
-
-JSON under `/api/v1`, described in [docs/openapi.yaml](docs/openapi.yaml), which the server also serves at `/api/v1/openapi.yaml`. Every other route needs `Authorization: Bearer <admin token>`: no token or an unknown one gets 401, a revoked one 403. Errors are `{"error":{"code":"...","message":"..."}}`.
-
-| Route | What it does |
-| --- | --- |
-| `GET /devices`, `GET /devices/{id}` | devices with their online state |
-| `POST /devices/{id}/approve`, `/block`, `/reset`, `/token` | change a device; block, reset and token drop a live connection at once |
-| `GET /sessions`, `POST /sessions` | list and create sessions |
-| `POST /sessions/{id}/start`, `/stop`, `/devices` | run a session and assign devices |
-| `GET /rankings?session=<id>` | the ranking, computed from the journal; without `session` over everything |
-| `GET /events` | the journal, filtered by `device`, `session`, `kind`, `controller`, `from`, `to`, with `limit` (at most 1000) and `offset` |
-| `GET /online` | the devices connected now |
-| `GET /settings` | the effective configuration with sources |
-
-For example:
-
-```
-curl -k -H "Authorization: Bearer <admin token>" https://127.0.0.1:8443/api/v1/rankings
-```
-
-## TLS
-
-theserver serves HTTPS only. On the first start without a configured certificate it creates a self signed one in `<data_dir>/tls/server.crt` and `server.key` (ECDSA P-256, ten years, for localhost, 127.0.0.1, ::1 and the host name) and logs its SHA-256 fingerprint on every start, in the line `tls certificate`. To use a real certificate, replace the two files, or name others with `tls.cert_file` and `tls.key_file`. Devices in S01 pin the fingerprint or skip verification explicitly; `curl -k` and `simtarget --insecure` do the latter.
-
-## Simulated target
-
-`simtarget` connects like a target, journals its events in `data/simtarget/<id>` before sending them, replays what the server has not acknowledged, and answers commands.
-
-```
-dist\simtarget.exe --server wss://127.0.0.1:8443 --id tgt-01 --token <token> --insecure --rate 5 --drop-every 10 --duration 60
-```
-
-| Flag | Default | Meaning |
+| Repository | What it is | Runs on |
 | --- | --- | --- |
-| `--server` | `wss://127.0.0.1:8443` | theserver address |
-| `--id`, `--token` | none | device id and the token from `device add` |
-| `--insecure` | off | skip TLS verification, for test servers only |
-| `--rate` | `5` | events per second; every trigger pull is a shot followed by a hit (70 percent) or a miss |
-| `--controllers` | `3` | controller ids to rotate |
-| `--journal` | `data/simtarget/<id>` | where the journal lives |
-| `--drop-every` | `0` | close the connection every so many seconds and reconnect after 2 seconds |
-| `--duration` | `0` | stop generating after so many seconds, wait for the last acks and exit; 0 runs until Ctrl+C |
+| [thefirmware](https://github.com/cyb3rgun/thefirmware) | The ESP32 side: the pistol (camera, IMU, trigger, aim computation, radio), the target module (beacon driver, radio, USB bridge) and the small all in one display target. | ESP32-S3, ESP32-P4 |
+| [theclient](https://github.com/cyb3rgun/theclient) | The target computer. Takes the shot event from the target module over USB, decides the hit against the zone model and the time window, shows picture and sound, keeps the journal, talks to theserver. | Raspberry Pi, Mini PC |
+| [thegame](https://github.com/cyb3rgun/thegame) | The Unreal Engine 5.8 shooting simulator. The big cinema target: real ballistics, per bone hit zones, exchangeable scenarios. Renders what theclient decides on the large format. | Windows PC |
+| **theserver** (this repository) | The venue server. Scores, sessions, devices, rankings, direction, administration, later members, booking and the franchise statement. | Raspberry Pi to rack |
+| [thesite](https://github.com/cyb3rgun/thesite) | The public website, including FIND A CINEMA, the map of licensed venues. | Web |
 
-It stores the sequence epoch the server announces; after a device reset it drops its unacknowledged events, starts over at seq 1 and connects again at once. At the end it prints a summary: events generated, frames sent, replays, connections, drops, the epoch and the resets, commands, the last ack and what is still unacknowledged. It exits 1 while events are unacknowledged and 3 when the server refuses the token.
+How a shot travels:
+
+```
+PISTOL (ESP32)  --ESP-NOW-->  TARGET MODULE (ESP32)  --USB-->  TARGET COMPUTER (theclient)
+   camera sees                 drives the beacons,               decides the hit,
+   four beacons,               hears the pistol,                 picture and sound,
+   computes the aim            acknowledges the shot             journals the event
+                                                                        |
+                                                              WebSocket over TLS
+                                                                        v
+                                                                THESERVER (this)
+                                                               scores, sessions,
+                                                               devices, rankings,
+                                                               direction, admin
+                                                                        |
+                                                                        v
+                                                              OPTIONAL FEDERATION
+                                                            accounts across venues,
+                                                            FIND A CINEMA, leagues
+```
+
+Nothing real time ever crosses a network. The pistol and the target module speak ESP-NOW directly, connectionless, in single digit milliseconds. theserver sees the result afterwards, over a cable or WiFi, and it is never asked before a target reacts.
+
+### Target classes
+
+| Class | Hardware | Sound | Server link | Use |
+| --- | --- | --- | --- | --- |
+| **A** | ESP32 display board with camera beacons and radio on one chip | built in codec, clicks and hit markers | WiFi, or Ethernet where the board has it | home targets, clubs, halls with many small targets |
+| **B** | Raspberry Pi plus target module | proper audio | Ethernet, WiFi as fallback | experience rooms, mannequins, moving targets |
+| **C** | Mini PC plus target module, thegame as renderer | cinema audio | Ethernet | the 60 x 220 cm digital shooting cinema |
+
+All three speak the same protocol to theserver, carry the same journal and the same device identity. An operator mixes them freely, and a home player upgrades from A to B to C without changing anything on the server or the pistol.
+
+---
+
+## The Rule
+
+**The hit reacts locally. The server directs. The cloud is optional.**
+
+Every target decides on its own that it was hit, reacts on its own, keeps score on its own and writes every event to its own journal. theserver collects, counts, coordinates and directs. If it fails, the room keeps playing.
+
+This is enforced by the shape of the data, not by good intentions:
+
+- Every event carries a device id, a per device sequence number that never repeats, and a globally unique 16 byte event id.
+- theserver acknowledges the highest contiguous sequence it holds. A target resends everything above that after any reconnect.
+- Storage is idempotent on the event id. A replayed event is acknowledged and not stored twice. A reused sequence with a different event id is a conflict, never a silent overwrite.
+- Events are immutable. Rankings are computed from the journal every time they are asked for; there is no score table to drift out of sync.
+
+---
+
+## What It Does Today
+
+| Area | Capability |
+| --- | --- |
+| **Device link** | WebSocket over TLS at `/link/v1`, CBOR messages, handshake with replay, cumulative acknowledgements, commands from the server with results, keepalive, newest connection wins |
+| **Journal** | SQLite in WAL mode, embedded versioned migrations, immutable events, contiguous acknowledgement, sequence epochs for device reset |
+| **Devices** | Registry with kind, class, room, zone, status (pending, approved, blocked), hashed device tokens, token rotation, reset, live disconnect on revoke |
+| **Sessions** | Create, start, stop, assign devices; events are attributed to sessions by device time, so late deliveries land in the right session |
+| **Rankings** | Per session or over everything, computed from hit and miss events, verified against an independent computation |
+| **API v1** | JSON over HTTPS under `/api/v1`, bearer tokens for administration, every route documented in `docs/openapi.yaml` and served at `/api/v1/openapi.yaml` |
+| **Admin** | Login, devices, sessions, live ranking, effective configuration with the source of every value; server rendered pages with HTMX 4, no build step, no CDN |
+| **TLS** | A self signed certificate is created on first start and its fingerprint logged; operators replace two files to install a real one |
+| **Configuration** | Defaults, TOML file, environment variables, command line flags, in that precedence; the default file is written out with every setting and a comment |
+| **Simulator** | `simtarget`, a second binary that behaves like a target, journals locally, drops its connection on purpose and replays, so the whole chain runs under load without firmware |
+
+---
+
+## Measured
+
+Measurements are taken on real hardware and recorded with the machine they ran on. These ran on an i9-11900K with 16 threads under Windows 11, each from a fresh database.
+
+| Measurement | Result |
+| --- | --- |
+| Journal write | 10,000 events in one transaction in 169 ms, about 59,000 events per second |
+| Single target, 60 s, a forced disconnect every 10 s | 302 sent, 302 stored, 5 drops, 51 replayed, 0 duplicates, 0 gaps |
+| 50 targets, 5 events per second each, 60 s | 15,064 sent, 15,064 stored, every device contiguous, no error or warning in the log |
+| Server load during the 50 target run | about a third of one core, 36 MB working set, 20 threads |
+| Revoke a device with a live connection | disconnected after 449 ms |
+| Reset a device with a live connection | connection closed after 1 ms, device restarts at sequence 1 in the next epoch, no regression |
+| Ranking after a 60 s run of three targets with a reset and a token change | 801 events, identical to an independent CBOR decoder run over the raw database |
+| Ranking over 270,000 events in 30 sessions | session ranking 14 ms, ranking over everything about 420 ms |
+| Replay of 301 already stored events | 0 stored, 301 duplicates, ranking unchanged |
+
+Indexes were chosen by measurement. Two indexes that the briefing asked for made the ranking slower and were rejected with the numbers recorded in the decision log.
+
+---
+
+## Network In A Venue
+
+theserver is not in the hit path, so the network only has to be good enough for events and content, not for shots.
+
+- **Pistol to target:** ESP-NOW, broadcast, no fixed peers, no peer limit. The target acknowledges, the pistol resends until acknowledged.
+- **Target to theserver:** Ethernet where the target has it (class B and C), WiFi otherwise (class A). One dedicated SSID for the system.
+- **One fixed 2.4 GHz channel** for the whole venue. Devices that run ESP-NOW and WiFi on the same chip must share the channel, so automatic channel selection is disabled everywhere and modem sleep is off on those devices.
+- **Access points** (UniFi in the reference design) all on that channel, 20 MHz, 5 GHz off for the system SSID, band steering off, minimum RSSI kick off off, every access point wired to a PoE switch, theserver wired to the same switch.
+- **Large content** (scenario packages, media, firmware) is fetched over HTTPS as resumable, checksummed, signed downloads, never over the device link.
+
+At home one router on a fixed channel replaces all of it.
+
+---
+
+## The Franchise Model
+
+CYB3RGUN is built as a franchise. IT and More Systems is the manufacturer and franchisor; the venues are run by operators under the CYB3RGUN brand. theserver is the part of the system that makes this work without anyone handling anyone else's money.
+
+**The base software is free.** theserver, the target software and the firmware run without a licence fee, at home, in a club, in a hall, forever. Self hosting is free. What costs money is what the manufacturer delivers on top: scenario content, updates, models, support, hosting as a service, and the brand.
+
+**The fee is a share of system revenue above a threshold.** System revenue is what is booked through theserver: sessions, play time, tournaments. Gastronomy and merchandise are the operator's alone, because the system neither creates nor measures them. The threshold is per month and the rate is per venue, both set by the manufacturer with a validity date, so early partners can be treated differently from venue number fifty. A venue below the threshold pays nothing. The working figure for the rate is seven percent.
+
+**theserver computes, it never collects.** At the end of each month the server sums the system revenue, applies threshold and rate, shows the result to the operator in advance, and sends a signed monthly statement to the manufacturer. The manufacturer issues the invoice from its own accounting. Nothing is debited automatically; theserver has no access to any account, no payment provider and no card terminal. It alerts the manufacturer when a venue crosses the threshold during the month, and it shows trends before the statement is due.
+
+**Not a cash register.** theserver records what was played and sold, and exports the numbers for the operator's bookkeeping (CSV, DATEV format, the API). It connects to the operator's own point of sale system so a booked session appears there as an item and the register reports it paid, and it accepts online prepayment through the operator's own account at a payment provider. It never takes cash, prints a receipt or carries a fiscal signature unit, and it never becomes an electronic cash register in the legal sense.
+
+**Enforcement is by contract and by signed content.** The source is open to read, so a cheating operator could remove the reporting; what he cannot remove is the brand and the content. Licensed scenarios, updates and federation access are delivered as signed packages that check the venue's licence. After warning, invoice, payment term and reminder, licensed content and updates freeze and the venue leaves the FIND A CINEMA map. The free base keeps running, unbranded and without content. Grace periods are contract terms and are configured, never hard coded.
+
+**Owned pistols and federation.** A member can buy a pistol, or build one; it is registered to its owner and works in every federated venue, and every hit from it is credited to the member without a wristband. Rental pistols belong to the venue and are assigned to a player by an NFC wristband for the session. Accounts, owned pistols and wristbands are valid across venues through the optional federation, which is also the data source behind FIND A CINEMA on the website. A venue that loses its licence disappears from that map.
+
+The capability map records which of these exist today and which are planned; none of the money related functions is part of the foundation yet, but the journal, the sessions and the device identities they need are.
+
+---
 
 ## Configuration
 
-Precedence, highest first: command line flags, environment variables, the TOML file named by `--config`, built in defaults. `--write-default-config <path>` writes a file with every setting, its default and a one line comment, and never overwrites an existing file.
+Precedence, highest first: command line flags, environment variables prefixed `THESERVER_`, the TOML file, built in defaults.
 
-| Setting | Default | Environment | Flag |
-| --- | --- | --- | --- |
-| `server.listen_addr` | `:8443` | `THESERVER_SERVER_LISTENADDR` | `--listen` |
-| `server.data_dir` | `./data` | `THESERVER_SERVER_DATADIR` | `--data-dir` |
-| `tls.cert_file` | empty, the certificate in `<data_dir>/tls` | `THESERVER_TLS_CERTFILE` | none |
-| `tls.key_file` | empty, set together with `cert_file` | `THESERVER_TLS_KEYFILE` | none |
-| `store.busy_timeout_ms` | `5000` | `THESERVER_STORE_BUSYTIMEOUTMS` | none |
-| `link.ack_interval_ms` | `100` | `THESERVER_LINK_ACKINTERVALMS` | none |
-| `link.ack_batch` | `32` | `THESERVER_LINK_ACKBATCH` | none |
-| `link.ping_interval_s` | `15` | `THESERVER_LINK_PINGINTERVALS` | none |
-| `link.pong_timeout_s` | `10` | `THESERVER_LINK_PONGTIMEOUTS` | none |
-| `link.hello_timeout_s` | `5` | `THESERVER_LINK_HELLOTIMEOUTS` | none |
-| `log.level` | `info` | `THESERVER_LOG_LEVEL` | `--log-level` |
-| `log.format` | `text` | `THESERVER_LOG_FORMAT` | none |
+```
+theserver --write-default-config data/theserver.toml
+```
+
+writes every setting with its default and a one line comment. The sections today: `Server` (listen address, data directory), `Log` (level, format), `Store` (busy timeout), `TLS` (certificate and key, empty means the bootstrap files), `Link` (acknowledgement interval and batch, ping interval, pong timeout, hello timeout). The admin page shows the effective value of every setting and where it came from.
+
+---
+
+## Command Line
+
+```
+theserver serve [--config <file>] [--data-dir <dir>] [--listen <addr>] [--log-level <level>]
+theserver device add --id <id> --kind target|controller|bridge [--class esp|pi|pc]
+                     [--name <name>] [--room <room>] [--zone <zone>]
+theserver device list
+theserver device revoke --id <id>
+theserver device reset <id>
+theserver admin token add --name <name>
+theserver admin token list
+theserver admin token revoke <id>
+theserver db info
+theserver --write-default-config <file>
+theserver --version
+theserver help
+
+simtarget [--server wss://<host>:8443] --id <id> --token <token> [--insecure]
+          [--rate <n>] [--controllers <n>] [--journal <dir>]
+          [--drop-every <s>] [--duration <s>] [--class esp|pi|pc] [--log-level <level>]
+```
+
+`serve` is the default: a first argument that is a flag runs the server, so `theserver --version` and `theserver --write-default-config` need no subcommand. Every subcommand also takes `--config <file>` and `--data-dir <dir>`. `--class` defaults to `esp`, `--server` to `wss://127.0.0.1:8443`.
+
+Device and admin tokens are shown exactly once, when created. Only their hashes are stored.
+
+---
+
+## Architecture
+
+```
++-------------------------------------------------------------------+
+|                          ADMIN PAGES                              |
+|        devices / sessions / ranking / settings  (HTMX 4)          |
++-------------------------------------------------------------------+
+|                            API v1                                 |
+|   devices / sessions / rankings / events / online / settings      |
++-------------------------------------------------------------------+
+|        SCORING        |        LINK         |      TLS BOOT       |
+|  rankings from the    |  WebSocket, CBOR,   |  self signed cert   |
+|  journal              |  replay, commands   |  on first start     |
++-------------------------------------------------------------------+
+|                            STORE                                  |
+|   SQLite (WAL), migrations, devices, sessions, events, tokens      |
++-------------------------------------------------------------------+
+|                   CONFIG  /  VERSION  /  LOGGING                  |
++-------------------------------------------------------------------+
+```
+
+Four rules hold the structure together:
+
+1. **One binary.** No external database, broker or runtime. Copy, start, done.
+2. **The store never decodes payloads.** Only the link and the scoring package understand CBOR; everything else treats an event as opaque bytes with an identity.
+3. **The API is the only truth.** The admin pages call the same handlers in process; nothing exists on a page without a working call behind it.
+4. **Measurements beat briefings.** An index or a code path that measures worse than the briefing expected is rejected, with the numbers recorded.
+
+---
+
+## Project Structure
+
+```
+theserver/
++-- cmd/
+|   +-- theserver/          # The server binary: serve, device, admin, db
+|   +-- simtarget/          # The simulated target
++-- internal/
+|   +-- admin/              # Admin pages, templates, embedded HTMX
+|   +-- config/             # Layered configuration with sources
+|   +-- httpapi/            # Router, health, API v1, OpenAPI
+|   +-- link/               # Device link: handshake, replay, commands, keepalive
+|   +-- protocol/           # CBOR message types and codec for link v1
+|   +-- scoring/            # Rankings from the journal
+|   +-- simtarget/          # Simulator logic: journal, generator, device loop
+|   +-- store/              # SQLite, migrations, devices, sessions, events, tokens
+|   +-- tlsboot/            # Self signed certificate bootstrap
+|   +-- version/            # Build information
++-- docs/                   # Concept, protocol, capabilities, decisions, seasons,
+|   +-- briefings/          #   one briefing per pass
+|   +-- handovers/          #   one handover per pass
++-- tools/                  # Dash check and maintenance scripts
++-- .github/assets/         # Repository presentation
+```
+
+---
+
+## Status
+
+| Component | Status |
+| --- | --- |
+| Layered configuration, health, graceful shutdown | Working |
+| SQLite journal with migrations and contiguous acknowledgement | Working |
+| Device registry, tokens, revoke, reset with epochs | Working |
+| Sessions with device time attribution | Working |
+| Device link with handshake, replay, commands, keepalive | Working |
+| TLS bootstrap | Working |
+| Simulated target with local journal and forced drops | Working |
+| Rankings, verified against an independent computation | Working |
+| API v1 with OpenAPI | Working |
+| Admin pages: devices, sessions, ranking, settings | Working |
+| Journal retention, backup and restore | Planned |
+| Configuration editable from the admin page | Planned |
+| Passkeys, roles, audit log | Planned |
+| Device certificates (mutual TLS) | Planned |
+| Enrolment by shooting and by NFC, floor plan with live status | Planned |
+| Time base broadcast and beacon multiplex direction | Planned |
+| Scenario packages, staged distribution, signed updates | Planned |
+| Director screen, spectator screens | Planned |
+| Members, wristbands, owned pistols, skill rating, leagues | Planned |
+| Booking, price lists, revenue book, exports, franchise statement | Planned |
+| Federation: FIND A CINEMA, accounts across venues | Planned |
+| CIND3R3LLA assistant access with read, configure and control tiers | Planned |
+
+The full map with phases is in [docs/capabilities.md](https://github.com/cyb3rgun/theserver/blob/main/docs/capabilities.md).
+
+---
 
 ## Development
+
+Built with Go on Windows and Linux. The newest stable Go release is used; the `go` directive in `go.mod` names it and the toolchain is resolved automatically.
+
+**1. Clone**
+
+```
+git clone git@github.com:cyb3rgun/theserver.git
+cd theserver
+```
+
+**2. Build**
 
 ```
 go vet ./...
 go test ./...
-python tools/check_dashes.py
+go build -trimpath -ldflags "-s -w" -o dist/ ./cmd/theserver
+go build -trimpath -ldflags "-s -w" -o dist/ ./cmd/simtarget
 ```
 
-Commits follow Conventional Commits, `type(scope): description`, in English. The dash check runs before every commit.
+With `-o dist/` Go names the binaries itself, `theserver.exe` and `simtarget.exe` on Windows, `theserver` and `simtarget` on Linux, so the commands below run in Git Bash, PowerShell and Linux shells alike.
+
+For a Raspberry Pi, in bash:
+
+```
+GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist/linux-arm64/ ./cmd/theserver
+```
+
+The separate directory keeps the Pi binary from replacing the one for the machine you build on.
+
+**3. First run**
+
+```
+dist/theserver --write-default-config data/theserver.toml
+dist/theserver admin token add --name founder
+dist/theserver device add --id tgt-01 --kind target --class esp
+dist/theserver serve --config data/theserver.toml
+```
+
+The first commands create the data directory and the database; the server adds a self signed certificate, logs its fingerprint and listens on `:8443`. Open `https://127.0.0.1:8443/admin`, accept the certificate, log in with the admin token.
+
+**4. A target**
+
+```
+dist/simtarget --server wss://127.0.0.1:8443 --id tgt-01 --token <token> --insecure --rate 5 --drop-every 10
+```
+
+Watch the ranking page update. Stop with Ctrl+C; the server shuts down cleanly.
+
+**Hard won notes**
+
+- `go mod tidy` drops a module that nothing imports yet. Add the dependency in the pass that first imports it, at the version `go get @latest` resolved and recorded.
+- Shell heredocs on Windows eat backslashes in Go source. Write files with an editor tool, patch with Python.
+- Processes started from Git Bash inherit "ignore Ctrl+C". Test graceful shutdown with a real console or a real CTRL_C_EVENT.
+- On S3 boards with octal PSRAM, GPIO 35 to 37 are not free. That is a firmware note, but it is recorded here because the first person who hits it will look here.
+
+---
+
+## How This Project Is Built
+
+Development runs in seasons. A season ends when the founder says so, and leaves its record in the repository: the decisions in the decision log, the state in the season table, the measurements with their machine. Within a season the work is cut into briefings, each a single closed piece with its decisions stated up front and its acceptance criteria written before the work starts. Every pass ends with a handover.
+
+Rules that have earned their place:
+
+- **Decisions are recorded with their reason.** The decision log is numbered and never rewritten.
+- **No invented versions.** Every dependency is added at the version the module proxy resolves, and that version is written down.
+- **Bugs are fixed forward.** Nothing is reverted.
+- **Measurements beat opinions.** No performance claim and no index enters the project without a number behind it.
+- **A gap is a question, never a substitution.** The implementer stops and asks instead of guessing.
+- **Design problems are solved, not deleted.** Hiding, removing or postponing is never the answer to something that looks wrong.
+
+---
 
 ## Documentation
 
-- [docs/concept.md](docs/concept.md): what theserver is and the principles it keeps
-- [docs/capabilities.md](docs/capabilities.md): what theserver is meant to do, by area and phase
-- [docs/protocol.md](docs/protocol.md): the device link protocol, version 1, with the server behaviour in section 8
-- [docs/openapi.yaml](docs/openapi.yaml): API v1
-- [docs/decisions.md](docs/decisions.md): numbered decisions with reasons and pinned versions
-- [docs/seasons.md](docs/seasons.md): the S track
-- [docs/season-01-log.md](docs/season-01-log.md): what Season S01 built, decided, measured and left open
-- `docs/briefings/` and `docs/handovers/`: one briefing and one handover per pass
+| Resource | Link |
+| --- | --- |
+| Server concept, the living reference | [docs/concept.md](https://github.com/cyb3rgun/theserver/blob/main/docs/concept.md) |
+| Device link protocol | [docs/protocol.md](https://github.com/cyb3rgun/theserver/blob/main/docs/protocol.md) |
+| Capability map with phases | [docs/capabilities.md](https://github.com/cyb3rgun/theserver/blob/main/docs/capabilities.md) |
+| Architectural decisions with rationale | [docs/decisions.md](https://github.com/cyb3rgun/theserver/blob/main/docs/decisions.md) |
+| Seasons and passes | [docs/seasons.md](https://github.com/cyb3rgun/theserver/blob/main/docs/seasons.md) |
+| API description | [docs/openapi.yaml](https://github.com/cyb3rgun/theserver/blob/main/docs/openapi.yaml) |
+| Briefings, one per pass | [docs/briefings](https://github.com/cyb3rgun/theserver/tree/main/docs/briefings) |
+| Handovers, one per pass | [docs/handovers](https://github.com/cyb3rgun/theserver/tree/main/docs/handovers) |
+| The game, the big cinema target | [cyb3rgun/thegame](https://github.com/cyb3rgun/thegame) |
+| The firmware, pistol and target module | [cyb3rgun/thefirmware](https://github.com/cyb3rgun/thefirmware) |
+| The client, the target computer | [cyb3rgun/theclient](https://github.com/cyb3rgun/theclient) |
+| The website and FIND A CINEMA | [cyb3rgun/thesite](https://github.com/cyb3rgun/thesite) |
+
+---
+
+## License
+
+Source available, not open source. Copyright 2026 Sascha Daemgen, IT and More Systems, Recklinghausen, Germany. All rights reserved.
+
+- The source code may be viewed, compiled and run for personal, non commercial evaluation.
+- Redistribution of the source code or any derivative, in whole or in part, is not permitted without written permission.
+- Commercial use of any kind requires a written agreement.
+- Scenario content is not covered by this licence and is licensed separately.
+- No warranty of any kind.
+
+The binding text will be published as `LICENSE` in this repository.
+
+---
 
 ## Legal Notice
 
-theserver is part of CYB3RGUN and is not for persons under 18.
+CYB3RGUN is a shooting cinema. Players shoot at screens, projections and physical targets. Nobody shoots at people and no device shoots at a player.
+
+The product is made for adults. It is not suitable for anyone under 18 and is developed with an 18+ classification as its target.
+
+No finished release of this product is published, and none ever will be. Anyone who builds and runs it from this repository does so on their own responsibility, on their own machine.
+
+theserver never handles money. It records what was played, computes and reports; it is not a cash register and does not become one.
+
+---
+
+## Acknowledgments
+
+The Go team for a toolchain that turns a server into one file. The maintainers of [modernc.org/sqlite](https://gitlab.com/cznic/sqlite), [fxamacker/cbor](https://github.com/fxamacker/cbor), [coder/websocket](https://github.com/coder/websocket) and [htmx](https://htmx.org/) for the four dependencies this project needs.
+
+---
+
+*CYB3RGUN is a product of IT and More Systems, Recklinghausen, Germany.* *Shoot. Train. Improve.*
+
+**CYB3RGUN - The hit reacts locally. The server directs.**
