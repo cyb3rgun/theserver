@@ -16,17 +16,20 @@ import (
 // maxBody bounds a JSON request body.
 const maxBody = 64 << 10
 
-// Session is a session as API v1 shows it.
+// Session is a session as API v1 shows it. Scenario and ScenarioVersion
+// name the scenario version it plays; the version is 0 while none is
+// assigned, and Scenario is then a label given at creation.
 type Session struct {
-	ID        string   `json:"id"`
-	Scenario  string   `json:"scenario"`
-	Room      string   `json:"room"`
-	State     string   `json:"state"`
-	StartedAt int64    `json:"started_at"`
-	EndedAt   int64    `json:"ended_at"`
-	CreatedAt int64    `json:"created_at"`
-	UpdatedAt int64    `json:"updated_at"`
-	Devices   []string `json:"devices"`
+	ID              string   `json:"id"`
+	Scenario        string   `json:"scenario"`
+	ScenarioVersion int      `json:"scenario_version"`
+	Room            string   `json:"room"`
+	State           string   `json:"state"`
+	StartedAt       int64    `json:"started_at"`
+	EndedAt         int64    `json:"ended_at"`
+	CreatedAt       int64    `json:"created_at"`
+	UpdatedAt       int64    `json:"updated_at"`
+	Devices         []string `json:"devices"`
 }
 
 // NewSession is the body of POST /sessions. An empty ID is chosen by the
@@ -48,7 +51,7 @@ func sessionJSON(s store.Session) Session {
 		devices = []string{}
 	}
 	return Session{
-		ID: s.ID, Scenario: s.Scenario, Room: s.Room, State: s.State,
+		ID: s.ID, Scenario: s.Scenario, ScenarioVersion: s.ScenarioVersion, Room: s.Room, State: s.State,
 		StartedAt: s.StartedAt, EndedAt: s.EndedAt, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 		Devices: devices,
 	}
@@ -149,6 +152,7 @@ func (s *Server) addSessionDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "device added to session", "session", id, "device", body.DeviceID)
+	s.announce(r, body.DeviceID, id)
 	s.writeSession(w, r, id, http.StatusOK)
 }
 

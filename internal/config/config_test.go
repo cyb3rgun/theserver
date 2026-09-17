@@ -36,14 +36,22 @@ func defaultsWith(change func(c *Config)) Config {
 
 func TestDefaultsComeFromTheRegistry(t *testing.T) {
 	want := Config{
-		Server: Server{ListenAddr: ":8443", DataDir: "./data"},
-		Store:  Store{BusyTimeoutMs: 5000},
-		Link:   Link{AckIntervalMs: 100, AckBatch: 32, PingIntervalS: 15, PongTimeoutS: 10, HelloTimeoutS: 5},
-		Log:    Log{Level: "info", Format: "text"},
-		Admin:  Admin{Language: "en", SessionHours: 12},
+		Server:  Server{ListenAddr: ":8443", DataDir: "./data"},
+		Store:   Store{BusyTimeoutMs: 5000},
+		Content: Content{MaxUploadMB: 2048},
+		Link:    Link{AckIntervalMs: 100, AckBatch: 32, PingIntervalS: 15, PongTimeoutS: 10, HelloTimeoutS: 5},
+		Log:     Log{Level: "info", Format: "text"},
+		Admin:   Admin{Language: "en", SessionHours: 12},
 	}
 	if got := Default(); got != want {
 		t.Errorf("Default is %+v, want %+v", got, want)
+	}
+	if got := want.ContentDir(); got != filepath.Join("data", "content") {
+		t.Errorf("the default content directory is %s", got)
+	}
+	want.Content.Dir = "/srv/packages"
+	if got := want.ContentDir(); got != "/srv/packages" {
+		t.Errorf("a set content directory reads %s", got)
 	}
 	if got := want.Get("link.ack_batch"); got != int64(32) {
 		t.Errorf("Get(link.ack_batch) = %#v", got)
@@ -67,6 +75,10 @@ key_file = "file.key"
 [store]
 busy_timeout_ms = 1234
 
+[content]
+max_upload_mb = 512
+dir = "file-content"
+
 [link]
 ack_interval_ms = 250
 ack_batch = 8
@@ -88,12 +100,13 @@ level = "debug"
 `)
 
 	fileConfig := Config{
-		Server: Server{ListenAddr: "127.0.0.1:9000", DataDir: "file-data"},
-		TLS:    TLS{CertFile: "file.crt", KeyFile: "file.key"},
-		Store:  Store{BusyTimeoutMs: 1234},
-		Link:   Link{AckIntervalMs: 250, AckBatch: 8, PingIntervalS: 30, PongTimeoutS: 20, HelloTimeoutS: 3},
-		Log:    Log{Level: "warn", Format: "json"},
-		Admin:  Admin{Language: "de", SessionHours: 8},
+		Server:  Server{ListenAddr: "127.0.0.1:9000", DataDir: "file-data"},
+		TLS:     TLS{CertFile: "file.crt", KeyFile: "file.key"},
+		Store:   Store{BusyTimeoutMs: 1234},
+		Content: Content{MaxUploadMB: 512, Dir: "file-content"},
+		Link:    Link{AckIntervalMs: 250, AckBatch: 8, PingIntervalS: 30, PongTimeoutS: 20, HelloTimeoutS: 3},
+		Log:     Log{Level: "warn", Format: "json"},
+		Admin:   Admin{Language: "de", SessionHours: 8},
 	}
 
 	tests := []struct {
@@ -125,6 +138,8 @@ level = "debug"
 				"THESERVER_TLS_CERTFILE":        "env.crt",
 				"THESERVER_TLS_KEYFILE":         "env.key",
 				"THESERVER_STORE_BUSYTIMEOUTMS": "250",
+				"THESERVER_CONTENT_MAXUPLOADMB": "100",
+				"THESERVER_CONTENT_DIR":         "env-content",
 				"THESERVER_LINK_ACKINTERVALMS":  "50",
 				"THESERVER_LINK_ACKBATCH":       "16",
 				"THESERVER_LINK_PINGINTERVALS":  "5",
@@ -136,12 +151,13 @@ level = "debug"
 				"THESERVER_ADMIN_SESSIONHOURS":  "2h",
 			},
 			want: Config{
-				Server: Server{ListenAddr: "127.0.0.1:9100", DataDir: "env-data"},
-				TLS:    TLS{CertFile: "env.crt", KeyFile: "env.key"},
-				Store:  Store{BusyTimeoutMs: 250},
-				Link:   Link{AckIntervalMs: 50, AckBatch: 16, PingIntervalS: 5, PongTimeoutS: 4, HelloTimeoutS: 2},
-				Log:    Log{Level: "error", Format: "json"},
-				Admin:  Admin{Language: "de", SessionHours: 2},
+				Server:  Server{ListenAddr: "127.0.0.1:9100", DataDir: "env-data"},
+				TLS:     TLS{CertFile: "env.crt", KeyFile: "env.key"},
+				Store:   Store{BusyTimeoutMs: 250},
+				Content: Content{MaxUploadMB: 100, Dir: "env-content"},
+				Link:    Link{AckIntervalMs: 50, AckBatch: 16, PingIntervalS: 5, PongTimeoutS: 4, HelloTimeoutS: 2},
+				Log:     Log{Level: "error", Format: "json"},
+				Admin:   Admin{Language: "de", SessionHours: 2},
 			},
 		},
 		{

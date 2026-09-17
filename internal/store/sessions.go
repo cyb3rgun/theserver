@@ -26,17 +26,19 @@ var (
 
 // A Session is one row of sessions with the ids of its devices. StartedAt and
 // EndedAt are unix milliseconds and zero while the session has not started or
-// not ended.
+// not ended. Scenario and ScenarioVersion name the scenario version the
+// session plays; the version is 0 while none is assigned.
 type Session struct {
-	ID        string
-	Scenario  string
-	Room      string
-	State     string
-	StartedAt int64
-	EndedAt   int64
-	CreatedAt int64
-	UpdatedAt int64
-	Devices   []string
+	ID              string
+	Scenario        string
+	ScenarioVersion int
+	Room            string
+	State           string
+	StartedAt       int64
+	EndedAt         int64
+	CreatedAt       int64
+	UpdatedAt       int64
+	Devices         []string
 }
 
 // CreateSession stores a new session in state created. The id must be new.
@@ -97,16 +99,22 @@ func (s *Store) transition(ctx context.Context, id, from, to, stamp string) erro
 }
 
 // AddSessionDevice puts a device into a session. Adding it twice is not an
-// error. Unknown sessions and devices are.
+// error. Unknown sessions and devices are, and so is a device set for an age
+// below the rating of the scenario the session plays (D-039).
 func (s *Store) AddSessionDevice(ctx context.Context, sessionID, deviceID string) error {
-	if _, err := s.GetSession(ctx, sessionID); err != nil {
-		return err
-	}
-	if _, err := s.GetDevice(ctx, deviceID); err != nil {
-		return err
-	}
 	defer s.writing()()
-	_, err := s.db.ExecContext(ctx, `
+	session, err := s.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	device, err := s.GetDevice(ctx, deviceID)
+	if err != nil {
+		return err
+	}
+	if err := checkSessionAge(ctx, s.db, session, device); err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
 INSERT INTO session_devices (session_id, device_id) VALUES (?, ?)
 ON CONFLICT(session_id, device_id) DO NOTHING`, sessionID, deviceID)
 	if err != nil {
@@ -119,7 +127,7 @@ ON CONFLICT(session_id, device_id) DO NOTHING`, sessionID, deviceID)
 	return nil
 }
 
-const sessionColumns = `id, scenario, room, state, started_at, ended_at, created_at, updated_at`
+const sessionColumns = `id, scenario, room, state, started_at, ended_at, created_at, updated_at, scenario_version`
 
 // GetSession reads one session with its devices, ordered by id.
 func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {
@@ -225,7 +233,7 @@ func scanSession(row rowScanner) (Session, error) {
 		started, stopped sql.NullInt64
 	)
 	err := row.Scan(&session.ID, &session.Scenario, &session.Room, &session.State,
-		&started, &stopped, &session.CreatedAt, &session.UpdatedAt)
+		&started, &stopped, &session.CreatedAt, &session.UpdatedAt, &session.ScenarioVersion)
 	if err != nil {
 		return Session{}, err
 	}

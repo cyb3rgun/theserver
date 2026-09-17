@@ -17,6 +17,7 @@ import (
 
 	"github.com/cyb3rgun/theserver/internal/admin"
 	"github.com/cyb3rgun/theserver/internal/config"
+	"github.com/cyb3rgun/theserver/internal/content"
 	"github.com/cyb3rgun/theserver/internal/httpapi"
 	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/store"
@@ -129,6 +130,12 @@ func serve(ctx context.Context, cfg config.Config, sources config.Sources, logge
 	}
 	logger.Info("database ready", "path", db.Path(), "schema_version", schemaVersion)
 
+	packages, err := content.New(cfg.ContentDir(), db)
+	if err != nil {
+		return err
+	}
+	logger.Info("scenario content ready", "dir", packages.Dir())
+
 	certFile, keyFile, err := certificate(cfg, logger)
 	if err != nil {
 		return err
@@ -156,6 +163,7 @@ func serve(ctx context.Context, cfg config.Config, sources config.Sources, logge
 		Store:    db,
 		Link:     deviceLink,
 		Settings: runtime,
+		Content:  packages,
 		Logger:   logger,
 	})
 	key, err := admin.LoadOrCreateKey(filepath.Join(cfg.Server.DataDir, admin.KeyFileName))

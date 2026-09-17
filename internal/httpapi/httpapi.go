@@ -14,7 +14,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/cyb3rgun/theserver/internal/content"
 	"github.com/cyb3rgun/theserver/internal/link"
+	"github.com/cyb3rgun/theserver/internal/scenario"
 	"github.com/cyb3rgun/theserver/internal/store"
 	"github.com/cyb3rgun/theserver/internal/version"
 )
@@ -39,6 +41,7 @@ type DeviceLink interface {
 	http.Handler
 	Online() []link.DeviceStatus
 	Disconnect(deviceID string, why link.DisconnectReason) bool
+	AnnouncePending(ctx context.Context, deviceID, sessionID string) ([]link.Announcement, error)
 }
 
 var _ DeviceLink = (*link.Server)(nil)
@@ -54,7 +57,10 @@ type Options struct {
 	// Settings is the configuration of the running server, read and changed
 	// through /api/v1/settings. It may be nil.
 	Settings Settings
-	Logger   *slog.Logger
+	// Content keeps the scenario packages (D-036). Without it the scenario
+	// routes that touch packages answer 500.
+	Content *content.Store
+	Logger  *slog.Logger
 }
 
 // Server is the router of theserver.
@@ -111,6 +117,9 @@ type Route struct {
 	Method string
 	Path   string // below Prefix, with {name} wildcards
 	Auth   bool
+	// Device lets an approved device in with its token besides an admin
+	// (D-038).
+	Device bool
 }
 
 // routes lists API v1. The router, the OpenAPI coverage test and the admin
@@ -124,24 +133,34 @@ func (s *Server) routes() []struct {
 		handler http.HandlerFunc
 	}
 	return []entry{
-		{Route{http.MethodGet, "/devices", true}, s.listDevices},
-		{Route{http.MethodGet, "/devices/{id}", true}, s.getDevice},
-		{Route{http.MethodPost, "/devices/{id}/approve", true}, s.approveDevice},
-		{Route{http.MethodPost, "/devices/{id}/block", true}, s.blockDevice},
-		{Route{http.MethodPost, "/devices/{id}/reset", true}, s.resetDevice},
-		{Route{http.MethodPost, "/devices/{id}/token", true}, s.newDeviceToken},
-		{Route{http.MethodGet, "/sessions", true}, s.listSessions},
-		{Route{http.MethodPost, "/sessions", true}, s.createSession},
-		{Route{http.MethodPost, "/sessions/{id}/start", true}, s.startSession},
-		{Route{http.MethodPost, "/sessions/{id}/stop", true}, s.stopSession},
-		{Route{http.MethodPost, "/sessions/{id}/devices", true}, s.addSessionDevice},
-		{Route{http.MethodGet, "/rankings", true}, s.rankings},
-		{Route{http.MethodGet, "/events", true}, s.events},
-		{Route{http.MethodGet, "/online", true}, s.online},
-		{Route{http.MethodGet, "/settings", true}, s.settingsList},
-		{Route{http.MethodPut, "/settings", true}, s.settingsChange},
-		{Route{http.MethodPost, "/settings/reset", true}, s.settingsReset},
-		{Route{http.MethodGet, "/openapi.yaml", false}, s.openAPI},
+		{Route{http.MethodGet, "/devices", true, false}, s.listDevices},
+		{Route{http.MethodGet, "/devices/{id}", true, false}, s.getDevice},
+		{Route{http.MethodPost, "/devices/{id}/approve", true, false}, s.approveDevice},
+		{Route{http.MethodPost, "/devices/{id}/block", true, false}, s.blockDevice},
+		{Route{http.MethodPost, "/devices/{id}/reset", true, false}, s.resetDevice},
+		{Route{http.MethodPost, "/devices/{id}/token", true, false}, s.newDeviceToken},
+		{Route{http.MethodPost, "/devices/{id}/min_age", true, false}, s.setMinAge},
+		{Route{http.MethodGet, "/devices/{id}/scenarios", true, false}, s.deviceScenarios},
+		{Route{http.MethodGet, "/sessions", true, false}, s.listSessions},
+		{Route{http.MethodPost, "/sessions", true, false}, s.createSession},
+		{Route{http.MethodPost, "/sessions/{id}/start", true, false}, s.startSession},
+		{Route{http.MethodPost, "/sessions/{id}/stop", true, false}, s.stopSession},
+		{Route{http.MethodPost, "/sessions/{id}/devices", true, false}, s.addSessionDevice},
+		{Route{http.MethodPost, "/sessions/{id}/scenario", true, false}, s.assignScenario},
+		{Route{http.MethodGet, "/scenarios", true, false}, s.listScenarios},
+		{Route{http.MethodPost, "/scenarios", true, false}, s.uploadScenario},
+		{Route{http.MethodGet, "/scenarios/{id}", true, false}, s.getScenario},
+		{Route{http.MethodPost, "/scenarios/{id}/{version}/publish", true, false}, s.publishScenario},
+		{Route{http.MethodDelete, "/scenarios/{id}/{version}", true, false}, s.deleteScenario},
+		{Route{http.MethodGet, "/scenarios/{id}/{version}/package.zip", true, true}, s.downloadPackage},
+		{Route{http.MethodGet, "/scenarios/{id}/{version}/cover.png", true, false}, s.scenarioCover},
+		{Route{http.MethodGet, "/rankings", true, false}, s.rankings},
+		{Route{http.MethodGet, "/events", true, false}, s.events},
+		{Route{http.MethodGet, "/online", true, false}, s.online},
+		{Route{http.MethodGet, "/settings", true, false}, s.settingsList},
+		{Route{http.MethodPut, "/settings", true, false}, s.settingsChange},
+		{Route{http.MethodPost, "/settings/reset", true, false}, s.settingsReset},
+		{Route{http.MethodGet, "/openapi.yaml", false, false}, s.openAPI},
 	}
 }
 
@@ -159,7 +178,10 @@ func (s *Server) routeAPI() {
 	allowed := map[string][]string{}
 	for _, r := range s.routes() {
 		var h http.Handler = r.handler
-		if r.Auth {
+		switch {
+		case r.Device:
+			h = s.authorizeDownload(h)
+		case r.Auth:
 			h = s.authorize(h)
 		}
 		s.api.Handle(r.Method+" "+Prefix+r.Path, h)
@@ -223,6 +245,13 @@ const (
 	codeBadTransition    = "bad_transition"
 	codeInternal         = "internal"
 	codeInvalidSettings  = "invalid_settings"
+	codeInvalidPackage   = "invalid_package"
+	codeTooLarge         = "too_large"
+	codePublished        = "published"
+	codeHasProblems      = "has_problems"
+	codeVersionTaken     = "version_taken"
+	codeNotPublished     = "not_published"
+	codeAgeRating        = "age_rating"
 )
 
 // ErrorBody is the shape of every error answer of API v1.
@@ -231,11 +260,12 @@ type ErrorBody struct {
 }
 
 // ErrorDetail names what went wrong. Fields lists the refused settings of a
-// settings change.
+// settings change, Problems the problems of a package that was not stored.
 type ErrorDetail struct {
-	Code    string       `json:"code"`
-	Message string       `json:"message"`
-	Fields  []FieldError `json:"fields,omitempty"`
+	Code     string             `json:"code"`
+	Message  string             `json:"message"`
+	Fields   []FieldError       `json:"fields,omitempty"`
+	Problems []scenario.Problem `json:"problems,omitempty"`
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
@@ -251,10 +281,21 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 // fail answers an error from the store with the matching status.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
-	case errors.Is(err, store.ErrDeviceNotFound), errors.Is(err, store.ErrSessionNotFound):
+	case errors.Is(err, store.ErrDeviceNotFound), errors.Is(err, store.ErrSessionNotFound),
+		errors.Is(err, store.ErrScenarioNotFound):
 		writeError(w, http.StatusNotFound, codeNotFound, err.Error())
 	case errors.Is(err, store.ErrBadTransition):
 		writeError(w, http.StatusConflict, codeBadTransition, err.Error())
+	case errors.Is(err, store.ErrPublished):
+		writeError(w, http.StatusConflict, codePublished, err.Error())
+	case errors.Is(err, store.ErrHasProblems):
+		writeError(w, http.StatusConflict, codeHasProblems, err.Error())
+	case errors.Is(err, store.ErrVersionTaken):
+		writeError(w, http.StatusConflict, codeVersionTaken, err.Error())
+	case errors.Is(err, store.ErrNotPublished):
+		writeError(w, http.StatusConflict, codeNotPublished, err.Error())
+	case errors.Is(err, store.ErrAgeRating):
+		writeError(w, http.StatusConflict, codeAgeRating, err.Error())
 	case errors.Is(err, errBadRequest):
 		writeError(w, http.StatusBadRequest, codeBadRequest, err.Error())
 	case errors.Is(err, errConflict):

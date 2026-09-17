@@ -178,6 +178,7 @@ restart_text = "These settings are saved and take effect when theserver starts a
 server = "Server"
 tls = "TLS certificate"
 store = "Database"
+content = "Scenario content"
 link = "Device link"
 log = "Log"
 admin = "Admin pages"

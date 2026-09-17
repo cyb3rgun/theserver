@@ -179,6 +179,7 @@ restart_text = "Diese Einstellungen sind gespeichert und werden wirksam, wenn th
 server = "Server"
 tls = "TLS-Zertifikat"
 store = "Datenbank"
+content = "Szenario-Inhalte"
 link = "Geräteverbindung"
 log = "Protokoll"
 admin = "Verwaltung"

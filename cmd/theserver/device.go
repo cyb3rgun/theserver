@@ -47,6 +47,7 @@ func deviceAdd(args []string, stdout, stderr io.Writer) int {
 	name := fs.String("name", "", "display name")
 	room := fs.String("room", "", "room the device is in")
 	zone := fs.String("zone", "", "radio zone of the device")
+	minAge := fs.Int("min-age", 18, "the age of the youngest players at the device: 0, 6, 12, 16 or 18")
 	if code := parse(fs, args, stderr); code >= 0 {
 		return code
 	}
@@ -59,6 +60,9 @@ func deviceAdd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	case !slices.Contains(deviceClasses, *class):
 		fmt.Fprintf(stderr, "theserver: --class must be one of %v\n", deviceClasses)
+		return 2
+	case !slices.Contains(store.MinAges(), *minAge):
+		fmt.Fprintf(stderr, "theserver: --min-age must be one of %v\n", store.MinAges())
 		return 2
 	}
 
@@ -90,8 +94,12 @@ func deviceAdd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "theserver: %v\n", err)
 		return 1
 	}
+	if err := db.SetMinAge(ctx, *id, *minAge); err != nil {
+		fmt.Fprintf(stderr, "theserver: %v\n", err)
+		return 1
+	}
 
-	fmt.Fprintf(stdout, "device %s added: kind %s, class %s, status %s\n", *id, *kind, *class, store.StatusApproved)
+	fmt.Fprintf(stdout, "device %s added: kind %s, class %s, status %s, min age %d\n", *id, *kind, *class, store.StatusApproved, *minAge)
 	fmt.Fprintf(stdout, "token: %s\n", token)
 	fmt.Fprintln(stdout, "warning: this token is shown once and cannot be shown again; put it into the device now")
 	return 0
@@ -115,13 +123,13 @@ func deviceList(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	table := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(table, "ID\tKIND\tCLASS\tSTATUS\tEPOCH\tLAST SEEN")
+	fmt.Fprintln(table, "ID\tKIND\tCLASS\tSTATUS\tMIN AGE\tEPOCH\tLAST SEEN")
 	for _, d := range devices {
 		lastSeen := "never"
 		if d.LastSeen != 0 {
 			lastSeen = time.UnixMilli(d.LastSeen).Local().Format(time.DateTime)
 		}
-		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%d\t%s\n", d.ID, d.Kind, d.Class, d.Status, d.SeqEpoch, lastSeen)
+		fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%d\t%d\t%s\n", d.ID, d.Kind, d.Class, d.Status, d.MinAge, d.SeqEpoch, lastSeen)
 	}
 	if err := table.Flush(); err != nil {
 		return 1

@@ -34,6 +34,17 @@ Every setting can be set in the configuration file, by an environment variable o
 
 **Database wait time** (`store.busy_timeout_ms`). Only one write reaches the database at a time. Commands on the server, such as adding a device while the server runs, wait at most this long. Raise it on slow storage; 0 means not to wait at all.
 
+## content
+
+| Setting | Label | Description | Default | Unit | Range or values | Restart | Environment | Flag |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `content.max_upload_mb` | Upload limit | The largest scenario package the admin page and the API accept, in megabytes. | `2048` | MB | 1 to 65536 | no | `THESERVER_CONTENT_MAXUPLOADMB` |  |
+| `content.dir` | Content directory | Directory for the scenario packages; empty means the folder content in the data directory. | empty |  | may be empty | yes | `THESERVER_CONTENT_DIR` |  |
+
+**Upload limit** (`content.max_upload_mb`). A package holds every video, image and sound of a scenario and can be large. An upload is written to the content directory before it is checked, so the limit protects the disk. Raise it for long videos; it applies from the next upload on.
+
+**Content directory** (`content.dir`). Every uploaded version of every scenario is kept here, exactly as it was uploaded, and targets download it from here. It can grow large, so it may live on another disk than the database. To move it, stop the server, move the folder and enter the new path.
+
 ## link
 
 | Setting | Label | Description | Default | Unit | Range or values | Restart | Environment | Flag |

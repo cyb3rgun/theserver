@@ -86,6 +86,38 @@ var registry = []Setting{
 		},
 	},
 	{
+		Key: "content.max_upload_mb", Section: "content", Kind: Int, Default: int64(2048),
+		Unit: "MB", Min: bound(1), Max: bound(65536),
+		Text: map[string]Text{
+			"en": {
+				Label:       "Upload limit",
+				Description: "The largest scenario package the admin page and the API accept, in megabytes.",
+				Why:         "A package holds every video, image and sound of a scenario and can be large. An upload is written to the content directory before it is checked, so the limit protects the disk. Raise it for long videos; it applies from the next upload on.",
+			},
+			"de": {
+				Label:       "Upload-Grenze",
+				Description: "Das größte Szenario-Paket, das die Verwaltungsseite und die API annehmen, in Megabyte.",
+				Why:         "Ein Paket enthält alle Videos, Bilder und Töne eines Szenarios und kann groß sein. Ein Upload wird ins Inhaltsverzeichnis geschrieben, bevor er geprüft wird; die Grenze schützt also den Datenträger. Erhöhen Sie sie für lange Videos; sie gilt ab dem nächsten Upload.",
+			},
+		},
+	},
+	{
+		Key: "content.dir", Section: "content", Kind: Path, Default: "", Empty: true,
+		Restart: true,
+		Text: map[string]Text{
+			"en": {
+				Label:       "Content directory",
+				Description: "Directory for the scenario packages; empty means the folder content in the data directory.",
+				Why:         "Every uploaded version of every scenario is kept here, exactly as it was uploaded, and targets download it from here. It can grow large, so it may live on another disk than the database. To move it, stop the server, move the folder and enter the new path.",
+			},
+			"de": {
+				Label:       "Inhaltsverzeichnis",
+				Description: "Verzeichnis für die Szenario-Pakete; leer heißt der Ordner content im Datenverzeichnis.",
+				Why:         "Jede hochgeladene Version jedes Szenarios liegt hier, genau so, wie sie hochgeladen wurde, und die Ziele laden sie von hier. Es kann groß werden und darf daher auf einem anderen Datenträger liegen als die Datenbank. Zum Verschieben stoppen Sie den Server, verschieben den Ordner und tragen den neuen Pfad ein.",
+			},
+		},
+	},
+	{
 		Key: "link.ack_interval_ms", Section: "link", Kind: Duration, Default: int64(100),
 		Unit: "ms", Min: bound(1), Max: bound(10000),
 		Text: map[string]Text{

@@ -41,12 +41,13 @@ func DataDirFile(dataDir string) string {
 // Config is the complete configuration of theserver. Every field is a
 // setting of the registry, found by its section and key tags.
 type Config struct {
-	Server Server `toml:"server"`
-	TLS    TLS    `toml:"tls"`
-	Store  Store  `toml:"store"`
-	Link   Link   `toml:"link"`
-	Log    Log    `toml:"log"`
-	Admin  Admin  `toml:"admin"`
+	Server  Server  `toml:"server"`
+	TLS     TLS     `toml:"tls"`
+	Store   Store   `toml:"store"`
+	Content Content `toml:"content"`
+	Link    Link    `toml:"link"`
+	Log     Log     `toml:"log"`
+	Admin   Admin   `toml:"admin"`
 }
 
 // Server holds the network and storage settings.
@@ -74,6 +75,21 @@ type Link struct {
 // Store holds the database settings.
 type Store struct {
 	BusyTimeoutMs int `toml:"busy_timeout_ms"`
+}
+
+// Content holds the settings of the scenario packages (D-036).
+type Content struct {
+	MaxUploadMB int    `toml:"max_upload_mb"`
+	Dir         string `toml:"dir"`
+}
+
+// ContentDir is the directory of the scenario packages: Content.Dir, or the
+// folder content in the data directory when it is empty.
+func (c Config) ContentDir() string {
+	if c.Content.Dir != "" {
+		return c.Content.Dir
+	}
+	return filepath.Join(c.Server.DataDir, "content")
 }
 
 // Log holds the logging settings.

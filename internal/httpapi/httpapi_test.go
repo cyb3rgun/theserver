@@ -93,6 +93,15 @@ type fakeLink struct {
 	calls        int
 	online       []link.DeviceStatus
 	disconnected map[string]link.DisconnectReason
+	// asked records every AnnouncePending as device/session; answer is
+	// what it returns.
+	asked  []string
+	answer []link.Announcement
+}
+
+func (f *fakeLink) AnnouncePending(ctx context.Context, deviceID, sessionID string) ([]link.Announcement, error) {
+	f.asked = append(f.asked, deviceID+"/"+sessionID)
+	return f.answer, nil
 }
 
 func (f *fakeLink) ServeHTTP(w http.ResponseWriter, r *http.Request) {

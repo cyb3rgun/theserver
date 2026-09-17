@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/cyb3rgun/theserver/internal/config"
+	"github.com/cyb3rgun/theserver/internal/content"
 	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/protocol"
 	"github.com/cyb3rgun/theserver/internal/settings"
@@ -36,6 +37,7 @@ type apiHarness struct {
 	settings   *config.Runtime
 	configPath string
 	logs       *syncBuffer
+	content    *content.Store
 }
 
 // newRuntime writes a configuration file that sets nothing and starts a
@@ -74,14 +76,19 @@ func newAPI(t *testing.T) *apiHarness {
 	}
 	fl := &fakeLink{}
 	rt, path := newRuntime(t, nil)
+	packages, err := content.New(filepath.Join(t.TempDir(), "content"), st)
+	if err != nil {
+		t.Fatal(err)
+	}
 	logs := &syncBuffer{}
 	srv := New(Options{
 		Store:    st,
 		Link:     fl,
 		Settings: rt,
+		Content:  packages,
 		Logger:   slog.New(slog.NewTextHandler(logs, nil)),
 	})
-	return &apiHarness{t: t, st: st, link: fl, srv: srv, token: token, admin: admin, settings: rt, configPath: path, logs: logs}
+	return &apiHarness{t: t, st: st, link: fl, srv: srv, token: token, admin: admin, settings: rt, configPath: path, logs: logs, content: packages}
 }
 
 // call sends a request with the harness token and returns the recorder.
@@ -159,7 +166,7 @@ func (b *syncBuffer) String() string {
 
 // concrete turns a route pattern into a path that reaches it.
 func concrete(path string) string {
-	return Prefix + strings.NewReplacer("{id}", "x-1").Replace(path)
+	return Prefix + strings.NewReplacer("{id}", "x-1", "{version}", "1").Replace(path)
 }
 
 func TestEveryRouteNeedsAValidToken(t *testing.T) {

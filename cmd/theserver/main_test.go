@@ -88,7 +88,7 @@ func TestDeviceAddListRevoke(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("device list exited %d", code)
 	}
-	for _, want := range []string{"ID", "KIND", "CLASS", "STATUS", "LAST SEEN", "tgt-01", "target", "esp", "approved", "never"} {
+	for _, want := range []string{"ID", "KIND", "CLASS", "STATUS", "MIN AGE", "LAST SEEN", "tgt-01", "target", "esp", "approved", "never"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("device list lacks %q:\n%s", want, out)
 		}
@@ -120,6 +120,7 @@ func TestDeviceAddValidates(t *testing.T) {
 		{"device", "add", "--kind", "target"},
 		{"device", "add", "--id", "x", "--kind", "drone"},
 		{"device", "add", "--id", "x", "--kind", "target", "--class", "quantum"},
+		{"device", "add", "--id", "x", "--kind", "target", "--min-age", "14"},
 		{"device", "add", "--id", "x", "--kind", "target", "extra"},
 		{"device", "revoke"},
 		{"device"},
@@ -341,6 +342,24 @@ func TestSettingsReferenceIsCurrent(t *testing.T) {
 	for _, args := range [][]string{{"settings"}, {"settings", "list"}, {"settings", "doc", "extra"}} {
 		if code := run(args, &out, &errOut); code != 2 {
 			t.Errorf("%v exited %d, want 2", args, code)
+		}
+	}
+}
+
+// A device is set for 18 unless --min-age says otherwise (D-039).
+func TestDeviceAddSetsTheAge(t *testing.T) {
+	c := newCLI(t)
+	code, out, errOut := c.run("device", "add", "--id", "tgt-kids", "--kind", "target", "--min-age", "12")
+	if code != 0 || !strings.Contains(out, "min age 12") {
+		t.Fatalf("device add exited %d: %s%s", code, out, errOut)
+	}
+	if code, out, _ := c.run("device", "add", "--id", "tgt-adults", "--kind", "target"); code != 0 || !strings.Contains(out, "min age 18") {
+		t.Errorf("a device without --min-age: %s", out)
+	}
+	st := c.store()
+	for id, want := range map[string]int{"tgt-kids": 12, "tgt-adults": 18} {
+		if d, err := st.GetDevice(context.Background(), id); err != nil || d.MinAge != want {
+			t.Errorf("%s is set for %d, want %d (%v)", id, d.MinAge, want, err)
 		}
 	}
 }

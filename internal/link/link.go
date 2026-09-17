@@ -248,6 +248,55 @@ func (s *Server) Announce(ctx context.Context, deviceID string, content protocol
 	return nil
 }
 
+// An Announcement is the outcome of one content_available (D-038).
+type Announcement struct {
+	DeviceID   string
+	SessionID  string
+	ScenarioID string
+	Version    int
+	// Err is nil when the device took the announcement. ErrDeviceOffline
+	// means the device gets it after its first health report on its next
+	// connection.
+	Err error
+}
+
+// announceTimeout bounds the announcements after a health report.
+const announceTimeout = 30 * time.Second
+
+// AnnouncePending sends content_available for every scenario version a
+// device should hold for its created or running sessions and does not hold
+// now, narrowed to deviceID and sessionID when they are not empty. The
+// announcements go out in parallel, and each outcome is logged.
+func (s *Server) AnnouncePending(ctx context.Context, deviceID, sessionID string) ([]Announcement, error) {
+	pending, err := s.store.PendingContent(ctx, deviceID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	results := make([]Announcement, len(pending))
+	var wg sync.WaitGroup
+	for i, p := range pending {
+		results[i] = Announcement{DeviceID: p.DeviceID, SessionID: p.SessionID, ScenarioID: p.Scenario.ID, Version: p.Scenario.Version}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := s.Announce(ctx, p.DeviceID, protocol.ContentAvailable{
+				ID: p.Scenario.ID, Ver: uint64(p.Scenario.Version),
+				Sha: p.Scenario.ManifestHash, Size: uint64(p.Scenario.Size),
+			})
+			results[i].Err = err
+			attrs := []any{"device", p.DeviceID, "session", p.SessionID, "scenario", p.Scenario.ID, "version", p.Scenario.Version}
+			switch {
+			case errors.Is(err, ErrDeviceOffline):
+				s.log.Info("content announcement waits for the device", attrs...)
+			case err != nil:
+				s.log.Warn("content announcement failed", append(attrs, "error", err)...)
+			}
+		}()
+	}
+	wg.Wait()
+	return results, nil
+}
+
 // A DisconnectReason says why the server ends a live connection on behalf of
 // an operator.
 type DisconnectReason int
@@ -465,6 +514,9 @@ type deviceConn struct {
 	// report of this connection; only the batch loop uses it.
 	holdingsKey   string
 	holdingsKnown bool
+	// announced is set once the first health report with holdings has
+	// asked for what the device should fetch.
+	announced bool
 }
 
 type outFrame struct {
@@ -855,6 +907,20 @@ func (c *deviceConn) healthHoldings(ctx context.Context, event store.Event) {
 	}
 	c.holdingsKey, c.holdingsKnown = key, true
 	c.log.Info("device holdings", "scenarios", key)
+	if !c.announced {
+		// A device that was offline when a scenario was assigned hears of
+		// it now (D-038).
+		c.announced = true
+		c.srv.active.Add(1)
+		go func() {
+			defer c.srv.active.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), announceTimeout)
+			defer cancel()
+			if _, err := c.srv.AnnouncePending(ctx, c.deviceID, ""); err != nil {
+				c.log.Warn("could not look for content to announce", "error", err)
+			}
+		}()
+	}
 }
 
 func (c *deviceConn) contentReport(ctx context.Context, event store.Event) {

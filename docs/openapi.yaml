@@ -5,7 +5,8 @@ info:
   description: |
     API v1 of theserver, the local venue server of CYB3RGUN. Every request
     except GET /openapi.yaml carries an admin token as a bearer token
-    (D-025). A missing or unknown token is answered with 401, a revoked one
+    (D-025); a package download also takes the token of an approved device
+    (D-038). A missing or unknown token is answered with 401, a revoked one
     with 403. Timestamps are unix milliseconds in UTC (D-014); 0 means not
     set. Errors always have the shape of the Error schema.
 servers:
@@ -110,6 +111,46 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+  /devices/{id}/min_age:
+    post:
+      summary: Set the age a device is set for (D-039).
+      description: |
+        A scenario rated above this age cannot be assigned to a session the
+        device is in. The age is one of 0, 6, 12, 16 and 18; a new device is
+        set for 18. An age below the rating of the scenario a created or
+        running session of the device plays is refused with age_rating.
+      operationId: setMinAge
+      parameters: [{$ref: "#/components/parameters/DeviceID"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/MinAge"}
+      responses:
+        "200":
+          description: The device after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Device"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/ContentConflict"}
+  /devices/{id}/scenarios:
+    get:
+      summary: The scenario versions a device holds or held, and the ones its sessions play.
+      operationId: deviceScenarios
+      parameters: [{$ref: "#/components/parameters/DeviceID"}]
+      responses:
+        "200":
+          description: Holdings by scenario, newest version first, and the assignments of created and running sessions.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DeviceScenarios"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
   /sessions:
     get:
       summary: List every session, oldest first.
@@ -182,7 +223,11 @@ paths:
   /sessions/{id}/devices:
     post:
       summary: Put a device into a session.
-      description: Adding a device twice is not an error.
+      description: |
+        Adding a device twice is not an error. A device set for an age below
+        the rating of the scenario the session plays is refused with
+        age_rating; otherwise the device gets content_available when it does
+        not hold that version.
       operationId: addSessionDevice
       parameters: [{$ref: "#/components/parameters/SessionID"}]
       requestBody:
@@ -197,6 +242,211 @@ paths:
             application/json:
               schema: {$ref: "#/components/schemas/Session"}
         "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/ContentConflict"}
+  /sessions/{id}/scenario:
+    post:
+      summary: Assign a published scenario version to a session and announce it (D-038, D-039).
+      description: |
+        The session has to be created and the version published. No device
+        of the session may be set for an age below the rating of the
+        scenario. Every device of the session that does not hold the version
+        gets content_available at once; a device that is offline gets it
+        after its first health report on its next connection.
+      operationId: assignScenario
+      parameters: [{$ref: "#/components/parameters/SessionID"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/ScenarioAssignment"}
+      responses:
+        "200":
+          description: The session and what every device of it was told.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/SessionAssignment"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/ContentConflict"}
+  /scenarios:
+    get:
+      summary: The catalogue, one entry per scenario (D-036).
+      operationId: listScenarios
+      responses:
+        "200":
+          description: The scenarios by id, each with its latest published version and its drafts.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scenarios]
+                properties:
+                  scenarios:
+                    type: array
+                    items: {$ref: "#/components/schemas/ScenarioSummary"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      summary: Upload a scenario package; it is validated and kept as a draft (D-037).
+      description: |
+        The body is multipart/form-data with the zip in the field package,
+        at most content.max_upload_mb megabytes. The manifest names the id
+        and the version. A version above the latest published one is stored
+        as a draft, replacing a draft of the same version; the draft keeps
+        its validation problems and cannot be published until an upload
+        without problems replaces it. A package that cannot be read, whose
+        id or version is unusable, or whose version is published already is
+        not stored and answered with 422 and its problems.
+      operationId: uploadScenario
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [package]
+              properties:
+                package: {type: string, format: binary}
+      responses:
+        "201":
+          description: A new draft.
+          headers:
+            Location:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Upload"}
+        "200":
+          description: A draft of the same version was replaced.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Upload"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "413":
+          description: The package is larger than the upload limit; code too_large.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "422":
+          description: The package was not stored; code invalid_package, with error.problems.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+  /scenarios/{id}:
+    get:
+      summary: Every version of a scenario and the devices that hold them.
+      operationId: getScenario
+      parameters: [{$ref: "#/components/parameters/ScenarioID"}]
+      responses:
+        "200":
+          description: The versions, newest first, with their problems, and the holdings.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ScenarioDetail"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /scenarios/{id}/{version}:
+    delete:
+      summary: Delete a draft and its package; a published version stays (D-037).
+      operationId: deleteScenario
+      parameters:
+        - {$ref: "#/components/parameters/ScenarioID"}
+        - {$ref: "#/components/parameters/Version"}
+      responses:
+        "204":
+          description: The draft is gone.
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/ContentConflict"}
+  /scenarios/{id}/{version}/publish:
+    post:
+      summary: Publish a draft; from then on it never changes (D-037).
+      description: |
+        A draft with problems is refused with has_problems, a published
+        version with published, and a draft at or below the latest published
+        version with version_taken.
+      operationId: publishScenario
+      parameters:
+        - {$ref: "#/components/parameters/ScenarioID"}
+        - {$ref: "#/components/parameters/Version"}
+      responses:
+        "200":
+          description: The published version.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ScenarioVersion"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/ContentConflict"}
+  /scenarios/{id}/{version}/package.zip:
+    get:
+      summary: Download a package exactly as it was uploaded (D-038).
+      description: |
+        Devices fetch published versions with their device token; admins
+        fetch any version. Range requests are answered with 206. The header
+        X-Manifest-SHA256 carries the manifest hash, which content_available
+        announces.
+      operationId: downloadPackage
+      security:
+        - adminToken: []
+        - deviceToken: []
+      parameters:
+        - {$ref: "#/components/parameters/ScenarioID"}
+        - {$ref: "#/components/parameters/Version"}
+        - name: Range
+          in: header
+          schema: {type: string, example: "bytes=1024-"}
+      responses:
+        "200":
+          description: The whole package.
+          headers:
+            X-Manifest-SHA256:
+              schema: {type: string}
+          content:
+            application/zip:
+              schema: {type: string, format: binary}
+        "206":
+          description: The requested part of the package.
+          headers:
+            X-Manifest-SHA256:
+              schema: {type: string}
+            Content-Range:
+              schema: {type: string}
+          content:
+            application/zip:
+              schema: {type: string, format: binary}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403":
+          description: The admin token was revoked, or the device is not approved.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "416":
+          description: The range lies outside the package.
+  /scenarios/{id}/{version}/cover.png:
+    get:
+      summary: The cover of a version, for the catalogue.
+      operationId: scenarioCover
+      parameters:
+        - {$ref: "#/components/parameters/ScenarioID"}
+        - {$ref: "#/components/parameters/Version"}
+      responses:
+        "200":
+          description: cover.png of the package.
+          content:
+            image/png:
+              schema: {type: string, format: binary}
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
@@ -367,6 +617,10 @@ components:
       type: http
       scheme: bearer
       description: An admin token from `theserver admin token add`.
+    deviceToken:
+      type: http
+      scheme: bearer
+      description: The token of an approved device, for package downloads only.
   parameters:
     DeviceID:
       name: id
@@ -378,6 +632,16 @@ components:
       in: path
       required: true
       schema: {type: string}
+    ScenarioID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string}
+    Version:
+      name: version
+      in: path
+      required: true
+      schema: {type: integer, minimum: 1}
   responses:
     BadRequest:
       description: The request is malformed.
@@ -401,6 +665,17 @@ components:
           schema: {$ref: "#/components/schemas/Error"}
     Conflict:
       description: The session exists already, or cannot make this state change.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    ContentConflict:
+      description: |
+        The change conflicts with the scenario content: published, the
+        version is published and stays; has_problems, the draft did not
+        validate; version_taken, a newer version is published; not_published,
+        a draft cannot be assigned; age_rating, the scenario is rated above
+        the age a device is set for; bad_transition, the session is no longer
+        created.
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -428,12 +703,16 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal, invalid_settings]
+              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal, invalid_settings, invalid_package, too_large, published, has_problems, version_taken, not_published, age_rating]
             message: {type: string}
             fields:
               type: array
               description: With invalid_settings, one entry per refused setting.
               items: {$ref: "#/components/schemas/FieldError"}
+            problems:
+              type: array
+              description: With invalid_package, the problems of the package.
+              items: {$ref: "#/components/schemas/Problem"}
     FieldError:
       type: object
       required: [key, code, message]
@@ -449,7 +728,7 @@ components:
         allowed:
           type: array
           items: {type: string}
-        name: {type: string, description: With overridden, the environment variable or flag that sets the setting.}
+        name: {type: string, description: "With overridden, the environment variable or flag that sets the setting."}
     Device:
       type: object
       properties:
@@ -470,6 +749,7 @@ components:
         online: {type: boolean}
         connected_at: {type: integer, description: 0 while offline.}
         last_ack: {type: integer, description: 0 while offline.}
+        min_age: {type: integer, enum: [0, 6, 12, 16, 18], description: The age the device is set for (D-039).}
     NewToken:
       type: object
       properties:
@@ -480,7 +760,8 @@ components:
       type: object
       properties:
         id: {type: string}
-        scenario: {type: string}
+        scenario: {type: string, description: "The id of the assigned scenario, or the label given at creation."}
+        scenario_version: {type: integer, description: The assigned version; 0 while none is assigned.}
         room: {type: string}
         state: {type: string, enum: [created, running, stopped]}
         started_at: {type: integer}
@@ -497,7 +778,7 @@ components:
         id:
           type: string
           description: Letters, digits, dot, dash and underscore, up to 64. Empty lets the server choose.
-        scenario: {type: string}
+        scenario: {type: string, description: A label until a scenario version is assigned.}
         room: {type: string}
     SessionDevice:
       type: object
@@ -505,6 +786,128 @@ components:
       required: [device_id]
       properties:
         device_id: {type: string}
+    Problem:
+      type: object
+      description: One reason a scenario package is not valid (D-040); a page translates the code and shows the detail below it.
+      required: [field, code, detail]
+      properties:
+        field: {type: string, description: "The place in the manifest, such as zone[1].points."}
+        code:
+          type: string
+          enum: [bad_package, no_manifest, bad_manifest, unknown_field, missing_section, bad_id, duplicate_id, bad_version, bad_tier, missing_text, no_age_rating, bad_age_rating, bad_value, no_canvas, bad_shape, keyframes_unordered, bad_time_window, zone_without_appearance, zone_shared, appearance_unknown_zone, appearance_without_zones, unknown_appearance, unknown_media_state, not_in_tier, tier_media_mismatch, missing_media, hash_mismatch, unlisted_file, version_taken]
+        detail: {type: string, description: The reason in English.}
+    ScenarioVersion:
+      type: object
+      properties:
+        id: {type: string}
+        version: {type: integer, minimum: 1}
+        tier: {type: string, enum: [video, interactive, layered, realtime]}
+        title:
+          type: object
+          description: The title by language.
+          additionalProperties: {type: string}
+        age_rating: {type: string, enum: ["0", "6", "12", "16", "18"]}
+        manifest_hash: {type: string, description: "SHA-256 of the canonical manifest, lower case hex."}
+        size: {type: integer, description: Bytes of the package as uploaded.}
+        status: {type: string, enum: [draft, published]}
+        uploaded_at: {type: integer}
+        uploaded_by: {type: string, description: The name of the admin token.}
+        published_at: {type: integer, description: 0 for a draft.}
+        problems:
+          type: array
+          description: The validation problems of a draft; a published version has none.
+          items: {$ref: "#/components/schemas/Problem"}
+    ScenarioSummary:
+      type: object
+      properties:
+        id: {type: string}
+        current:
+          description: The latest published version, else the newest draft.
+          allOf: [{$ref: "#/components/schemas/ScenarioVersion"}]
+        latest:
+          description: The latest published version; null while none is published.
+          anyOf: [{$ref: "#/components/schemas/ScenarioVersion"}, {type: "null"}]
+        drafts:
+          type: array
+          items: {$ref: "#/components/schemas/ScenarioVersion"}
+    ScenarioDetail:
+      type: object
+      properties:
+        id: {type: string}
+        latest: {type: integer, description: The latest published version; 0 while none is published.}
+        versions:
+          type: array
+          items: {$ref: "#/components/schemas/ScenarioVersion"}
+        holdings:
+          type: array
+          items: {$ref: "#/components/schemas/Holding"}
+    Holding:
+      type: object
+      properties:
+        device_id: {type: string}
+        scenario_id: {type: string}
+        version: {type: integer}
+        installed_at: {type: integer, description: When the version last became current on the device.}
+        current: {type: boolean, description: The latest report of the device includes the version.}
+        latest: {type: integer, description: The latest published version of the scenario; 0 while none is published.}
+    Upload:
+      type: object
+      properties:
+        replaced: {type: boolean}
+        scenario: {$ref: "#/components/schemas/ScenarioVersion"}
+        problems:
+          type: array
+          items: {$ref: "#/components/schemas/Problem"}
+    ScenarioAssignment:
+      type: object
+      additionalProperties: false
+      required: [id, version]
+      properties:
+        id: {type: string}
+        version: {type: integer, minimum: 1}
+    SessionAssignment:
+      type: object
+      properties:
+        session: {$ref: "#/components/schemas/Session"}
+        announcements:
+          type: array
+          items: {$ref: "#/components/schemas/Announcement"}
+    Announcement:
+      type: object
+      properties:
+        device_id: {type: string}
+        session_id: {type: string}
+        scenario_id: {type: string}
+        version: {type: integer}
+        state:
+          type: string
+          enum: [announced, waiting, failed]
+          description: announced, the device took content_available; waiting, the device is offline and hears of it on its next connection; failed, see error.
+        error: {type: string}
+    DeviceScenarios:
+      type: object
+      properties:
+        device_id: {type: string}
+        min_age: {type: integer}
+        holdings:
+          type: array
+          items: {$ref: "#/components/schemas/Holding"}
+        assignments:
+          type: array
+          items:
+            type: object
+            properties:
+              session_id: {type: string}
+              state: {type: string, enum: [created, running]}
+              scenario_id: {type: string}
+              version: {type: integer}
+              installed: {type: boolean, description: The device holds this version now.}
+    MinAge:
+      type: object
+      additionalProperties: false
+      required: [min_age]
+      properties:
+        min_age: {type: integer, enum: [0, 6, 12, 16, 18]}
     RankingEntry:
       type: object
       properties:
@@ -512,7 +915,7 @@ components:
         hits: {type: integer}
         misses: {type: integer}
         points: {type: integer}
-        last_hit: {type: integer, description: Device time of the latest hit, 0 without one.}
+        last_hit: {type: integer, description: "Device time of the latest hit, 0 without one."}
     Ranking:
       type: object
       properties:
@@ -533,7 +936,7 @@ components:
         session_id: {type: string}
         ts_device: {type: integer}
         ts_server: {type: integer}
-        payload: {type: string, format: byte, description: The CBOR d map as the device sent it, base64.}
+        payload: {type: string, format: byte, description: "The CBOR d map as the device sent it, base64."}
     Online:
       type: object
       properties:
@@ -552,7 +955,7 @@ components:
         default: {description: The built in default.}
         source: {type: string, enum: [default, file, env, flag]}
         pending: {description: The value after the next restart; only present while one waits.}
-        unit: {type: string, description: The unit of a duration, such as ms, s or h.}
+        unit: {type: string, description: "The unit of a duration, such as ms, s or h."}
         min: {type: integer}
         max: {type: integer}
         enum:

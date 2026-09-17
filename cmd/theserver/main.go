@@ -33,7 +33,7 @@ const usage = `usage:
   theserver [serve] [--config path] [--data-dir dir] [--listen addr] [--log-level level]
   theserver serve --version
   theserver serve --write-default-config path
-  theserver device add --id id --kind target|controller|bridge [--class esp|pi|pc] [--name n] [--room r] [--zone z]
+  theserver device add --id id --kind target|controller|bridge [--class esp|pi|pc] [--name n] [--room r] [--zone z] [--min-age 0|6|12|16|18]
   theserver device list
   theserver device reset id
   theserver device revoke --id id

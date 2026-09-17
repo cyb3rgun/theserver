@@ -27,6 +27,8 @@ type Device struct {
 	Online          bool   `json:"online"`
 	ConnectedAt     int64  `json:"connected_at"`
 	LastAck         uint64 `json:"last_ack"`
+	// MinAge is the age the device is set for (D-039).
+	MinAge int `json:"min_age"`
 }
 
 // NewToken is the answer to a token change; the token is shown this once.
@@ -52,7 +54,7 @@ func deviceJSON(d store.Device, online map[string]link.DeviceStatus) Device {
 		ID: d.ID, Kind: d.Kind, Class: d.Class, Name: d.Name, Room: d.Room, Zone: d.Zone,
 		Status: d.Status, FirmwareVersion: d.FirmwareVersion, SeqEpoch: d.SeqEpoch,
 		HasToken: len(d.TokenHash) > 0, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
-		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
+		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt, MinAge: d.MinAge,
 	}
 	if status, ok := online[d.ID]; ok {
 		out.Online = true

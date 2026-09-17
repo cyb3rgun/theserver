@@ -1271,3 +1271,81 @@ func TestAnnounceSendsContentAvailable(t *testing.T) {
 		t.Errorf("the announcement is not logged:\n%s", h.logs.String())
 	}
 }
+
+// A device that was offline when its session got a scenario hears of it
+// after its first health report with holdings on the next connection; a
+// device that holds the version is not asked (D-038).
+func TestPendingContentIsAnnouncedAfterHealth(t *testing.T) {
+	h := newHarness(t, testConfig())
+	ctx := context.Background()
+	token := h.addDevice("tgt-01")
+	h.addDevice("tgt-02")
+	sc := store.Scenario{ID: "night-range", Version: 1, Tier: "video", AgeRating: "12",
+		ManifestHash: strings.Repeat("ab", 32), Size: 2048, Title: map[string]string{"en": "Night Range", "de": "Nachtschießstand"}}
+	if err := h.store.PutScenario(ctx, sc); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.store.PublishScenario(ctx, "night-range", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.CreateSession(ctx, store.Session{ID: "evening"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{"tgt-01", "tgt-02"} {
+		if err := h.store.AddSessionDevice(ctx, "evening", d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.store.AssignScenario(ctx, "evening", "night-range", 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.RecordDeviceScenarios(ctx, "tgt-02", []store.Holding{{ScenarioID: "night-range", Version: 1}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both offline: nothing goes out, the announcement waits.
+	results, err := h.link.AnnouncePending(ctx, "", "evening")
+	if err != nil || len(results) != 1 || results[0].DeviceID != "tgt-01" || !errors.Is(results[0].Err, ErrDeviceOffline) {
+		t.Fatalf("the announcement to offline devices gave %+v, %v", results, err)
+	}
+
+	c := h.dial(token)
+	c.hello("tgt-01", 0)
+	c.waitAck(0)
+	c.send(dataEvent(t, 1, protocol.KindHealth, protocol.HealthData{Up: 1, Scn: []protocol.Holding{}}))
+	var got protocol.ContentAvailable
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		msg := c.recv()
+		cmd, ok := msg.(protocol.Command)
+		if !ok {
+			continue
+		}
+		if err := protocol.DecodeArgs(cmd.A, &got); err != nil || cmd.N != protocol.CommandContentAvailable {
+			t.Fatalf("the device received %s %v", cmd.N, err)
+		}
+		c.send(protocol.Result{ID: cmd.ID, OK: true})
+		break
+	}
+	want := protocol.ContentAvailable{ID: "night-range", Ver: 1, Sha: sc.ManifestHash, Size: 2048}
+	if got != want {
+		t.Fatalf("the device was announced %+v, want %+v", got, want)
+	}
+	eventually(t, 2*time.Second, "the logged announcement", func() bool {
+		return strings.Contains(h.logs.String(), `msg="content announced" component=link device=tgt-01 scenario=night-range version=1`)
+	})
+
+	// A second health on the same connection asks nothing again.
+	c.send(dataEvent(t, 2, protocol.KindHealth, protocol.HealthData{Up: 2, Scn: []protocol.Holding{}}))
+	c.waitAck(2)
+	if msg, err := c.read(300 * time.Millisecond); err == nil {
+		if _, isCmd := msg.(protocol.Command); isCmd {
+			t.Errorf("the second health report was answered with %#v", msg)
+		}
+	}
+	if n := strings.Count(h.logs.String(), `msg="content announced"`); n != 1 {
+		t.Errorf("%d announcements, want 1", n)
+	}
+	if !strings.Contains(h.logs.String(), `msg="content announcement waits for the device" component=link device=tgt-01 session=evening scenario=night-range version=1`) {
+		t.Error("the waiting announcement is not logged")
+	}
+}

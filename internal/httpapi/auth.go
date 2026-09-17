@@ -29,6 +29,41 @@ func AdminFrom(ctx context.Context) (store.AdminToken, bool) {
 
 const adminTokenKey contextKey = 1
 
+const deviceTokenKey contextKey = 2
+
+// DeviceFrom returns the device a package download is authorized as.
+func DeviceFrom(ctx context.Context) (store.Device, bool) {
+	device, ok := ctx.Value(deviceTokenKey).(store.Device)
+	return device, ok
+}
+
+// authorizeDownload lets a package download through with the token of an
+// approved device or with an admin token (D-038): 401 without a token or
+// with one nobody holds, 403 for a device that is not approved or a revoked
+// admin token.
+func (s *Server) authorizeDownload(next http.Handler) http.Handler {
+	admin := s.authorize(next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		bearer, found := bearerToken(r)
+		if _, inProcess := ctx.Value(adminKey).(string); inProcess || !found {
+			admin.ServeHTTP(w, r)
+			return
+		}
+		device, err := s.opts.Store.DeviceByToken(ctx, bearer)
+		switch {
+		case errors.Is(err, store.ErrDeviceNotFound):
+			admin.ServeHTTP(w, r)
+		case err != nil:
+			s.fail(w, r, err)
+		case device.Status != store.StatusApproved:
+			writeError(w, http.StatusForbidden, codeForbidden, "device "+device.ID+" is not approved")
+		default:
+			next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, deviceTokenKey, device)))
+		}
+	})
+}
+
 // authorize lets a request through with a valid admin token (D-025): 401
 // without one or with an unknown one, 403 with a revoked one.
 func (s *Server) authorize(next http.Handler) http.Handler {
