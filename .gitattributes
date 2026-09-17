@@ -1,1 +1,4 @@
 * text=auto eol=lf
+
+# Scenario fixtures: media files are checked by their hash, byte for byte.
+internal/scenario/testdata/**/media/** -text

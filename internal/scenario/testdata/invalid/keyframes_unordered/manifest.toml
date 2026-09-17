@@ -1,0 +1,126 @@
+# Scenario fixture: broken with exactly the problem keyframes_unordered, written by TestBrokenFixtures from testdata/valid/interactive.
+# The media files are placeholders; theserver checks presence and hash.
+
+[scenario]
+id          = "zombie-alley"
+version     = 1
+tier        = "interactive"
+title       = { en = "Zombie Alley", de = "Zombie-Gasse" }
+description = { en = "Two zombies come down a dark alley.", de = "Zwei Zombies kommen durch eine dunkle Gasse." }
+age_rating  = "18"
+duration_s  = 20
+author      = "CYB3RGUN"
+licence     = "official"
+
+[display]
+canvas      = { w = 1080, h = 1920 }
+orientation = "portrait"
+fit         = "cover"
+
+[rules]
+points_per_hit_default = 50
+miss_penalty           = 0
+timeout_counts_as_hit  = true
+timeout_penalty        = 100
+lives                  = 3
+score_cap              = 0
+
+[[zone]]
+id           = "z-head"
+name         = { en = "Head", de = "Kopf" }
+shape        = "polygon"
+points       = [[520, 300], [600, 300], [600, 420], [520, 420]]
+points_value = 100
+zone_class   = "head"
+
+[[zone.keyframe]]
+t_ms   = 3000
+points = [[520, 300], [600, 300], [600, 420], [520, 420]]
+
+[[zone.keyframe]]
+t_ms   = 2000
+points = [[560, 310], [640, 310], [640, 430], [560, 430]]
+
+[[zone]]
+id           = "z-torso"
+name         = { en = "Torso", de = "Rumpf" }
+shape        = "rect"
+points       = [[480, 420], [660, 800]]
+points_value = 50
+zone_class   = "torso"
+
+[[zone]]
+id           = "z-head-2"
+name         = { en = "Head", de = "Kopf" }
+shape        = "circle"
+points       = [[300, 350]]
+radius       = 60
+zone_class   = "head"
+
+[[zone.keyframe]]
+t_ms   = 9000
+points = [[300, 350]]
+radius = 60
+
+[[zone.keyframe]]
+t_ms   = 12000
+points = [[360, 380]]
+radius = 70
+
+[[appearance]]
+id            = "a-zombie-1"
+t_start_ms    = 3000
+t_end_ms      = 6000
+zones         = ["z-head", "z-torso"]
+required_hits = 1
+on_timeout    = "penalty"
+media_state   = "walk"
+
+[[appearance]]
+id            = "a-zombie-2"
+t_start_ms    = 9000
+t_end_ms      = 13000
+zones         = ["z-head-2"]
+required_hits = 2
+on_timeout    = "nothing"
+media_state   = "walk"
+
+[reaction.immediate]
+flash        = true
+impact_sound = "media/impact.ogg"
+hitmarker    = "cross"
+blood        = "media/blood-1.webm"
+
+[[reaction.followup]]
+appearance  = "a-zombie-1"
+zone_class  = "head"
+media_state = "die-head"
+duration_ms = 1800
+then        = "end"
+
+[[reaction.followup]]
+appearance  = "a-zombie-1"
+zone_class  = "torso"
+media_state = "die-body"
+duration_ms = 1500
+then        = "back:walk"
+
+[[reaction.followup]]
+appearance  = "a-zombie-2"
+zone_class  = "head"
+media_state = "die-head"
+duration_ms = 1800
+then        = "next"
+
+[media.state]
+walk     = "media/walk.mp4"
+die-head = "media/die-head.mp4"
+die-body = "media/die-body.mp4"
+
+[files]
+"cover.png"          = "32201a524e327eeda431ea42a0be7aea5572fb3b18d9d7c37af7fc268ab7dc02"
+"media/blood-1.webm" = "e60905e8b17bb2ee50c2ca57e88e3210c69fcc91f3a796959e0b3ff1076f4273"
+"media/die-body.mp4" = "f63c20e7e8d5b8c01e224e32a8478cd7b1f967674bb0df3f7671ae0a3638b505"
+"media/die-head.mp4" = "c1b1a15e3f28ef672747b4555f49a96810e83780d766263a51b66c400b6a43e8"
+"media/impact.ogg"   = "30917e2d89f532cfb81b8962fea114b4992b4c699912e2fa5d3ce9fd31ce7b86"
+"media/walk.mp4"     = "afe0d0c73dd27b95d6b16ea5faea96bb48ea86045cf61569345c457a2015a7eb"

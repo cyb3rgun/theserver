@@ -1,0 +1,87 @@
+# Scenario fixture: broken with exactly the problem unlisted_file, written by TestBrokenFixtures from testdata/valid/video.
+# The media files are placeholders; theserver checks presence and hash.
+
+[scenario]
+id          = "night-range"
+version     = 1
+tier        = "video"
+title       = { en = "Night Range", de = "Nachtschießstand" }
+description = { en = "Three plates light up one after the other.", de = "Drei Scheiben leuchten nacheinander auf." }
+age_rating  = "12"
+duration_s  = 30
+author      = "CYB3RGUN"
+licence     = "official"
+
+[display]
+canvas      = { w = 1080, h = 1920 }
+orientation = "portrait"
+fit         = "contain"
+
+[rules]
+points_per_hit_default = 50
+miss_penalty           = 10
+timeout_counts_as_hit  = false
+timeout_penalty        = 0
+lives                  = 0
+score_cap              = 1000
+
+[[zone]]
+id           = "z-plate-left"
+name         = { en = "Left plate", de = "Linke Scheibe" }
+shape        = "circle"
+points       = [[270, 960]]
+radius       = 120
+points_value = 100
+zone_class   = "object"
+
+[[zone]]
+id           = "z-plate-middle"
+name         = { en = "Middle plate", de = "Mittlere Scheibe" }
+shape        = "rect"
+points       = [[440, 840], [640, 1080]]
+zone_class   = "object"
+
+[[zone]]
+id           = "z-plate-right"
+name         = { en = "Right plate", de = "Rechte Scheibe" }
+shape        = "polygon"
+points       = [[810, 840], [930, 960], [810, 1080], [690, 960]]
+points_value = 75
+zone_class   = "object"
+
+[[appearance]]
+id            = "a-left"
+t_start_ms    = 2000
+t_end_ms      = 8000
+zones         = ["z-plate-left"]
+required_hits = 1
+on_timeout    = "nothing"
+
+[[appearance]]
+id            = "a-middle"
+t_start_ms    = 10000
+t_end_ms      = 16000
+zones         = ["z-plate-middle"]
+required_hits = 1
+on_timeout    = "nothing"
+
+[[appearance]]
+id            = "a-right"
+t_start_ms    = 18000
+t_end_ms      = 26000
+zones         = ["z-plate-right"]
+required_hits = 2
+on_timeout    = "end"
+
+[reaction.immediate]
+flash        = true
+impact_sound = "media/impact.ogg"
+hitmarker    = "ring"
+
+[media]
+main = "media/main.mp4"
+
+[files]
+"cover.png"        = "75d3110cb9eace20695a5c2011948dbf52d013cff973a5a7bf3f425258b5a796"
+"media/impact.ogg" = "10c435ec1e18d0ab4395e2163e4867225e32463997da67038c2329f0716249d4"
+"media/main.mp4"   = "b62473183a475ca75660e11d39696fec7b86a19acb6e3e4757389e343ace5df6"
