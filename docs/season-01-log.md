@@ -4,8 +4,8 @@
 device link, journals them in SQLite, replays correctly after a dropped connection, and shows a
 ranking through the API and a first admin page. **Dates:** 15 to 17 September 2026. **Result:**
 every part of the goal is built and was proven end to end with simulated targets, on the
-development machine `homelab`. The run on the M150 has not happened; the pass that was to prepare
-it lost that point.
+development machine `homelab`. The run on the M150 was dropped by Sascha's decision on
+17 September 2026.
 
 Five briefings: S01-B01 to S01-B05. Decision records D-001 to D-029. `main` went from `473b55a` to
 the S01-B05 handover in 34 commits, pushed to `github.com/cyb3rgun/theserver` at the end of every
@@ -86,8 +86,8 @@ matched the API and the page exactly, and 301 stored events sent a second time w
 recognised as duplicates.
 
 What went wrong: `GET /api/v1/settings` had to be added beside the briefed routes. A reset drops
-the unacknowledged events of the old epoch, 11 in the proof; that choice is still open for
-confirmation. Right after a reset the devices page still showed the device online with the ack
+the unacknowledged events of the old epoch, 11 in the proof; the architect confirmed that choice
+after B05 (D-026). Right after a reset the devices page still showed the device online with the ack
 of its old epoch. The screenshots were taken with a signed session cookie instead of typing a
 token into the login form.
 
@@ -95,6 +95,8 @@ token into the login form.
 
 The pass arrived as a correction that dropped the Linux binaries and the M150 proof document.
 No original briefing was on disk, so the correction itself is stored as `docs/briefings/S01-B05.md`.
+After the pass Sascha dropped the run on the M150; Linux binaries are built when a Linux target is
+due, not before.
 
 The status fix: the link now marks a connection as leaving before `Disconnect` returns, so
 `Online` and `SendCommand` treat the device as gone at once, and the answer to a new token carries
@@ -185,10 +187,6 @@ all misses:     SCAN events
 
 ## Open
 
-- **The run on the M150.** The season goal names it; no pass has done it, and whether `homelab`
-  is the M150 is Sascha's to settle.
-- **A reset drops the old epoch's unacknowledged events** (D-026). Renumbering them into the new
-  epoch is the alternative; the choice is not confirmed yet.
 - **simtarget treats the 1012 close of a reset as an ordinary connection end**, with a WARN line
   and its usual 2 second pause.
 - **The ranking over everything scans the journal**, about 420 ms at 270,000 events. It grows with
@@ -196,4 +194,3 @@ all misses:     SCAN events
 - **No admin token management on the page**, no passkeys, no roles (S02).
 - **No fingerprint pinning** in simtarget, and no firmware has talked to the link.
 - **`docs/concept.md` section 3** still names Go 1.26; the concept is its author's.
-- **No Linux binary has been built since B01**, and none has run.

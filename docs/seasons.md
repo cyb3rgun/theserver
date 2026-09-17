@@ -16,4 +16,4 @@
 
 - **S01-B05.** The devices page shows a device offline at once after a reset or a new token; migration 0004 indexes events by session and kind, and rankings read the journal unsorted (D-029); the season log, `docs/season-01-log.md`.
 
-Missing for the season goal: the founder's run of the full chain on the M150.
+The run of the full chain on the M150 was dropped on 17 September 2026 by Sascha's decision. Linux binaries are built when a Linux target is due, not before.

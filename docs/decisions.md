@@ -32,6 +32,7 @@ Numbered newest first. Every entry names its date, the decision, the reason and 
 - Decision: `devices.seq_epoch` starts at 1; events carry the epoch they were stored in, and the unique constraint is `(device_id, seq_epoch, seq)`. A reset, from `theserver device reset <id>`, the API or the admin page, moves the device to the next epoch: it starts at seq 1 again, and the events of earlier epochs stay. `LastSeq`, the contiguous ack and the handshake count within the current epoch. Migration 0003 rebuilds the events table for the new constraint and keeps every stored event in epoch 1.
 - Reason: A device that lost its counter must be able to start over without deleting the journal, which is immutable (D-012).
 - Refinement agreed with the architect during this pass: `welcome` carries the epoch under the key `ep` (protocol section 8.8). A reset closes the live connection with WebSocket status 1012. A device whose journal belongs to another epoch drops its unacknowledged events, starts at seq 1 in the new epoch and connects again at once, so the `last` of its next hello belongs to that epoch; simtarget does this. A connection writes only into the epoch it learned at its handshake, so events that were on their way during a reset never land in the new epoch.
+- Agreed with the architect on 17 September 2026, after S01-B05: a reset drops the unacknowledged events of the old epoch, on the device and on the server. They are not renumbered into the new epoch.
 - Versions: none.
 
 ## D-025 Admin API tokens
