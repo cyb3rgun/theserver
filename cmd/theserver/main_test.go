@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/cyb3rgun/theserver/internal/settings"
 	"github.com/cyb3rgun/theserver/internal/store"
 )
 
@@ -271,6 +273,43 @@ func TestDeviceReset(t *testing.T) {
 		{"device", "reset", "a", "--id", "b"},
 	} {
 		if code, _, _ := c.run(args...); code != 2 {
+			t.Errorf("%v exited %d, want 2", args, code)
+		}
+	}
+}
+
+// docs/settings.md is what theserver settings doc writes; a changed registry
+// without a new reference fails here. Refresh it with:
+// go run ./cmd/theserver settings doc --out docs/settings.md
+func TestSettingsReferenceIsCurrent(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := run([]string{"settings", "doc"}, &out, &errOut); code != 0 {
+		t.Fatalf("settings doc exited %d: %s", code, errOut.String())
+	}
+	committed, err := os.ReadFile(filepath.Join("..", "..", "docs", "settings.md"))
+	if err != nil {
+		t.Fatalf("read docs/settings.md: %v", err)
+	}
+	if !bytes.Equal(bytes.ReplaceAll(committed, []byte("\r\n"), []byte("\n")), out.Bytes()) {
+		t.Error("docs/settings.md is stale; run: go run ./cmd/theserver settings doc --out docs/settings.md")
+	}
+	for _, s := range settings.All() {
+		if !strings.Contains(out.String(), "| `"+s.Key+"` | "+s.TextIn("en").Label+" |") {
+			t.Errorf("the reference has no row for %s", s.Key)
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "settings.md")
+	out.Reset()
+	if code := run([]string{"settings", "doc", "--out", path}, &out, &errOut); code != 0 {
+		t.Fatalf("settings doc --out exited %d: %s", code, errOut.String())
+	}
+	written, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(written, settings.Markdown()) {
+		t.Errorf("--out wrote %d bytes, %v", len(written), err)
+	}
+	for _, args := range [][]string{{"settings"}, {"settings", "list"}, {"settings", "doc", "extra"}} {
+		if code := run(args, &out, &errOut); code != 2 {
 			t.Errorf("%v exited %d, want 2", args, code)
 		}
 	}

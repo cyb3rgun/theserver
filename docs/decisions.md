@@ -2,6 +2,47 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-034 Help is part of the structure
+
+- Date: 17 September 2026 (S01-B06)
+- Decision: Every field of the settings page renders its label, a control that fits its kind (text, number with unit and range, switch, select), the current value, the value after a restart while one waits, the default, the range, the source, a short description that shows on hover and on keyboard focus, and the why in an element that expands. Each field has its own reset to the default; a save bar counts the unsaved changes; a banner lists the settings that wait for a restart. How all of it looks is the founder's, later.
+- Details: The page is a plain form with post, redirect and get, so saving and resetting work without JavaScript. The count comes from `static/settings.js`, a small script of our own served with a subresource integrity hash like HTMX. Browser validation is switched off, so the reasons of a refused save come from the typed errors of the API, translated, next to each field. Settings that an environment variable or a flag sets are shown locked with the name that sets them.
+- Reason: Operators have no programming knowledge. What a setting does and why it matters has to stand next to it, in their language, and the machine that renders it has to be the same for every later editor.
+- Versions: none.
+
+## D-033 Every settings change is logged
+
+- Date: 17 September 2026 (S01-B06)
+- Decision: Every change through the API or the admin page is logged as one structured line, `msg="setting changed"` with `action` (set or reset), `key`, `old`, `new`, `takes_effect` (now or after restart), `admin_token` and `admin_name`; the time is the time of the line. A value equal to the configured one is no change and is not logged. Values of sensitive settings, of which there are none yet, are written as hidden. The audit table that comes with roles reads the same event.
+- Reason: Who changed what and when has to be answerable from the first editable setting on.
+- Versions: none.
+
+## D-032 Settings are written back to the configuration file
+
+- Date: 17 September 2026 (S01-B06)
+- Decision: A change on the admin page or through `PUT /api/v1/settings` is written to the TOML file the server was started with. `config.Write` regenerates the whole file from the registry: per setting its English label and description, default, range or values, environment variable, flag and restart note, the settings the file sets as values and all others commented out with their default. Tables of the file that are not theserver settings are kept with their values; comments written by hand are not. The file is replaced in one step.
+- Details: `config.Runtime` applies changes all or none. The settings `log.level`, the five link timings, `admin.language` and `admin.session_hours` take effect at once: the log level through a level variable, the link timings through `link.Server.SetConfig` from the next batch, ping or connection on, the admin settings at the next page or login. `server.listen_addr`, `server.data_dir`, both TLS files, `store.busy_timeout_ms` and `log.format` take effect after a restart and are listed until then. A setting that an environment variable or a flag sets cannot be changed there, since the file would not win at the next start. Without a configuration file a change is refused with 409. A certificate without its key is refused before anything is written.
+- Loading changes with it: unknown keys in a theserver section stay an error; tables that are not theserver sections are accepted and kept. For environment variables and flags only the value that wins is checked, as before, so a flag can stand in for an unusable variable.
+- Reason: The admin page is the product; a setting changed there must survive a restart, and the file stays readable for someone who opens it.
+- Versions: none.
+
+## D-031 Two languages from the first form
+
+- Date: 17 September 2026 (S01-B06)
+- Decision: `internal/i18n` embeds `catalog/en.toml` and `catalog/de.toml`, read as flat keys. `T` formats a text in a language, falls back to English, renders a missing key as the key and logs a warning once. Every string of the admin pages, the notices, the login errors, the error messages of the API and the words for status, state, kind and source come from the catalogues; the texts of the settings come from the registry. The admin pages are parsed once per language.
+- Details: The language of a request is the language cookie `theserver_lang`, else `admin.language`, else English. The switch in the page header sets the cookie for as long as a login lasts, returns only to admin paths, and logout clears it. German texts address the operator formally, use umlauts, and use ASCII apostrophes and hyphens only.
+- Tests fail on a key missing in either catalogue, on different format verbs in a translation, on a key that a template or handler names and no catalogue holds, on loose text in a template, and on any page that asks for a missing text in either language.
+- Reason: Operators work in their language from the first day; adding a language later must not mean finding strings in code.
+- Versions: none. The catalogues are read with github.com/BurntSushi/toml v1.6.0, already required.
+
+## D-030 One settings registry
+
+- Date: 17 September 2026 (S01-B06)
+- Decision: `internal/settings` declares every setting once: key, section, kind (string, int, bool, duration, enum, path, addr), default, unit, range or allowed values, whether it may be empty, whether a change needs a restart, whether it is sensitive, its serve flag, and label, description and why in English and German. The configuration loader, the configuration file, the API, the admin page and `docs/settings.md` all read it. `Parse` and `Validate` check a value per kind and answer with a typed `ValueError` whose code is one of `out_of_range`, `not_allowed`, `bad_address`, `bad_duration`, `bad_number`, `bad_bool`, `empty`, `bad_type` and `unknown_setting`.
+- Details: The Config struct stays typed and is mapped onto the registry by its toml tags; a test fails when a field has no registry entry, an entry has no field, or the defaults differ. The environment variable of a setting is derived from its key, as before. A duration is a whole number of its unit, so the file keeps its numbers; text such as `2s` is accepted and converted when it is a whole number of the unit. Every number has a closed range: `store.busy_timeout_ms` 0 to 600000 ms, `link.ack_interval_ms` 1 to 10000 ms, `link.ack_batch` 1 to 1024, `link.ping_interval_s` 1 to 3600 s, `link.pong_timeout_s` and `link.hello_timeout_s` 1 to 600 s, `admin.session_hours` 1 to 720 h. New settings: `admin.language` (en or de, default en) and `admin.session_hours` (default 12). `docs/settings.md` is written by `theserver settings doc`, and a test fails when the committed file is stale.
+- Reason: The admin interface is the product. Every later editor is built with this machine, and a setting described twice drifts.
+- Versions: none.
+
 ## D-029 Rankings find a session by session and kind, and read unsorted
 
 - Date: 17 September 2026 (S01-B05)

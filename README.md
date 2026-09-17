@@ -102,9 +102,9 @@ This is enforced by the shape of the data, not by good intentions:
 | **Sessions** | Create, start, stop, assign devices; events are attributed to sessions by device time, so late deliveries land in the right session |
 | **Rankings** | Per session or over everything, computed from hit and miss events, verified against an independent computation |
 | **API v1** | JSON over HTTPS under `/api/v1`, bearer tokens for administration, every route documented in `docs/openapi.yaml` and served at `/api/v1/openapi.yaml` |
-| **Admin** | Login, devices, sessions, live ranking, effective configuration with the source of every value; server rendered pages with HTMX 4, no build step, no CDN |
+| **Admin** | Login, devices, sessions, live ranking, and every setting editable with its help; English and German; server rendered pages with HTMX 4, no build step, no CDN |
 | **TLS** | A self signed certificate is created on first start and its fingerprint logged; operators replace two files to install a real one |
-| **Configuration** | Defaults, TOML file, environment variables, command line flags, in that precedence; the default file is written out with every setting and a comment |
+| **Configuration** | One registry describes every setting with type, range, restart flag and texts in English and German; defaults, TOML file, environment variables, command line flags, in that precedence; changes from the admin page or the API are written back to the file and take effect at once where they can |
 | **Simulator** | `simtarget`, a second binary that behaves like a target, journals locally, drops its connection on purpose and replays, so the whole chain runs under load without firmware |
 
 ---
@@ -165,13 +165,17 @@ The capability map records which of these exist today and which are planned; non
 
 ## Configuration
 
+Every setting is declared once, in the settings registry: its type, default, unit, range or allowed values, whether a change needs a restart, and a label, a description and a longer why in English and German. The configuration file, the environment variables, the flags, the API and the admin page all come from it. The full list is in [docs/settings.md](https://github.com/cyb3rgun/theserver/blob/main/docs/settings.md), written by `theserver settings doc`.
+
 Precedence, highest first: command line flags, environment variables prefixed `THESERVER_`, the TOML file, built in defaults.
 
 ```
 theserver --write-default-config data/theserver.toml
 ```
 
-writes every setting with its default and a one line comment. The sections today: `Server` (listen address, data directory), `Log` (level, format), `Store` (busy timeout), `TLS` (certificate and key, empty means the bootstrap files), `Link` (acknowledgement interval and batch, ping interval, pong timeout, hello timeout). The admin page shows the effective value of every setting and where it came from.
+writes every setting with its label, description, default and range. The sections today: `server` (listen address, data directory), `tls` (certificate and key, empty means the bootstrap files), `store` (database wait time), `link` (acknowledgement interval and batch, ping interval, ping answer time, greeting time), `log` (level, format) and `admin` (language, login duration).
+
+**Changing settings.** Start the server with `--config` and open `/admin/settings`. Every setting shows its current value, default, range and source, a short description on hover and the why to expand, in English or German. Saving writes the file the server was started with; the log level, the device link timings and the admin settings take effect at once, the others after a restart, and the page lists them until then. A setting that an environment variable or a flag sets is locked on the page. Every change is logged with the admin token, the old and the new value. The same works through `GET` and `PUT /api/v1/settings` and `POST /api/v1/settings/reset`.
 
 ---
 
@@ -187,6 +191,7 @@ theserver device reset <id>
 theserver admin token add --name <name>
 theserver admin token list
 theserver admin token revoke <id>
+theserver settings doc [--out <file>]
 theserver db info
 theserver --write-default-config <file>
 theserver --version
@@ -275,7 +280,7 @@ theserver/
 | API v1 with OpenAPI | Working |
 | Admin pages: devices, sessions, ranking, settings | Working |
 | Journal retention, backup and restore | Planned |
-| Configuration editable from the admin page | Planned |
+| Configuration editable from the admin page, English and German | Working |
 | Passkeys, roles, audit log | Planned |
 | Device certificates (mutual TLS) | Planned |
 | Enrolment by shooting and by NFC, floor plan with live status | Planned |
@@ -372,6 +377,7 @@ Rules that have earned their place:
 | Device link protocol | [docs/protocol.md](https://github.com/cyb3rgun/theserver/blob/main/docs/protocol.md) |
 | Capability map with phases | [docs/capabilities.md](https://github.com/cyb3rgun/theserver/blob/main/docs/capabilities.md) |
 | Architectural decisions with rationale | [docs/decisions.md](https://github.com/cyb3rgun/theserver/blob/main/docs/decisions.md) |
+| Every setting with default, range and help | [docs/settings.md](https://github.com/cyb3rgun/theserver/blob/main/docs/settings.md) |
 | Seasons and passes | [docs/seasons.md](https://github.com/cyb3rgun/theserver/blob/main/docs/seasons.md) |
 | API description | [docs/openapi.yaml](https://github.com/cyb3rgun/theserver/blob/main/docs/openapi.yaml) |
 | Briefings, one per pass | [docs/briefings](https://github.com/cyb3rgun/theserver/tree/main/docs/briefings) |

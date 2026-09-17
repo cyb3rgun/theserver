@@ -5,6 +5,7 @@
 //	theserver [serve] [flags]              run the server; the default
 //	theserver device add|list|reset|revoke manage devices and their tokens
 //	theserver admin token add|list|revoke  manage admin tokens for the API
+//	theserver settings doc                 write the settings reference
 //	theserver db info                      show the state of the database
 //
 // Every subcommand reads the same layered configuration, so --config and
@@ -39,6 +40,7 @@ const usage = `usage:
   theserver admin token add --name name
   theserver admin token list
   theserver admin token revoke id
+  theserver settings doc [--out path]
   theserver db info
 
 Every subcommand also takes --config and --data-dir.
@@ -59,6 +61,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runDevice(rest, stdout, stderr)
 	case "admin":
 		return runAdmin(rest, stdout, stderr)
+	case "settings":
+		return runSettings(rest, stdout, stderr)
 	case "db":
 		return runDB(rest, stdout, stderr)
 	case "help":
