@@ -477,8 +477,8 @@ paths:
         - {name: session, in: query, schema: {type: string}}
         - {name: kind, in: query, schema: {type: string}}
         - {name: controller, in: query, schema: {type: string}}
-        - {name: from, in: query, description: ts_server from, inclusive., schema: {type: integer, minimum: 0}}
-        - {name: to, in: query, description: ts_server to, exclusive., schema: {type: integer, minimum: 0}}
+        - {name: from, in: query, description: "ts_server from, inclusive.", schema: {type: integer, minimum: 0}}
+        - {name: to, in: query, description: "ts_server to, exclusive.", schema: {type: integer, minimum: 0}}
         - {name: limit, in: query, description: Default 100., schema: {type: integer, minimum: 0, maximum: 1000}}
         - {name: offset, in: query, schema: {type: integer, minimum: 0}}
       responses:
@@ -561,7 +561,7 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: {description: A string, a number or a boolean, as the kind of the setting needs.}
+              additionalProperties: {description: "A string, a number or a boolean, as the kind of the setting needs."}
               example: {"log.level": "debug", "link.ack_batch": 64}
       responses:
         "200":
@@ -951,7 +951,7 @@ components:
         key: {type: string, description: section.key as in the TOML file.}
         section: {type: string}
         kind: {type: string, enum: [string, int, bool, duration, enum, path, addr]}
-        value: {description: The value in effect, a string, an integer or a boolean.}
+        value: {description: "The value in effect, a string, an integer or a boolean."}
         default: {description: The built in default.}
         source: {type: string, enum: [default, file, env, flag]}
         pending: {description: The value after the next restart; only present while one waits.}

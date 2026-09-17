@@ -27,19 +27,22 @@ const (
 	Video = "valid/video"
 	// Interactive is zombie-alley, version 1, rated 18.
 	Interactive = "valid/interactive"
+	// Layered is dark-alley, version 1, rated 18, with two character layers.
+	Layered = "valid/layered"
 )
 
 // zipTime is the time of every zip entry, so the same files give the same
 // bytes.
 var zipTime = time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
-// Broken names the fixture that fails with exactly code. bad_package is a
-// zip, every other one a directory.
-func Broken(code string) string {
-	if code == scenario.CodeBadPackage {
-		return "invalid/" + code + ".zip"
+// Broken names the fixture called name, which fails with exactly one
+// problem; the name is the problem code where a code has one fixture.
+// bad_package is a zip, every other one a directory.
+func Broken(name string) string {
+	if name == scenario.CodeBadPackage {
+		return "invalid/" + name + ".zip"
 	}
-	return "invalid/" + code
+	return "invalid/" + name
 }
 
 // Dir returns the path of the fixture name.

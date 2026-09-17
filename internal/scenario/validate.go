@@ -57,7 +57,10 @@ type checker struct {
 	durationMs int     // zero when the duration is not valid
 	canvas     *Canvas // nil when the canvas is not valid
 	states     map[string]bool
-	problems   []Problem
+	// layers holds the states of every character layer of LAYERED; states
+	// above is their union.
+	layers   map[string]map[string]bool
+	problems []Problem
 }
 
 func (c *checker) add(field, code, format string, args ...any) {
@@ -190,6 +193,7 @@ func (c *checker) media() {
 	}
 
 	c.states = map[string]bool{}
+	c.layers = map[string]map[string]bool{}
 	switch c.tier {
 	case TierVideo:
 		if md.Main == "" {
@@ -213,12 +217,15 @@ func (c *checker) media() {
 		for _, layer := range sortedKeys(md.Layer) {
 			field := "media.layer." + layer
 			c.id(field, "layer", layer)
+			states := map[string]bool{}
+			c.layers[layer] = states
 			if len(md.Layer[layer].States) == 0 {
 				c.add(field+".states", CodeTierMediaMismatch, "the layer %s has no states", layer)
 			}
 			for _, name := range sortedKeys(md.Layer[layer].States) {
 				c.id(field+".states."+name, "media state", name)
 				c.states[name] = true
+				states[name] = true
 			}
 		}
 	case TierRealtime:
@@ -356,15 +363,40 @@ func (c *checker) appearances() {
 			c.add(field+".required_hits", CodeBadValue, "an appearance needs at least 1 hit to clear, not %d", a.RequiredHits)
 		}
 		c.oneOf(field+".on_timeout", a.OnTimeout, onTimeouts)
-		if a.MediaState == "" || !c.tierKnown {
+		if !c.tierKnown {
+			continue
+		}
+		switch {
+		case a.Layer != "" && c.tier != TierLayered:
+			c.add(field+".layer", CodeNotInTier, "an appearance names a layer only in the layered tier, the scenario is %s", c.tier)
+		case a.Layer == "" && c.tier == TierLayered:
+			c.add(field+".layer", CodeBadValue, "an appearance of a layered scenario names the character layer it plays in")
+		}
+		if a.MediaState == "" {
 			continue
 		}
 		switch {
 		case !c.moving():
 			c.add(field+".media_state", CodeNotInTier, "an appearance names a media state only in the interactive and layered tiers, the scenario is %s", c.tier)
+		case c.tier == TierLayered:
+			c.layerState(field+".media_state", a.Layer, a.MediaState)
 		case !c.states[a.MediaState]:
 			c.add(field+".media_state", CodeUnknownMediaState, "the media section has no state %s", a.MediaState)
 		}
+	}
+}
+
+// layerState checks a media state of the layered tier against the states of
+// the layer that names it; an appearance without a layer is reported there.
+func (c *checker) layerState(field, layer, state string) {
+	states, known := c.layers[layer]
+	switch {
+	case layer == "":
+		return
+	case !known:
+		c.add(field, CodeUnknownMediaState, "the media section has no layer %s to hold the state %s", layer, state)
+	case !states[state]:
+		c.add(field, CodeUnknownMediaState, "the layer %s has no state %s", layer, state)
 	}
 }
 
@@ -397,8 +429,10 @@ func (c *checker) reactions() {
 		return
 	}
 	appearances := map[string]bool{}
+	layerOf := map[string]string{}
 	for _, a := range c.m.Appearances {
 		appearances[a.ID] = true
+		layerOf[a.ID] = a.Layer
 	}
 	seen := map[string]bool{}
 	for i, f := range followups {
@@ -421,11 +455,17 @@ func (c *checker) reactions() {
 		}
 		switch {
 		case c.moving():
-			if !c.states[f.MediaState] {
-				c.add(field+".media_state", CodeUnknownMediaState, "the media section has no state %q", f.MediaState)
+			// In LAYERED the states of the layer the appearance plays in
+			// count, in INTERACTIVE all states of the media section.
+			states, where := c.states, "the media section"
+			if layer, known := c.layers[layerOf[f.Appearance]]; known {
+				states, where = layer, "the layer "+layerOf[f.Appearance]
 			}
-			if back && !c.states[state] {
-				c.add(field+".then", CodeUnknownMediaState, "the media section has no state %q to go back to", state)
+			if !states[f.MediaState] {
+				c.add(field+".media_state", CodeUnknownMediaState, "%s has no state %q", where, f.MediaState)
+			}
+			if back && !states[state] {
+				c.add(field+".then", CodeUnknownMediaState, "%s has no state %q to go back to", where, state)
 			}
 		case c.tier == TierRealtime:
 			c.id(field+".media_state", "renderer event", f.MediaState)

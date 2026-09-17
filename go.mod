@@ -6,6 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/coder/websocket v1.8.15
 	github.com/fxamacker/cbor/v2 v2.9.4
+	go.yaml.in/yaml/v3 v3.0.5
 	modernc.org/sqlite v1.59.0
 )
 

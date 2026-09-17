@@ -1,0 +1,129 @@
+# Scenario fixture: broken with exactly the problem unknown_media_state, written by TestBrokenFixtures from testdata/valid/layered.
+# The media files are placeholders; theserver checks presence and hash.
+
+[scenario]
+id          = "dark-alley"
+version     = 1
+tier        = "layered"
+title       = { en = "Dark Alley", de = "Dunkle Gasse" }
+description = { en = "A zombie and a dog before a running background.", de = "Ein Zombie und ein Hund vor einem laufenden Hintergrund." }
+age_rating  = "18"
+duration_s  = 20
+author      = "CYB3RGUN"
+licence     = "official"
+
+[display]
+canvas      = { w = 1080, h = 1920 }
+orientation = "portrait"
+fit         = "cover"
+
+[rules]
+points_per_hit_default = 50
+miss_penalty           = 0
+timeout_counts_as_hit  = true
+timeout_penalty        = 100
+lives                  = 3
+score_cap              = 0
+
+[[zone]]
+id           = "z-head"
+name         = { en = "Head", de = "Kopf" }
+shape        = "polygon"
+points       = [[520, 300], [600, 300], [600, 420], [520, 420]]
+points_value = 100
+zone_class   = "head"
+
+[[zone.keyframe]]
+t_ms   = 3000
+points = [[520, 300], [600, 300], [600, 420], [520, 420]]
+
+[[zone.keyframe]]
+t_ms   = 5000
+points = [[560, 310], [640, 310], [640, 430], [560, 430]]
+
+[[zone]]
+id           = "z-torso"
+name         = { en = "Torso", de = "Rumpf" }
+shape        = "rect"
+points       = [[480, 420], [660, 800]]
+points_value = 50
+zone_class   = "torso"
+
+[[zone]]
+id           = "z-dog"
+name         = { en = "Dog", de = "Hund" }
+shape        = "circle"
+points       = [[300, 1500]]
+radius       = 90
+zone_class   = "torso"
+
+[[zone.keyframe]]
+t_ms   = 9000
+points = [[300, 1500]]
+radius = 90
+
+[[zone.keyframe]]
+t_ms   = 12000
+points = [[420, 1520]]
+radius = 90
+
+[[appearance]]
+id            = "a-zombie-1"
+t_start_ms    = 3000
+t_end_ms      = 6000
+zones         = ["z-head", "z-torso"]
+required_hits = 1
+on_timeout    = "penalty"
+layer         = "zombie"
+media_state   = "walk"
+
+[[appearance]]
+id            = "a-dog-1"
+t_start_ms    = 9000
+t_end_ms      = 13000
+zones         = ["z-dog"]
+required_hits = 2
+on_timeout    = "nothing"
+layer         = "dog"
+media_state   = "die-head"
+
+[reaction.immediate]
+flash        = true
+impact_sound = "media/impact.ogg"
+hitmarker    = "ring"
+blood        = "media/blood-1.webm"
+
+[[reaction.followup]]
+appearance  = "a-zombie-1"
+zone_class  = "head"
+media_state = "die-head"
+duration_ms = 1800
+then        = "end"
+
+[[reaction.followup]]
+appearance  = "a-dog-1"
+zone_class  = "torso"
+media_state = "flee"
+duration_ms = 1200
+then        = "end"
+
+[media.background]
+clip = "media/alley-bg.mp4"
+
+[media.layer.zombie]
+states = { walk = "media/zombie-walk.webm", die-head = "media/zombie-die-head.webm" }
+z      = 10
+
+[media.layer.dog]
+states = { run = "media/dog-run.webm", flee = "media/dog-flee.webm" }
+z      = 20
+
+[files]
+"cover.png"                  = "75d3110cb9eace20695a5c2011948dbf52d013cff973a5a7bf3f425258b5a796"
+"media/alley-bg.mp4"         = "c843011778a5caf481924b22bc92b4b2d664b5173228d8bd0af734734367df8a"
+"media/blood-1.webm"         = "d531022d540b4a3a9b2b6b768a43a1490a6f9f644acae2e35cc03a08995bc7ab"
+"media/dog-flee.webm"        = "9b603cf77382097ea7bb3a214cf1a5dab8cfa0f9afd409313b2c1cfa48263afe"
+"media/dog-run.webm"         = "d8fbb86dcfb2d3e02ffae21955c992daf76d39debcd9d218f3e77416397428ec"
+"media/impact.ogg"           = "c6a1107dea09c91074a4d1d25493ce86964eb2add13255bdffab32320ef08e11"
+"media/zombie-die-head.webm" = "74e4d71d18fbcd60501adc6a022dfd7bcecad52ece7babeff3bee27b482a1b89"
+"media/zombie-walk.webm"     = "0ad9a0aa966e0dc1c15a88a7e0ae24de46d9fd9501353937967466da4364704d"

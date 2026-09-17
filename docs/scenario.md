@@ -98,7 +98,10 @@ zones      = ["z-head", "z-torso"]
 required_hits = 1                   # hits needed to clear it
 on_timeout    = "penalty"           # penalty | nothing | end
 media_state   = "walk"              # which media state plays while it is up (INTERACTIVE, LAYERED)
+layer         = "zombie"            # LAYERED: the character layer that state belongs to
 ```
+
+In LAYERED every appearance names its layer, and `media_state` must be a state of that layer, else the package is refused with `unknown_media_state`. In INTERACTIVE there are no layers and the states of `[media.state]` count.
 
 The target's clock starts when the scenario starts and pauses when the session pauses. Every hit event carries the scenario time, so theserver and the editor can replay a session exactly.
 
@@ -152,6 +155,8 @@ clip = "media/alley-bg.mp4"
 states = { walk = "media/zombie-walk.webm", die-head = "media/zombie-die-head.webm" }
 z = 10
 ```
+
+Each appearance belongs to one layer and plays that layer's states (section 4); a follow up of the appearance does the same.
 
 **REALTIME**
 ```toml

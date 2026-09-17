@@ -172,6 +172,10 @@ type Appearance struct {
 	// MediaState is the state that plays while the appearance is up
 	// (INTERACTIVE, LAYERED).
 	MediaState string `toml:"media_state" json:"media_state"`
+	// Layer is the character layer MediaState belongs to (LAYERED only,
+	// S01-B08). The json name leaves an empty layer out, so every manifest
+	// written before the field keeps its canonical form and its hash.
+	Layer string `toml:"layer" json:"layer,omitempty"`
 }
 
 // Reaction is the [reaction] section.

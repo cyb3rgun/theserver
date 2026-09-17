@@ -58,6 +58,17 @@ func TestValidFixtures(t *testing.T) {
 		m.Reaction.Followups[1].Then != "back:walk" || m.Reaction.Immediate.Blood != "media/blood-1.webm" {
 		t.Errorf("the INTERACTIVE fixture reads %+v", m)
 	}
+
+	layered := load(t, scenariotest.Layered)
+	if problems := layered.Validate(); len(problems) != 0 {
+		t.Errorf("the LAYERED fixture has problems: %v", problems)
+	}
+	l := layered.Manifest
+	if l.Scenario.Tier != scenario.TierLayered || l.Media.Background.Clip != "media/alley-bg.mp4" ||
+		len(l.Media.Layer) != 2 || l.Media.Layer["dog"].Z != 20 ||
+		l.Appearances[1].Layer != "dog" || l.Appearances[1].MediaState != "run" {
+		t.Errorf("the LAYERED fixture reads %+v", l)
+	}
 }
 
 // pkg is a package as a map of paths to contents, which a breakage edits.
@@ -73,25 +84,27 @@ func (p pkg) replace(t *testing.T, old, new string) {
 	p[scenario.ManifestName] = []byte(strings.Replace(text, old, new, 1))
 }
 
-// breakages make one broken fixture per problem code from a valid one. The
-// fixtures under testdata/invalid are what these write; run the test with
-// -update after changing one.
+// breakages make one broken fixture per problem code from a valid one, and a
+// second one where a rule earns it. name is the directory under
+// testdata/invalid, empty for the code itself. The fixtures are what these
+// write; run the test with -update after changing one.
 var breakages = []struct {
 	code string
+	name string
 	base string
 	edit func(t *testing.T, p pkg)
 }{
-	{scenario.CodeNoManifest, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeNoManifest, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		delete(p, scenario.ManifestName)
 	}},
-	{scenario.CodeBadManifest, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeBadManifest, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, "[display]", "[display")
 	}},
-	{scenario.CodeUnknownField, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeUnknownField, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `fit         = "contain"`, `fit         = "contain"
 colour      = "red"`)
 	}},
-	{scenario.CodeMissingSection, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeMissingSection, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `[rules]
 points_per_hit_default = 50
 miss_penalty           = 10
@@ -102,45 +115,45 @@ score_cap              = 1000
 
 `, "")
 	}},
-	{scenario.CodeBadID, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeBadID, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `id          = "night-range"`, `id          = "Night Range"`)
 	}},
-	{scenario.CodeDuplicateID, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeDuplicateID, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `id            = "a-middle"`, `id            = "a-left"`)
 	}},
-	{scenario.CodeBadVersion, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeBadVersion, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `version     = 1`, `version     = 0`)
 	}},
-	{scenario.CodeBadTier, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeBadTier, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `tier        = "video"`, `tier        = "hologram"`)
 	}},
-	{scenario.CodeMissingText, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeMissingText, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `title       = { en = "Night Range", de = "Nachtschießstand" }`, `title       = { en = "Night Range" }`)
 	}},
-	{scenario.CodeNoAgeRating, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeNoAgeRating, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `age_rating  = "12"
 `, "")
 	}},
-	{scenario.CodeBadAgeRating, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeBadAgeRating, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `age_rating  = "12"`, `age_rating  = "17"`)
 	}},
-	{scenario.CodeBadValue, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeBadValue, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `on_timeout    = "end"`, `on_timeout    = "explode"`)
 	}},
-	{scenario.CodeNoCanvas, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeNoCanvas, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `canvas      = { w = 1080, h = 1920 }
 `, "")
 	}},
-	{scenario.CodeBadShape, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeBadShape, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `points       = [[440, 840], [640, 1080]]`, `points       = [[440, 840], [640, 1080], [540, 900]]`)
 	}},
-	{scenario.CodeKeyframesUnordered, scenariotest.Interactive, func(t *testing.T, p pkg) {
+	{code: scenario.CodeKeyframesUnordered, base: scenariotest.Interactive, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `t_ms   = 5000`, `t_ms   = 2000`)
 	}},
-	{scenario.CodeBadTimeWindow, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeBadTimeWindow, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `t_end_ms      = 8000`, `t_end_ms      = 1500`)
 	}},
-	{scenario.CodeZoneWithoutAppearance, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeZoneWithoutAppearance, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `[[appearance]]
 id            = "a-left"`, `[[zone]]
 id           = "z-plate-spare"
@@ -153,13 +166,13 @@ zone_class   = "object"
 [[appearance]]
 id            = "a-left"`)
 	}},
-	{scenario.CodeZoneShared, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeZoneShared, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `zones         = ["z-plate-middle"]`, `zones         = ["z-plate-middle", "z-plate-left"]`)
 	}},
-	{scenario.CodeAppearanceUnknownZone, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeAppearanceUnknownZone, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `zones         = ["z-plate-left"]`, `zones         = ["z-plate-left", "z-plate-back"]`)
 	}},
-	{scenario.CodeAppearanceWithoutZones, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeAppearanceWithoutZones, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `[[zone]]
 id           = "z-plate-left"
 name         = { en = "Left plate", de = "Linke Scheibe" }
@@ -172,15 +185,20 @@ zone_class   = "object"
 `, "")
 		p.replace(t, `zones         = ["z-plate-left"]`, `zones         = []`)
 	}},
-	{scenario.CodeUnknownAppearance, scenariotest.Interactive, func(t *testing.T, p pkg) {
+	{code: scenario.CodeUnknownAppearance, base: scenariotest.Interactive, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `appearance  = "a-zombie-2"`, `appearance  = "a-zombie-9"`)
 	}},
-	{scenario.CodeUnknownMediaState, scenariotest.Interactive, func(t *testing.T, p pkg) {
+	{code: scenario.CodeUnknownMediaState, base: scenariotest.Interactive, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `on_timeout    = "nothing"
 media_state   = "walk"`, `on_timeout    = "nothing"
 media_state   = "crawl"`)
 	}},
-	{scenario.CodeNotInTier, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeUnknownMediaState, name: "unknown_media_state_layer", base: scenariotest.Layered, edit: func(t *testing.T, p pkg) {
+		p.replace(t, `layer         = "dog"
+media_state   = "run"`, `layer         = "dog"
+media_state   = "die-head"`)
+	}},
+	{code: scenario.CodeNotInTier, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `radius       = 120
 points_value = 100
 zone_class   = "object"
@@ -194,7 +212,7 @@ points = [[270, 960]]
 radius = 120
 `)
 	}},
-	{scenario.CodeTierMediaMismatch, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeTierMediaMismatch, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p.replace(t, `main = "media/main.mp4"
 `, `main = "media/main.mp4"
 
@@ -202,13 +220,13 @@ radius = 120
 walk = "media/main.mp4"
 `)
 	}},
-	{scenario.CodeMissingMedia, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeMissingMedia, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		delete(p, "media/impact.ogg")
 	}},
-	{scenario.CodeHashMismatch, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeHashMismatch, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p["media/main.mp4"] = []byte("a different video than the manifest lists\n")
 	}},
-	{scenario.CodeUnlistedFile, scenariotest.Video, func(t *testing.T, p pkg) {
+	{code: scenario.CodeUnlistedFile, base: scenariotest.Video, edit: func(t *testing.T, p pkg) {
 		p["media/notes.txt"] = []byte("notes the manifest does not list\n")
 	}},
 }
@@ -242,11 +260,20 @@ func broken(t *testing.T, code, base string, edit func(*testing.T, pkg)) pkg {
 	return p
 }
 
+// fixtureOf names the directory of a breakage: its name, else its code.
+func fixtureOf(code, name string) string {
+	if name != "" {
+		return name
+	}
+	return code
+}
+
 func TestBrokenFixtures(t *testing.T) {
 	for _, b := range breakages {
-		t.Run(b.code, func(t *testing.T) {
+		name := fixtureOf(b.code, b.name)
+		t.Run(name, func(t *testing.T) {
 			want := broken(t, b.code, b.base, b.edit)
-			dir := scenariotest.Dir(scenariotest.Broken(b.code))
+			dir := scenariotest.Dir(scenariotest.Broken(name))
 			if *update {
 				if err := os.RemoveAll(dir); err != nil {
 					t.Fatal(err)
@@ -262,7 +289,7 @@ func TestBrokenFixtures(t *testing.T) {
 				}
 			}
 			if got := scenariotest.Files(t, dir); !reflect.DeepEqual(got, map[string][]byte(want)) {
-				t.Fatalf("testdata/%s is not what the breakage writes; run go test ./internal/scenario -update", scenariotest.Broken(b.code))
+				t.Fatalf("testdata/%s is not what the breakage writes; run go test ./internal/scenario -update", scenariotest.Broken(name))
 			}
 			expectOnly(t, problemsOf(t, dir), b.code)
 		})
@@ -320,11 +347,15 @@ func expectOnly(t *testing.T, problems []scenario.Problem, code string) {
 // has a text in every language of the catalogues (D-040).
 func TestEveryCodeHasAFixtureAndTexts(t *testing.T) {
 	fixtures := []string{scenario.CodeBadPackage}
+	covered := []string{scenario.CodeBadPackage}
 	for _, b := range breakages {
-		fixtures = append(fixtures, b.code)
+		fixtures = append(fixtures, fixtureOf(b.code, b.name))
+		if !slices.Contains(covered, b.code) {
+			covered = append(covered, b.code)
+		}
 	}
 	for _, code := range scenario.Codes() {
-		if code != scenario.CodeVersionTaken && !slices.Contains(fixtures, code) {
+		if code != scenario.CodeVersionTaken && !slices.Contains(covered, code) {
 			t.Errorf("the code %s has no broken fixture", code)
 		}
 		for _, lang := range i18n.Languages() {
@@ -333,8 +364,8 @@ func TestEveryCodeHasAFixtureAndTexts(t *testing.T) {
 			}
 		}
 	}
-	if len(fixtures) != len(scenario.Codes())-1 {
-		t.Errorf("%d fixtures for %d codes", len(fixtures), len(scenario.Codes()))
+	if len(covered) != len(scenario.Codes())-1 {
+		t.Errorf("%d codes have a fixture, the model has %d", len(covered), len(scenario.Codes()))
 	}
 	for _, key := range i18n.Keys(i18n.Fallback) {
 		if code, ok := strings.CutPrefix(key, "scenario.problem."); ok && !slices.Contains(scenario.Codes(), code) {
@@ -704,23 +735,47 @@ func TestValidateRules(t *testing.T) {
 		t.Errorf("REALTIME without a world: %q", got)
 	}
 
-	layered := load(t, scenariotest.Interactive).Manifest
-	layered.Scenario.Tier = scenario.TierLayered
-	states := layered.Media.State
-	layered.Media = scenario.Media{
-		Background: &scenario.Background{Clip: "media/walk.mp4"},
-		Layer:      map[string]scenario.Layer{"zombie": {States: states, Z: 10}},
+	// LAYERED: an appearance names its layer, and its media state lives in
+	// that layer (S01-B08).
+	layered := load(t, scenariotest.Layered)
+	for _, c := range []struct {
+		name   string
+		change func(m *scenario.Manifest)
+		want   string
+	}{
+		{"as it is", func(*scenario.Manifest) {}, ""},
+		{"a state of another layer", func(m *scenario.Manifest) {
+			m.Appearances[1].MediaState = "die-head"
+		}, "appearance[1].media_state unknown_media_state"},
+		{"a layer that is not there", func(m *scenario.Manifest) {
+			m.Appearances[1].Layer = "cat"
+		}, "appearance[1].media_state unknown_media_state"},
+		{"an appearance without a layer", func(m *scenario.Manifest) {
+			m.Appearances[0].Layer = ""
+		}, "appearance[0].layer bad_value"},
+		{"a layer without states", func(m *scenario.Manifest) {
+			m.Media.Layer["dog"] = scenario.Layer{Z: 20}
+		}, "media.layer.dog.states tier_media_mismatch; appearance[1].media_state unknown_media_state; reaction.followup[1].media_state unknown_media_state"},
+		{"a follow up in another layer", func(m *scenario.Manifest) {
+			m.Reaction.Followups[1].MediaState = "die-head"
+		}, "reaction.followup[1].media_state unknown_media_state"},
+		{"a follow up going back to another layer", func(m *scenario.Manifest) {
+			m.Reaction.Followups[1].Then = "back:walk"
+		}, "reaction.followup[1].then unknown_media_state"},
+	} {
+		m := load(t, scenariotest.Layered).Manifest
+		c.change(&m)
+		if got := codes(scenario.Validate(m, layered.Files)); got != c.want {
+			t.Errorf("LAYERED %s: got %q, want %q", c.name, got, c.want)
+		}
 	}
-	files := map[string]string{}
-	for k, v := range layered.Files {
-		files[k] = v
-	}
-	if got := codes(scenario.Validate(layered, files)); got != "" {
-		t.Errorf("LAYERED: %q", got)
-	}
-	layered.Media.Layer = map[string]scenario.Layer{"zombie": {}}
-	if got := codes(scenario.Validate(layered, files)); !strings.HasPrefix(got, "media.layer.zombie.states tier_media_mismatch; appearance[0].media_state unknown_media_state") {
-		t.Errorf("LAYERED without states: %q", got)
+
+	// A layer belongs to the layered tier alone.
+	interactive := load(t, scenariotest.Interactive)
+	withLayer := interactive.Manifest
+	withLayer.Appearances[0].Layer = "zombie"
+	if got := codes(scenario.Validate(withLayer, interactive.Files)); got != "appearance[0].layer not_in_tier" {
+		t.Errorf("a layer in INTERACTIVE: %q", got)
 	}
 
 	// The same input gives the same problems in the same order.
