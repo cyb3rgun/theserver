@@ -2,6 +2,64 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-047 The OpenAPI description is parsed in a test
+
+- Date: 17 September 2026 (S01-B08)
+- Decision: `docs/openapi.yaml` is read by a YAML parser in a test, into a Go shape that names every field this repository writes, with unknown fields refused. A description that runs into the next key of a flow mapping, an unquoted comma for instance, fails the test.
+- Details: The test also checks that every reference points at a component that exists and that every component is used, and the route coverage test reads the parsed document instead of the lines. When the test was written it found four descriptions that a comma had cut short, from S01-B04 and S01-B06; they are quoted now. A schema below `additionalProperties` is checked by hand against the same field list, because a node read inside an unmarshaler does not inherit the strict mode of the decoder.
+- Reason: The file is the description of the API for everyone outside this repository. It was edited by hand in every pass, and a comma silently threw text away.
+- Versions: `go.yaml.in/yaml/v3 v3.0.5`, resolved by `go get go.yaml.in/yaml/v3@latest` on 17 September 2026. It is used by the test only; nothing in the binary reads YAML.
+
+## D-046 Every editor field carries its help, from one registry
+
+- Date: 17 September 2026 (S01-B08)
+- Decision: `internal/editor` is the registry of the fields the scenario editor shows: the place of each field in the manifest, the control it is shown with, its limits and its label, its short description and the longer why in every language of the catalogues. The property panel is built from it, and the settings page and the editor render that help with one shared template.
+- Details: A key is the json path of the field with `[#]` for the index of a repeated object, and a test walks every key against `scenario.Manifest` with reflection, so a field cannot drift away from the manifest it edits. A second test fails when a language, a label, a description or a why is missing. Values that come from the draft rather than from a fixed list, the media states of a scenario for instance, are named in the field and filled by the page.
+- Reason: The operator of a venue is not a programmer. The settings foundation of B06 proved that a field with a why is understood without a manual, and a scenario has more fields than the configuration.
+- Versions: none.
+
+## D-045 Media stays as it is uploaded
+
+- Date: 17 September 2026 (S01-B08)
+- Decision: theserver converts no media. The editor takes a file only when its container and its codec are ones a target plays, read from the header of the file alone, and refuses anything else at upload with a translated message.
+- Agreed with the architect during this pass: a clip is MP4 with H.264 or AV1, an overlay with transparency is WebM with VP8, VP9 or AV1, a sound is Ogg with Vorbis or Opus, and a cover is PNG. Whether the browser plays the file is the practical test.
+- Details: `internal/mediakind` reads the boxes of an MP4 up to the sample description, the elements of a WebM up to the track entry, the first page of an Ogg stream and the signature of a PNG. It decodes nothing and needs nothing outside the standard library. What the server cannot know without decoding, the length of a clip and its picture size, the browser measures and sends back with `PATCH /api/v1/drafts/{id}/media/{name}`; the editor takes the duration and the canvas of the scenario from the first clip.
+- Reason: A venue uploads what its camera or its editing program produced. Refusing it at upload, with a sentence that says which formats are taken, is honest; transcoding on the server is a second product.
+- Versions: none.
+
+## D-044 One rule engine, written twice and compared
+
+- Date: 17 September 2026 (S01-B08)
+- Decision: The rules of `docs/scenario.md` section 7 live in `internal/scenario/rules.go` and, decision for decision, in `internal/admin/static/rules.js`. Both write the same trace for the same shots, and the preview compares them: the check button of the preview sends the shots of the run to the server and says whether the two engines agree.
+- Agreed with the architect during this pass, where section 7 left room: `rules.timeout_counts_as_hit` turns timeout costs on for the whole scenario, and `on_timeout` of an appearance says whether this one costs (`penalty`), costs nothing (`nothing`) or ends the run (`end`). A follow up with `then = end` leaves the figure on its last picture until another appearance sets a state, `back:<state>` plays that state, and `next` moves the window of the next appearance that has not started to now, keeping its length. The score never falls below zero, `score_cap` above zero holds it, a miss costs `miss_penalty` points and never a life, lives are in use above zero and the last one lost ends the run, and a shot meets the first live zone in manifest order.
+- Details: The trace is the journal of section 7 with two more kinds: `state`, the clip that plays from now on, and `end` with its reason. Two scripted runs on the INTERACTIVE fixture are recorded in `internal/scenario/testdata/rules/interactive.json` and compared in a Go test; the browser proof holds the JavaScript engine against the same file. Both engines round an interpolated keyframe the same way and compare a point against a shape with the same expressions, so their traces are equal and not merely similar. The Go engine is the seed theclient grows from.
+- Reason: The feel of the game is decided by these rules, and a difference between what the editor shows and what a target does would be found in a venue, not here.
+- Versions: none.
+
+## D-043 One vendored editor script, no framework
+
+- Date: 17 September 2026 (S01-B08)
+- Decision: The drawing canvas, the timeline and the video scrubber of the editor are one plain JavaScript file, `internal/admin/static/editor.js`, served from the binary with a subresource integrity hash, as `settings.js` and `scenarios.js` are. The preview adds `rules.js` and `preview.js` the same way. No bundler, no npm, no CDN. HTMX renders the forms around them.
+- Details: The scripts hold no text: the page carries every word they show in data attributes, so both languages come from the catalogues. A test compares the hash in the page with the hash of the file that is served. The pages keep the content security policy of B06: scripts and styles only from `/admin/static`.
+- Reason: The editor has to run in a venue without an internet connection, from one binary, and a build step in the browser would be a second toolchain nobody there can repair.
+- Versions: none.
+
+## D-042 The server assembles the package
+
+- Date: 17 September 2026 (S01-B08)
+- Decision: On publish the server writes `manifest.toml` from the draft, computes the SHA-256 of every file into the `[files]` table, zips the package and hands it to the same chain an upload takes: validated by `internal/scenario`, stored by the content store, published as the next version. The editor never sees a hash.
+- Details: `scenario.WriteManifest` writes the manifest, and a test reads back every valid fixture unchanged, with the same hash. The version is one above the latest published version of the scenario, and the draft stays after a publish and works towards the next one. A draft with problems publishes nothing at all. A test compares a package from the editor with the hand made fixture it was copied from, down to the files table.
+- Reason: A person who draws zones should not think about hashes, and a package from the editor must be the same kind of thing as a package from a studio, checked by the same code.
+- Versions: none.
+
+## D-041 Drafts live on the server
+
+- Date: 17 September 2026 (S01-B08)
+- Decision: A scenario in the making is a row in `scenario_drafts` with its manifest as JSON and its media below `content/drafts/<draft id>/media`, not a document in the browser. Every editor action is a request that changes the draft; closing the browser loses nothing.
+- Details: Migration 0007 adds the table. Ten endpoints under `/api/v1/drafts` carry the editor: list, create (empty or as a copy of a published version), read, change, delete, upload media, read one media file, keep what the browser measured, delete media, validate, publish, and the trace of D-044. A change is a JSON merge patch (RFC 7386) on the manifest which must fit the scenario model, else nothing is stored and the field is named. The draft is kept in the shape the model writes, so nothing the model does not know survives a change.
+- Reason: A venue edits a scenario over days, on whatever computer is free, and a lost evening of work is the kind of thing that makes people stop using an editor.
+- Versions: none.
+
 ## D-040 Validation speaks both languages
 
 - Date: 17 September 2026 (S01-B07)

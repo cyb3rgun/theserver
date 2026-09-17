@@ -187,3 +187,24 @@ theserver stores packages in its content directory, keeps every published versio
 ## 10. What the editor must let a person do
 
 Without code: choose a tier; upload media; see the timeline; draw a zone on a paused frame; move it across time with keyframes; give it a value and a class; add an appearance with start and end; set required hits and the timeout behaviour; choose immediate reactions; assign follow up states per zone class; set the rules; preview the whole thing in the browser with the mouse as the pistol; validate; export. Every field with a label, a description on hover and a longer why. That is the scenario editor, built with the settings foundation of B06, and it is the next pass after B06.
+
+**Implemented in S01-B08** for the tiers VIDEO and INTERACTIVE, at `/admin/editor/<draft id>`: drafts live on the server (D-041), the server assembles and publishes the package (D-042), the canvas, the timeline and the scrubber are one vendored script (D-043), the preview runs the rules of section 7 in the browser and compares them with the engine of the server (D-044), media stays as it is uploaded (D-045), and every field carries its help from one registry (D-046). LAYERED and REALTIME are read and validated but not drawn yet. The operator guide is `docs/editor.en.md` and `docs/editor.de.md`.
+
+The editor works from the keyboard as well:
+
+| Keys | What it does |
+|------|--------------|
+| Space | Play or pause |
+| Left, Right | One frame back or forward |
+| Shift and Left, Right | One second back or forward |
+| R, C, P | Draw a rectangle, a circle, a polygon |
+| Enter | Finish a polygon |
+| Esc | Stop drawing and select the scenario |
+| Delete | Delete the selected object, after a question |
+| K | Keyframe at the playhead |
+| Shift and K | Remove the keyframe at the playhead |
+| A | New appearance at the playhead |
+| Plus, Minus | Zoom the timeline |
+| V | Check the draft |
+
+The same table stands on the editor page itself, so nobody has to look it up here.

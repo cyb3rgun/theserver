@@ -188,6 +188,8 @@ A scenario is a package: a `manifest.toml`, its media, a `cover.png`, one direct
 
 **Publish.** A draft without problems is published on its page. A published version never changes and is never deleted; a fix is a new version. Every version is kept in `content/<id>/<version>/package.zip` below the data directory, exactly as it was uploaded.
 
+**Build.** The scenario editor builds a scenario in the browser, without touching a file: `/admin/scenarios` opens a draft, empty or as a copy of a published version, and `/admin/editor/<draft id>` is the editor. Upload a video, draw zones on the paused frame, move them through time with keyframes, give them values and classes, put appearances on the timeline, choose the reactions and the rules, play it with the mouse as the pistol, check it and publish. Drafts live on the server with their media; the server writes the manifest, computes the hashes, zips the package and publishes it through the same chain an upload takes. Every field carries a description and a longer why, in English and German. [docs/editor.en.md](https://github.com/cyb3rgun/theserver/blob/main/docs/editor.en.md) is the guide.
+
 **Play.** A created session gets one published version on `/admin/sessions`. A scenario rated above the age a device of the session is set for is refused; a device is set for 18 unless it is set lower with `--min-age` or on its page. Every device of the session that does not hold the version is told over the device link, a device that is offline when it connects again. The target downloads the package over HTTPS with its own token, checks it and reports it installed; the device page shows what every target holds and whether it is current.
 
 ---
@@ -227,10 +229,10 @@ Device and admin tokens are shown exactly once, when created. Only their hashes 
 ```
 +-------------------------------------------------------------------+
 |                          ADMIN PAGES                              |
-|   devices / sessions / scenarios / ranking / settings  (HTMX 4)   |
+|  devices / sessions / scenarios / editor / ranking / settings     |
 +-------------------------------------------------------------------+
 |                            API v1                                 |
-|  devices / sessions / scenarios / rankings / events / settings    |
+|  devices / sessions / scenarios / drafts / rankings / settings    |
 +-------------------------------------------------------------------+
 |        SCORING        |        LINK         |      TLS BOOT       |
 |  rankings from the    |  WebSocket, CBOR,   |  self signed cert   |
@@ -267,12 +269,14 @@ theserver/
 +-- internal/
 |   +-- admin/              # Admin pages, templates, embedded HTMX
 |   +-- config/             # Layered configuration with sources, written back
-|   +-- content/            # Scenario packages on disk
+|   +-- content/            # Scenario packages and editor drafts on disk
+|   +-- editor/             # The fields of the scenario editor with their help
 |   +-- httpapi/            # Router, health, API v1, OpenAPI
 |   +-- i18n/               # English and German texts of the admin pages
 |   +-- link/               # Device link: handshake, replay, commands, keepalive
+|   +-- mediakind/          # Container and codec of a media file, from its header
 |   +-- protocol/           # CBOR message types and codec for link v1
-|   +-- scenario/           # The scenario model: manifest, checks, hash, fixtures
+|   +-- scenario/           # The scenario model: manifest, checks, hash, rules, fixtures
 |   +-- scoring/            # Rankings from the journal
 |   +-- settings/           # The registry of every setting
 |   +-- simtarget/          # Simulator logic: journal, generator, device loop, installs
@@ -309,7 +313,8 @@ theserver/
 | Enrolment by shooting and by NFC, floor plan with live status | Planned |
 | Time base broadcast and beacon multiplex direction | Planned |
 | Scenario packages: check, catalogue, publish, download, holdings, age check | Working |
-| Staged distribution, signed packages and updates, scenario editor | Planned |
+| Scenario editor: drafts, zones with keyframes, timeline, media, preview, publish | Working |
+| Staged distribution, signed packages and updates | Planned |
 | Director screen, spectator screens | Planned |
 | Members, wristbands, owned pistols, skill rating, leagues | Planned |
 | Booking, price lists, revenue book, exports, franchise statement | Planned |
@@ -403,6 +408,7 @@ Rules that have earned their place:
 | Architectural decisions with rationale | [docs/decisions.md](https://github.com/cyb3rgun/theserver/blob/main/docs/decisions.md) |
 | Every setting with default, range and help | [docs/settings.md](https://github.com/cyb3rgun/theserver/blob/main/docs/settings.md) |
 | The scenario model | [docs/scenario.md](https://github.com/cyb3rgun/theserver/blob/main/docs/scenario.md) |
+| The editor, for the person who builds a scenario | [docs/editor.en.md](https://github.com/cyb3rgun/theserver/blob/main/docs/editor.en.md), [docs/editor.de.md](https://github.com/cyb3rgun/theserver/blob/main/docs/editor.de.md) |
 | Seasons and passes | [docs/seasons.md](https://github.com/cyb3rgun/theserver/blob/main/docs/seasons.md) |
 | API description | [docs/openapi.yaml](https://github.com/cyb3rgun/theserver/blob/main/docs/openapi.yaml) |
 | Briefings, one per pass | [docs/briefings](https://github.com/cyb3rgun/theserver/tree/main/docs/briefings) |
