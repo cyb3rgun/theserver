@@ -322,6 +322,33 @@ const DefaultListLimit = 100
 
 // ListEvents reads the journal in the order the server received it.
 func (s *Store) ListEvents(ctx context.Context, f Filter) ([]Event, error) {
+	limit := f.Limit
+	if limit <= 0 {
+		limit = DefaultListLimit
+	}
+	var events []Event
+	err := s.eachEvent(ctx, f, limit, max(f.Offset, 0), func(e Event) error {
+		events = append(events, e)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+	return events, nil
+}
+
+// EachEvent calls fn for every event the filter selects, in the order of
+// ListEvents but without a page limit; Limit and Offset are ignored. An error
+// from fn stops the walk and is returned.
+func (s *Store) EachEvent(ctx context.Context, f Filter, fn func(Event) error) error {
+	if err := s.eachEvent(ctx, f, -1, 0, fn); err != nil {
+		return fmt.Errorf("read events: %w", err)
+	}
+	return nil
+}
+
+// eachEvent runs the filtered query; a limit of -1 means no limit.
+func (s *Store) eachEvent(ctx context.Context, f Filter, limit, offset int, fn func(Event) error) error {
 	query := strings.Builder{}
 	query.WriteString(`
 SELECT event_id, seq, kind, controller_id, session_id, ts_device, ts_server, payload
@@ -351,33 +378,25 @@ SELECT event_id, seq, kind, controller_id, session_id, ts_device, ts_server, pay
 	if f.To != 0 {
 		add(" AND ts_server < ?", f.To)
 	}
-
-	limit := f.Limit
-	if limit <= 0 {
-		limit = DefaultListLimit
-	}
-	offset := max(f.Offset, 0)
 	query.WriteString(" ORDER BY ts_server, device_id, seq LIMIT ? OFFSET ?")
 	args = append(args, limit, offset)
 
 	rows, err := s.db.QueryContext(ctx, query.String(), args...)
 	if err != nil {
-		return nil, fmt.Errorf("list events: %w", err)
+		return err
 	}
 	defer rows.Close()
 
-	var events []Event
 	for rows.Next() {
 		e, err := scanEvent(rows)
 		if err != nil {
-			return nil, fmt.Errorf("list events: %w", err)
+			return err
 		}
-		events = append(events, e)
+		if err := fn(e); err != nil {
+			return err
+		}
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list events: %w", err)
-	}
-	return events, nil
+	return rows.Err()
 }
 
 func scanEvent(row rowScanner) (Event, error) {
