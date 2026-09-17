@@ -171,3 +171,107 @@ func TestVersionAndHelp(t *testing.T) {
 		t.Errorf("help exited %d with %q", code, out.String())
 	}
 }
+
+func TestAdminTokenCommands(t *testing.T) {
+	c := newCLI(t)
+
+	code, out, errOut := c.run("admin", "token", "add", "--name", "founder")
+	if code != 0 {
+		t.Fatalf("admin token add exited %d: %s", code, errOut)
+	}
+	token := tokenFrom(t, out)
+	if !strings.Contains(out, "shown once") || !strings.Contains(out, "/admin/login") {
+		t.Errorf("admin token add printed %q", out)
+	}
+	st := c.store()
+	row, err := st.VerifyAdminToken(context.Background(), token)
+	if err != nil || row.Name != "founder" {
+		t.Fatalf("the printed token verifies as %+v, %v", row, err)
+	}
+	if !strings.Contains(out, row.ID) {
+		t.Errorf("admin token add did not print the id %s", row.ID)
+	}
+
+	code, out, _ = c.run("admin", "token", "list")
+	if code != 0 {
+		t.Fatalf("admin token list exited %d", code)
+	}
+	for _, want := range []string{"ID", "NAME", "LAST USED", "REVOKED", row.ID, "founder", "no"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("admin token list lacks %q:%s", want, out)
+		}
+	}
+	if strings.Contains(out, token) {
+		t.Error("admin token list shows the token")
+	}
+
+	code, out, errOut = c.run("admin", "token", "revoke", row.ID)
+	if code != 0 || !strings.Contains(out, "revoked") {
+		t.Fatalf("admin token revoke exited %d: %s %s", code, out, errOut)
+	}
+	if _, err := st.VerifyAdminToken(context.Background(), token); err == nil {
+		t.Error("the revoked token still verifies")
+	}
+	if code, _, _ := c.run("admin", "token", "revoke", "adm-nothing"); code != 1 {
+		t.Errorf("revoking an unknown token exited %d, want 1", code)
+	}
+
+	for _, args := range [][]string{
+		{"admin"},
+		{"admin", "token"},
+		{"admin", "token", "burn"},
+		{"admin", "user", "add"},
+		{"admin", "token", "add"},
+		{"admin", "token", "revoke"},
+		{"admin", "token", "revoke", "a", "b"},
+		{"admin", "token", "revoke", "a", "--id", "b"},
+	} {
+		if code, _, _ := c.run(args...); code != 2 {
+			t.Errorf("%v exited %d, want 2", args, code)
+		}
+	}
+}
+
+func TestDeviceReset(t *testing.T) {
+	c := newCLI(t)
+	if code, _, errOut := c.run("device", "add", "--id", "tgt-01", "--kind", "target"); code != 0 {
+		t.Fatalf("device add: %s", errOut)
+	}
+
+	// The id may come before or after the flags, or as --id.
+	code, out, errOut := c.run("device", "reset", "tgt-01")
+	if code != 0 || !strings.Contains(out, "epoch 2") {
+		t.Fatalf("device reset exited %d: %s %s", code, out, errOut)
+	}
+	code, out, _ = c.run("device", "reset", "--id", "tgt-01")
+	if code != 0 || !strings.Contains(out, "epoch 3") {
+		t.Errorf("device reset --id exited %d: %s", code, out)
+	}
+	code, out, _ = c.run("device", "reset", "tgt-01", "--id", "tgt-01")
+	if code != 0 || !strings.Contains(out, "epoch 4") {
+		t.Errorf("device reset with the same id twice exited %d: %s", code, out)
+	}
+
+	device, err := c.store().GetDevice(context.Background(), "tgt-01")
+	if err != nil || device.SeqEpoch != 4 {
+		t.Errorf("the device is in epoch %d, %v; want 4", device.SeqEpoch, err)
+	}
+
+	_, list, _ := c.run("device", "list")
+	if !strings.Contains(list, "EPOCH") || !strings.Contains(list, "  4  ") {
+		t.Errorf("device list does not show the epoch:%s", list)
+	}
+
+	if code, _, _ := c.run("device", "reset", "nobody"); code != 1 {
+		t.Errorf("resetting an unknown device exited %d, want 1", code)
+	}
+	for _, args := range [][]string{
+		{"device", "reset"},
+		{"device", "reset", "a", "b"},
+		{"device", "reset", "a", "--id", "b"},
+	} {
+		if code, _, _ := c.run(args...); code != 2 {
+			t.Errorf("%v exited %d, want 2", args, code)
+		}
+	}
+}

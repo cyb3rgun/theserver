@@ -8,7 +8,7 @@ One binary, no external runtime, no database service, no message broker: copy, s
 
 ## Status
 
-Season S01. theserver serves HTTPS, keeps its SQLite journal in the data directory, and speaks the device link of [docs/protocol.md](docs/protocol.md): targets connect over WebSocket, authenticate with a token, replay what the server has not acknowledged, and receive commands. `simtarget` is a simulated target that exercises the whole path without firmware. The ranking API and the first admin page follow in this season. See [docs/seasons.md](docs/seasons.md) and [docs/capabilities.md](docs/capabilities.md).
+Season S01. theserver serves HTTPS, keeps its SQLite journal in the data directory, and speaks the device link of [docs/protocol.md](docs/protocol.md): targets connect over WebSocket, authenticate with a token, replay what the server has not acknowledged, and receive commands. `simtarget` is a simulated target that exercises the whole path without firmware. API v1 under `/api/v1` manages devices and sessions and computes rankings from the journal, and the admin pages under `/admin` put all of it in a browser. See [docs/seasons.md](docs/seasons.md) and [docs/capabilities.md](docs/capabilities.md).
 
 ## Requirements
 
@@ -21,8 +21,8 @@ Season S01. theserver serves HTTPS, keeps its SQLite journal in the data directo
 Windows, from PowerShell or cmd:
 
 ```
-go build -trimpath -ldflags "-s -w -X github.com/cyb3rgun/theserver/internal/version.Version=0.3.0-dev" -o dist/theserver.exe ./cmd/theserver
-go build -trimpath -ldflags "-s -w -X github.com/cyb3rgun/theserver/internal/version.Version=0.3.0-dev" -o dist/simtarget.exe ./cmd/simtarget
+go build -trimpath -ldflags "-s -w -X github.com/cyb3rgun/theserver/internal/version.Version=0.4.0-dev" -o dist/theserver.exe ./cmd/theserver
+go build -trimpath -ldflags "-s -w -X github.com/cyb3rgun/theserver/internal/version.Version=0.4.0-dev" -o dist/simtarget.exe ./cmd/simtarget
 ```
 
 Cross compile for Linux ARM64 (Raspberry Pi), from cmd:
@@ -49,8 +49,12 @@ $env:GOOS = "linux"; $env:GOARCH = "arm64"; go build -trimpath -ldflags "-s -w" 
 | `theserver serve --version` | prints version, commit, build date and Go version |
 | `theserver serve --write-default-config <path>` | writes a configuration file with every setting and its default |
 | `theserver device add --id <id> --kind target\|controller\|bridge [--class esp\|pi\|pc]` | registers an approved device and prints its token once |
-| `theserver device list` | lists id, kind, class, status and last seen |
+| `theserver device list` | lists id, kind, class, status, sequence epoch and last seen |
+| `theserver device reset <id>` | starts a new sequence epoch; the device starts over at seq 1 and earlier events stay |
 | `theserver device revoke --id <id>` | blocks a device; a running server drops its connection within a second |
+| `theserver admin token add --name <name>` | creates an admin token for the API and the admin pages and prints it once |
+| `theserver admin token list` | lists id, name, created, last used and revoked |
+| `theserver admin token revoke <id>` | revokes an admin token; the API answers it with 403 from then on |
 | `theserver db info` | prints the database path, schema version, journal mode, foreign keys, busy timeout and row counts |
 
 Every subcommand takes `--config <path>` and `--data-dir <dir>`. `--db-info` still works in S01 as a deprecated alias of `db info`.
@@ -60,16 +64,51 @@ A first run:
 ```
 dist\theserver.exe serve --write-default-config data\theserver.toml
 dist\theserver.exe device add --id tgt-01 --kind target --class esp
+dist\theserver.exe admin token add --name founder
 dist\theserver.exe serve --config data\theserver.toml
 ```
 
-`device add` prints the token only once; the database keeps just its hash. Check that the server is up:
+`device add` and `admin token add` print their token only once; the database keeps just its hash. Check that the server is up:
 
 ```
 curl -k https://127.0.0.1:8443/healthz
 ```
 
 The answer is `{"status":"ok","version":"...","db":"ok"}`, and 503 with `"db":"error"` when the database does not answer. Ctrl+C stops the server; open requests and device connections get 5 seconds, and every device connection stores what it received before it closes.
+
+## Admin pages
+
+Open `https://127.0.0.1:8443/admin`, accept the self signed certificate and log in with an admin token. The login lasts 12 hours in a signed cookie; its key is `<data_dir>/admin.key`. Every page works through API v1, in process and as the admin token that logged in.
+
+| Page | What it does |
+| --- | --- |
+| `/admin/devices` | lists devices with status, epoch, online state and last ack; approve, block, reset, issue a new token (shown once) |
+| `/admin/sessions` | creates, starts and stops sessions and assigns devices |
+| `/admin/ranking` | the ranking of one session or of everything, refreshed every 2 seconds |
+| `/admin/settings` | the effective configuration, read only, with the source of every setting |
+
+HTMX is embedded in the binary; the pages load nothing from elsewhere.
+
+## API v1
+
+JSON under `/api/v1`, described in [docs/openapi.yaml](docs/openapi.yaml), which the server also serves at `/api/v1/openapi.yaml`. Every other route needs `Authorization: Bearer <admin token>`: no token or an unknown one gets 401, a revoked one 403. Errors are `{"error":{"code":"...","message":"..."}}`.
+
+| Route | What it does |
+| --- | --- |
+| `GET /devices`, `GET /devices/{id}` | devices with their online state |
+| `POST /devices/{id}/approve`, `/block`, `/reset`, `/token` | change a device; block, reset and token drop a live connection at once |
+| `GET /sessions`, `POST /sessions` | list and create sessions |
+| `POST /sessions/{id}/start`, `/stop`, `/devices` | run a session and assign devices |
+| `GET /rankings?session=<id>` | the ranking, computed from the journal; without `session` over everything |
+| `GET /events` | the journal, filtered by `device`, `session`, `kind`, `controller`, `from`, `to`, with `limit` (at most 1000) and `offset` |
+| `GET /online` | the devices connected now |
+| `GET /settings` | the effective configuration with sources |
+
+For example:
+
+```
+curl -k -H "Authorization: Bearer <admin token>" https://127.0.0.1:8443/api/v1/rankings
+```
 
 ## TLS
 
@@ -94,7 +133,7 @@ dist\simtarget.exe --server wss://127.0.0.1:8443 --id tgt-01 --token <token> --i
 | `--drop-every` | `0` | close the connection every so many seconds and reconnect after 2 seconds |
 | `--duration` | `0` | stop generating after so many seconds, wait for the last acks and exit; 0 runs until Ctrl+C |
 
-At the end it prints a summary: events generated, frames sent, replays, connections, drops, commands, the last ack and what is still unacknowledged. It exits 1 while events are unacknowledged and 3 when the server refuses the token.
+It stores the sequence epoch the server announces; after a device reset it drops its unacknowledged events, starts over at seq 1 and connects again at once. At the end it prints a summary: events generated, frames sent, replays, connections, drops, the epoch and the resets, commands, the last ack and what is still unacknowledged. It exits 1 while events are unacknowledged and 3 when the server refuses the token.
 
 ## Configuration
 
@@ -130,6 +169,7 @@ Commits follow Conventional Commits, `type(scope): description`, in English. The
 - [docs/concept.md](docs/concept.md): what theserver is and the principles it keeps
 - [docs/capabilities.md](docs/capabilities.md): what theserver is meant to do, by area and phase
 - [docs/protocol.md](docs/protocol.md): the device link protocol, version 1, with the server behaviour in section 8
+- [docs/openapi.yaml](docs/openapi.yaml): API v1
 - [docs/decisions.md](docs/decisions.md): numbered decisions with reasons and pinned versions
 - [docs/seasons.md](docs/seasons.md): the S track
 - `docs/briefings/` and `docs/handovers/`: one briefing and one handover per pass

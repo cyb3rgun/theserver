@@ -2,9 +2,10 @@
 //
 // It has a few subcommands (D-022):
 //
-//	theserver [serve] [flags]        run the server; the default
-//	theserver device add|list|revoke manage devices and their tokens
-//	theserver db info                show the state of the database
+//	theserver [serve] [flags]              run the server; the default
+//	theserver device add|list|reset|revoke manage devices and their tokens
+//	theserver admin token add|list|revoke  manage admin tokens for the API
+//	theserver db info                      show the state of the database
 //
 // Every subcommand reads the same layered configuration, so --config and
 // --data-dir mean the same everywhere.
@@ -33,7 +34,11 @@ const usage = `usage:
   theserver serve --write-default-config path
   theserver device add --id id --kind target|controller|bridge [--class esp|pi|pc] [--name n] [--room r] [--zone z]
   theserver device list
+  theserver device reset id
   theserver device revoke --id id
+  theserver admin token add --name name
+  theserver admin token list
+  theserver admin token revoke id
   theserver db info
 
 Every subcommand also takes --config and --data-dir.
@@ -52,6 +57,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runServe(rest, stdout, stderr)
 	case "device":
 		return runDevice(rest, stdout, stderr)
+	case "admin":
+		return runAdmin(rest, stdout, stderr)
 	case "db":
 		return runDB(rest, stdout, stderr)
 	case "help":

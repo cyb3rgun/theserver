@@ -2,6 +2,52 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-028 OpenAPI is written by hand
+
+- Date: 17 September 2026 (S01-B04)
+- Decision: API v1 is described in `docs/openapi.yaml`, OpenAPI 3.1, written by hand and served at `/api/v1/openapi.yaml` without a token. The binary embeds a copy in `internal/httpapi`; a test keeps the copy equal to the docs file, and a second test checks that every registered route is documented with its method and every documented operation is registered.
+- Reason: The description is a product document, not generated noise, and the tests keep it from drifting away from the router.
+- Refinement made during this pass: `GET /api/v1/settings` was added beside the briefed routes. The settings page needs it, and the concept asks for every setting to be reachable through the API.
+- Versions: none.
+
+## D-027 First admin page with html/template and HTMX
+
+- Date: 17 September 2026 (S01-B04)
+- Decision: The admin pages under `/admin` are server rendered with `html/template` and HTMX, embedded in the binary, with no build step. Login takes an admin token once and sets a signed session cookie for 12 hours (HttpOnly, Secure, SameSite Strict, path `/admin`), keyed by `<data_dir>/admin.key`. The pages carry one plain base stylesheet with system fonts; the visual design is the founder's and comes later.
+- Reason: One binary stays one binary, and nothing on the page exists without a working API call behind it.
+- Refinement agreed with the architect during this pass: the pages reach the API in process. Every page action becomes a request to the `/api/v1` handler, authorized by the admin token id behind the cookie, and the JSON answer is rendered as HTML. The API itself accepts only bearer tokens, so it has no cookie authentication and no CSRF surface; the admin pages are protected by `net/http` cross origin protection and a content security policy without inline script or style.
+- Versions: HTMX 4.0.0, the newest official release on 17 September 2026 (published 28 August 2026), downloaded as the release asset `https://github.com/bigskysoftware/htmx/releases/download/v4.0.0/htmx-4.0.0-dist.zip`, 611,364 bytes, SHA-256 `858d5fb806ed3003704bc9c9a7fc7aad15213dcfc78c5b78b005fff4211ce57c`. Its `dist/htmx.min.js`, 36,716 bytes, is embedded unchanged as `internal/admin/static/htmx.min.js`, SHA-256 `e484d9171a9db30a39c8f16e3d709d4137f3211c659f8e6125816635033d593f`, served with the subresource integrity hash `sha384-BvJpBiO8Kh31EqtJe5DRIeWrHWnCGkwytKs9NKFi86Hhw96dEqdEMzZDeK9iEGTc`. HTMX is under the Zero-Clause BSD licence, which asks for no attribution. A test checks the embedded file against the recorded SHA-256. It is never loaded from a CDN.
+
+## D-026 A device reset is a new sequence epoch
+
+- Date: 17 September 2026 (S01-B04)
+- Decision: `devices.seq_epoch` starts at 1; events carry the epoch they were stored in, and the unique constraint is `(device_id, seq_epoch, seq)`. A reset, from `theserver device reset <id>`, the API or the admin page, moves the device to the next epoch: it starts at seq 1 again, and the events of earlier epochs stay. `LastSeq`, the contiguous ack and the handshake count within the current epoch. Migration 0003 rebuilds the events table for the new constraint and keeps every stored event in epoch 1.
+- Reason: A device that lost its counter must be able to start over without deleting the journal, which is immutable (D-012).
+- Refinement agreed with the architect during this pass: `welcome` carries the epoch under the key `ep` (protocol section 8.8). A reset closes the live connection with WebSocket status 1012. A device whose journal belongs to another epoch drops its unacknowledged events, starts at seq 1 in the new epoch and connects again at once, so the `last` of its next hello belongs to that epoch; simtarget does this. A connection writes only into the epoch it learned at its handshake, so events that were on their way during a reset never land in the new epoch.
+- Versions: none.
+
+## D-025 Admin API tokens
+
+- Date: 17 September 2026 (S01-B04)
+- Decision: `theserver admin token add --name <name>` prints an admin token once and stores its SHA-256 in `admin_tokens`. Every `/api/v1` request carries it as `Authorization: Bearer <token>`; none or an unknown one is answered 401. `admin token list` and `admin token revoke <id>` manage them. Passkeys and roles are S02; the table leaves room for a passkey credential beside a token.
+- Reason: The API and the admin page need an operator identity now, before passkeys exist.
+- Refinement agreed with the architect during this pass: `admin_tokens` has a `revoked_at` column. A revoked token keeps its row and is answered 403, which the briefing asks for; `last_used` is written at most once a minute.
+- Versions: none. crypto/sha256 and crypto/subtle from the standard library.
+
+## D-024 Only internal/scoring reads pts from payloads
+
+- Date: 17 September 2026 (S01-B04)
+- Decision: `internal/scoring` is the only package besides the device link that decodes event payloads, and it reads nothing but `pts`. The store stays payload agnostic, and the API hands payloads out base64 encoded as the device sent them.
+- Reason: The payload is the device's record. Keeping its interpretation in one place keeps the rules of scoring in one place, where a later pass can recompute points under the loaded scenario.
+- Versions: none.
+
+## D-023 Rankings are computed, never stored
+
+- Date: 17 September 2026 (S01-B04)
+- Decision: A ranking is a query over the journal: hits and misses per controller, points as the sum of `pts` of the hits, scoped to one session or to everything. It is ordered by points, then hits, both descending, then controller id. Events without a controller are left out; a hit without `pts` counts as a hit worth nothing. There is no score table and no cache in S01.
+- Reason: A stored score can disagree with the journal; a computed one cannot, and a replayed event is stored once, so it is counted once.
+- Versions: none.
+
 ## D-022 theserver has subcommands
 
 - Date: 16 September 2026 (S01-B03)

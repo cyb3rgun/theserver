@@ -127,3 +127,24 @@ Added 16 September 2026 with S01-B03. This section states what theserver does, a
 
 - Every 500 ms the server looks for connected devices whose status is no longer `approved`. Such a connection gets `unauthorized` and is closed with status 1008; a new attempt gets HTTP 401.
 - On shutdown the server refuses new connections with HTTP 503, stores what every connection has received, and closes each with status 1001.
+
+### 8.8 Sequence epochs and device reset
+
+Added 17 September 2026 with S01-B04 (D-026). It extends 8.2 and 8.3; what they say about seq, ack and `seq_regression` holds within one epoch.
+
+- Every device has a sequence epoch, a counter that starts at 1. Events are stored with the epoch they arrived in; a seq is unique per device and epoch, and the `ack` of 8.2 and 8.3 counts only the events of the current epoch.
+- An operator reset moves the device to the next epoch. It starts at seq 1 again, and the events of earlier epochs stay in the journal.
+- `welcome` carries the current epoch under the key `ep`, an unsigned integer: `{t:"welcome", ack, now, ses, ep}`. A device that does not know `ep` ignores it, as section 2 asks. The `ack` in the same `welcome` belongs to that epoch; after a reset it is 0 until the device sends again.
+- A device that stores the epoch compares `ep` with the epoch of its journal. When they differ, the device drops the events it still holds unacknowledged, sets its counter so that its next event has seq 1, stores the new epoch, closes the connection and connects again at once. The `last` of its next `hello` then belongs to the new epoch. The reference is simtarget; firmware follows it in a later season.
+- When a device is reset while it is connected, the server closes the connection with WebSocket status 1012 and no `err`. Events it had received and not yet stored are dropped with the connection; they belong to the old epoch.
+- A connection stores events only into the epoch it read at its handshake. If the epoch changes while a batch is being stored, that batch is not stored and the connection is closed with status 1012 as above.
+- A device without an epoch in its journal is in epoch 1.
+
+### 8.9 Token replacement and the status check
+
+Added 17 September 2026 with S01-B04 (D-026). It extends 8.7.
+
+- An operator can give a device a new token through the API or the admin page. The new token is shown once; only its SHA-256 is stored, and the old token stops working at once: a new attempt with it gets HTTP 401 as in 8.1.
+- A device connected with the old token gets `err` with code `unauthorized` and the message that the token was replaced, and its connection is closed with status 1008. Events it had received and not yet stored are dropped; the device still holds them and sends them again once it connects with the new token.
+- The check every 500 ms of 8.7 now compares three things for every connected device: its status, the hash of its token and its epoch. A status other than `approved` closes as in 8.7, a different token hash as in this section, and a different epoch as in 8.8. This also covers changes made by another process, for example `theserver device reset` beside the running server.
+- Operator actions through the API or the admin page close the connection at once, without waiting for the check.
