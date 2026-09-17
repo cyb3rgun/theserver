@@ -96,16 +96,17 @@ This is enforced by the shape of the data, not by good intentions:
 
 | Area | Capability |
 | --- | --- |
-| **Device link** | WebSocket over TLS at `/link/v1`, CBOR messages, handshake with replay, cumulative acknowledgements, commands from the server with results, keepalive, newest connection wins |
+| **Device link** | WebSocket over TLS at `/link/v1`, CBOR messages, handshake with replay, cumulative acknowledgements, commands from the server with results, keepalive, newest connection wins; devices report the scenario versions they hold and are told when to fetch one |
 | **Journal** | SQLite in WAL mode, embedded versioned migrations, immutable events, contiguous acknowledgement, sequence epochs for device reset |
 | **Devices** | Registry with kind, class, room, zone, status (pending, approved, blocked), hashed device tokens, token rotation, reset, live disconnect on revoke |
 | **Sessions** | Create, start, stop, assign devices; events are attributed to sessions by device time, so late deliveries land in the right session |
 | **Rankings** | Per session or over everything, computed from hit and miss events, verified against an independent computation |
+| **Scenarios** | Packages as `docs/scenario.md` defines them, checked on upload with every problem named in English and German, kept as drafts, published versions never change; targets download them with their own token and report them installed; a session plays one published version, checked against the age its devices are set for |
 | **API v1** | JSON over HTTPS under `/api/v1`, bearer tokens for administration, every route documented in `docs/openapi.yaml` and served at `/api/v1/openapi.yaml` |
-| **Admin** | Login, devices, sessions, live ranking, and every setting editable with its help; English and German; server rendered pages with HTMX 4, no build step, no CDN |
+| **Admin** | Login, devices with what they hold, sessions, the scenario catalogue with upload and check, live ranking, and every setting editable with its help; English and German; server rendered pages with HTMX 4, no build step, no CDN |
 | **TLS** | A self signed certificate is created on first start and its fingerprint logged; operators replace two files to install a real one |
 | **Configuration** | One registry describes every setting with type, range, restart flag and texts in English and German; defaults, TOML file, environment variables, command line flags, in that precedence; changes from the admin page or the API are written back to the file and take effect at once where they can |
-| **Simulator** | `simtarget`, a second binary that behaves like a target, journals locally, drops its connection on purpose and replays, so the whole chain runs under load without firmware |
+| **Simulator** | `simtarget`, a second binary that behaves like a target, journals locally, drops its connection on purpose and replays, installs announced scenario packages, so the whole chain runs under load without firmware |
 
 ---
 
@@ -173,9 +174,21 @@ Precedence, highest first: command line flags, environment variables prefixed `T
 theserver --write-default-config data/theserver.toml
 ```
 
-writes every setting with its label, description, default and range. The sections today: `server` (listen address, data directory), `tls` (certificate and key, empty means the bootstrap files), `store` (database wait time), `link` (acknowledgement interval and batch, ping interval, ping answer time, greeting time), `log` (level, format) and `admin` (language, login duration).
+writes every setting with its label, description, default and range. The sections today: `server` (listen address, data directory), `tls` (certificate and key, empty means the bootstrap files), `store` (database wait time), `content` (upload limit, content directory), `link` (acknowledgement interval and batch, ping interval, ping answer time, greeting time), `log` (level, format) and `admin` (language, login duration).
 
 **Changing settings.** Open `/admin/settings`. Every setting shows its current value, default, range and source, a short description on hover and the why to expand, in English or German. Saving writes the file the server was started with `--config`; without `--config` the first save creates `theserver.toml` in the data directory, which every later start without `--config` reads. The log level, the device link timings and the admin settings take effect at once, the others after a restart, and the page lists them until then. A setting that an environment variable or a flag sets is locked on the page. Every change is logged with the admin token, the old and the new value. The same works through `GET` and `PUT /api/v1/settings` and `POST /api/v1/settings/reset`.
+
+---
+
+## Scenarios
+
+A scenario is a package: a `manifest.toml`, its media, a `cover.png`, one directory or zip. [docs/scenario.md](https://github.com/cyb3rgun/theserver/blob/main/docs/scenario.md) defines it, and `internal/scenario` is the one piece of code that reads and checks it, for theserver and later for the targets and the editor. The manifest lists every file of the package with its SHA-256.
+
+**Upload.** On `/admin/scenarios`, or `POST /api/v1/scenarios` with the zip. The package is checked at once: every problem is named with its field, in English or German, and a package with problems is kept as a draft that cannot be published. The manifest carries the version; an upload of a version that is published already is refused.
+
+**Publish.** A draft without problems is published on its page. A published version never changes and is never deleted; a fix is a new version. Every version is kept in `content/<id>/<version>/package.zip` below the data directory, exactly as it was uploaded.
+
+**Play.** A created session gets one published version on `/admin/sessions`. A scenario rated above the age a device of the session is set for is refused; a device is set for 18 unless it is set lower with `--min-age` or on its page. Every device of the session that does not hold the version is told over the device link, a device that is offline when it connects again. The target downloads the package over HTTPS with its own token, checks it and reports it installed; the device page shows what every target holds and whether it is current.
 
 ---
 
@@ -184,7 +197,7 @@ writes every setting with its label, description, default and range. The section
 ```
 theserver serve [--config <file>] [--data-dir <dir>] [--listen <addr>] [--log-level <level>]
 theserver device add --id <id> --kind target|controller|bridge [--class esp|pi|pc]
-                     [--name <name>] [--room <room>] [--zone <zone>]
+                     [--name <name>] [--room <room>] [--zone <zone>] [--min-age 0|6|12|16|18]
 theserver device list
 theserver device revoke --id <id>
 theserver device reset <id>
@@ -200,9 +213,10 @@ theserver help
 simtarget [--server wss://<host>:8443] --id <id> --token <token> [--insecure]
           [--rate <n>] [--controllers <n>] [--journal <dir>]
           [--drop-every <s>] [--duration <s>] [--class esp|pi|pc] [--log-level <level>]
+          [--holdings <id>@<version>,...] [--content-dir <dir>]
 ```
 
-`serve` is the default: a first argument that is a flag runs the server, so `theserver --version` and `theserver --write-default-config` need no subcommand. Every subcommand also takes `--config <file>` and `--data-dir <dir>`. `--class` defaults to `esp`, `--server` to `wss://127.0.0.1:8443`.
+`serve` is the default: a first argument that is a flag runs the server, so `theserver --version` and `theserver --write-default-config` need no subcommand. Every subcommand also takes `--config <file>` and `--data-dir <dir>`; without `--config` they read `theserver.toml` in the data directory when it is there. `--class` defaults to `esp`, `--min-age` to `18`, `--server` to `wss://127.0.0.1:8443`, `--content-dir` to `content` in the journal directory of the simulator.
 
 Device and admin tokens are shown exactly once, when created. Only their hashes are stored.
 
@@ -213,19 +227,24 @@ Device and admin tokens are shown exactly once, when created. Only their hashes 
 ```
 +-------------------------------------------------------------------+
 |                          ADMIN PAGES                              |
-|        devices / sessions / ranking / settings  (HTMX 4)          |
+|   devices / sessions / scenarios / ranking / settings  (HTMX 4)   |
 +-------------------------------------------------------------------+
 |                            API v1                                 |
-|   devices / sessions / rankings / events / online / settings      |
+|  devices / sessions / scenarios / rankings / events / settings    |
 +-------------------------------------------------------------------+
 |        SCORING        |        LINK         |      TLS BOOT       |
 |  rankings from the    |  WebSocket, CBOR,   |  self signed cert   |
 |  journal              |  replay, commands   |  on first start     |
 +-------------------------------------------------------------------+
-|                            STORE                                  |
-|   SQLite (WAL), migrations, devices, sessions, events, tokens      |
+|        CONTENT        |               SCENARIO                    |
+|  packages on disk,    |  manifest, checks with problem codes,     |
+|  immutable versions   |  manifest hash; shared with the targets   |
 +-------------------------------------------------------------------+
-|                   CONFIG  /  VERSION  /  LOGGING                  |
+|                            STORE                                  |
+|  SQLite (WAL), migrations, devices, sessions, events, tokens,     |
+|  scenario index, holdings                                         |
++-------------------------------------------------------------------+
+|          CONFIG  /  SETTINGS  /  I18N  /  VERSION  /  LOGGING     |
 +-------------------------------------------------------------------+
 ```
 
@@ -247,13 +266,17 @@ theserver/
 |   +-- simtarget/          # The simulated target
 +-- internal/
 |   +-- admin/              # Admin pages, templates, embedded HTMX
-|   +-- config/             # Layered configuration with sources
+|   +-- config/             # Layered configuration with sources, written back
+|   +-- content/            # Scenario packages on disk
 |   +-- httpapi/            # Router, health, API v1, OpenAPI
+|   +-- i18n/               # English and German texts of the admin pages
 |   +-- link/               # Device link: handshake, replay, commands, keepalive
 |   +-- protocol/           # CBOR message types and codec for link v1
+|   +-- scenario/           # The scenario model: manifest, checks, hash, fixtures
 |   +-- scoring/            # Rankings from the journal
-|   +-- simtarget/          # Simulator logic: journal, generator, device loop
-|   +-- store/              # SQLite, migrations, devices, sessions, events, tokens
+|   +-- settings/           # The registry of every setting
+|   +-- simtarget/          # Simulator logic: journal, generator, device loop, installs
+|   +-- store/              # SQLite, migrations, devices, sessions, events, tokens, scenarios
 |   +-- tlsboot/            # Self signed certificate bootstrap
 |   +-- version/            # Build information
 +-- docs/                   # Concept, protocol, capabilities, decisions, seasons,
@@ -278,14 +301,15 @@ theserver/
 | Simulated target with local journal and forced drops | Working |
 | Rankings, verified against an independent computation | Working |
 | API v1 with OpenAPI | Working |
-| Admin pages: devices, sessions, ranking, settings | Working |
+| Admin pages: devices, sessions, scenarios, ranking, settings | Working |
 | Journal retention, backup and restore | Planned |
 | Configuration editable from the admin page, English and German | Working |
 | Passkeys, roles, audit log | Planned |
 | Device certificates (mutual TLS) | Planned |
 | Enrolment by shooting and by NFC, floor plan with live status | Planned |
 | Time base broadcast and beacon multiplex direction | Planned |
-| Scenario packages, staged distribution, signed updates | Planned |
+| Scenario packages: check, catalogue, publish, download, holdings, age check | Working |
+| Staged distribution, signed packages and updates, scenario editor | Planned |
 | Director screen, spectator screens | Planned |
 | Members, wristbands, owned pistols, skill rating, leagues | Planned |
 | Booking, price lists, revenue book, exports, franchise statement | Planned |
@@ -378,6 +402,7 @@ Rules that have earned their place:
 | Capability map with phases | [docs/capabilities.md](https://github.com/cyb3rgun/theserver/blob/main/docs/capabilities.md) |
 | Architectural decisions with rationale | [docs/decisions.md](https://github.com/cyb3rgun/theserver/blob/main/docs/decisions.md) |
 | Every setting with default, range and help | [docs/settings.md](https://github.com/cyb3rgun/theserver/blob/main/docs/settings.md) |
+| The scenario model | [docs/scenario.md](https://github.com/cyb3rgun/theserver/blob/main/docs/scenario.md) |
 | Seasons and passes | [docs/seasons.md](https://github.com/cyb3rgun/theserver/blob/main/docs/seasons.md) |
 | API description | [docs/openapi.yaml](https://github.com/cyb3rgun/theserver/blob/main/docs/openapi.yaml) |
 | Briefings, one per pass | [docs/briefings](https://github.com/cyb3rgun/theserver/tree/main/docs/briefings) |

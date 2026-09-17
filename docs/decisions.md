@@ -2,6 +2,58 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-040 Validation speaks both languages
+
+- Date: 17 September 2026 (S01-B07)
+- Decision: Every problem a scenario package can have is a code with an English and a German text in the catalogues, under `scenario.problem.<code>`. A page shows the text in its language, the field of the manifest, and the English detail below it, the way every translated API error shows its detail since this pass.
+- Details: A test fails when a code has no text in a language, or a catalogue has a text for a code that does not exist. The detail stays English: it names values and paths, and the API answers in English.
+- Reason: The people who upload packages are operators, not programmers; the reason a package is refused has to be readable in their language, and the exact detail has to be there for the person who fixes the package.
+- Versions: none.
+
+## D-039 The age rating is checked at assignment
+
+- Date: 17 September 2026 (S01-B07)
+- Decision: A session plays one published scenario version. It cannot be given a version whose age rating is above the age that a device of the session is set for. Until rooms carry that age, a device carries it: `devices.min_age`, one of 0, 6, 12, 16 and 18, and 18 for a new device.
+- Agreed with the architect during this pass: the age is a column of the device, set with `theserver device add --min-age`, changed with `POST /api/v1/devices/{id}/min_age` and on the device page; a scenario is assigned only while its session is created.
+- Details: The check runs in one transaction with the change, in three places: when a version is assigned, when a device joins a session that plays a version, and when the age of a device in a created or running session is lowered. A refusal is 409 `age_rating` and names the devices and their ages. Migration 0006 adds `devices.min_age` and `sessions.scenario_version`; `sessions.scenario` holds the id of the assigned scenario, and a label given at creation until one is assigned.
+- Reason: The rating is part of the product promise; a venue must not be able to start a scenario for players it is not rated for, and the check belongs where the decision is made.
+- Versions: none.
+
+## D-038 Targets fetch content; the link only announces it
+
+- Date: 17 September 2026 (S01-B07)
+- Decision: The server never pushes media over the link. It announces a version with the command `content_available {id, ver, sha, size}`; the device downloads `GET /api/v1/scenarios/{id}/{ver}/package.zip` with its device token, resumes with `Range`, checks size, manifest hash and validation, and reports `content` events. It reports what it holds in every `health` under `scn`. Protocol section 8.10 is the reference.
+- Agreed with the architect during this pass: a row of `device_scenarios` stays once a device held a version, with the time it last became current, and `current` is set while the latest report of the device includes the version. A device that is offline when a version is assigned gets the announcement after its first `health` with holdings on its next connection; a device that joins a session is announced to as well.
+- Details: `sha` and `X-Manifest-SHA256` carry the manifest hash of D-036. Only approved devices download, and only published versions; admins download every version. `installing` and `failed` are journaled and logged, `failed` with the reason `e`, which the protocol adds as an optional key. The link records the holdings after the batch that carries them is stored, in journal order, and writes a health report again only when its list changed or a content report came in between. simtarget is the reference device: it takes the whole package again when a server ignores `Range`.
+- Reason: Media are large and a device knows best when it can take them; the link stays small, and a download is an ordinary HTTPS request that can be resumed, cached and checked.
+- Versions: none.
+
+## D-037 Published versions never change
+
+- Date: 17 September 2026 (S01-B07)
+- Decision: A published version is never written again and never deleted in S01. A draft may be replaced by an upload of the same version or deleted. A draft with problems cannot be published.
+- Agreed with the architect during this pass: the manifest carries the version. An upload whose version is above the latest published one is a draft, and replaces a draft of the same version; a version at or below the latest published one is refused with the problem `version_taken`. So put, publish and put again needs version 2 in the manifest of the second upload.
+- Details: The content store checks the index before it moves a package into place and refuses a published version itself; the index refuses it once more in its own transaction. A draft whose version is at or below the latest published one, left from before the publication, cannot be published either (`version_taken`). `DELETE /api/v1/scenarios/{id}/{version}` answers 409 `published` for a published version.
+- Reason: What a device installed and what a session was played with must stay reproducible; a fix is a new version.
+- Versions: none.
+
+## D-036 Packages on disk, the index in SQLite
+
+- Date: 17 September 2026 (S01-B07)
+- Decision: Every version lives in `content/<id>/<version>/package.zip` exactly as it was uploaded; the content directory is the setting `content.dir`, empty for `content` in the data directory. Migration 0005 adds the index `scenarios` (id, version, tier, title in every language, age rating, manifest hash, size, uploaded_at, uploaded_by, status draft or published, published_at, and the problems of a draft) and `device_scenarios` (device, scenario, version, installed_at, current). Media never enter the database.
+- Details: An upload is written below `content/.incoming` first, read and validated there, and renamed into place only when its id and version can name it; a replaced draft is moved aside and comes back when the index refuses the new row, and whatever a crash leaves in `.incoming` is removed at the next start. A package that cannot be read, or whose id or version is unusable, is not stored and answered with 422 and its problems. The upload limit is `content.max_upload_mb`, 2048 MB by default and applied from the next upload on. The cover of the catalogue is read from the zip. The manifest hash is the SHA-256 of the canonical form of the manifest, the JSON encoding of the model under the names of the TOML file with maps in key order, behind a fixed domain string; it covers the files table and with it every file.
+- Reason: Packages are large and immutable, and a zip kept byte for byte can be served with `Range`, hashed again and signed later; the index answers every question of the pages without opening a package.
+- Versions: none.
+
+## D-035 One package implements the scenario model
+
+- Date: 17 September 2026 (S01-B07)
+- Decision: `internal/scenario` is the one implementation of `docs/scenario.md`, version 1: the manifest types, reading a package from a directory or a zip, validation with typed problems (field, code, detail), and the manifest hash. It depends on nothing of the server, so theclient and the editor can use it.
+- Agreed with the architect during this pass: the hash of every file is in a table `[files]`, which maps every path of the package except `manifest.toml` and `SIGNATURE` to its SHA-256 in lower case hex; a file the manifest names that is not listed is `missing_media`, a file of the package that is not listed is `unlisted_file`. Every shape is written as `points`: a polygon has at least three, a rect two opposite corners, a circle one centre point and a `radius` above 0; a keyframe carries the fields of its zone, a polygon keyframe as many points as its zone; every point lies on the canvas. `age_rating` is one of 0, 6, 12, 16 and 18, else `bad_age_rating`, and `no_age_rating` when it is missing. The example `[media.state.walk] = "..."` of the document is not TOML; the states of INTERACTIVE are read as the table `[media.state]` with `walk = "..."`.
+- Details: The codes are `bad_package`, `no_manifest` and `bad_manifest` from reading, and `unknown_field`, `missing_section`, `bad_id`, `duplicate_id`, `bad_version`, `bad_tier`, `missing_text`, `no_age_rating`, `bad_age_rating`, `bad_value`, `no_canvas`, `bad_shape`, `keyframes_unordered`, `bad_time_window`, `zone_without_appearance`, `zone_shared`, `appearance_unknown_zone`, `appearance_without_zones`, `unknown_appearance`, `unknown_media_state`, `not_in_tier`, `tier_media_mismatch`, `missing_media`, `hash_mismatch`, `unlisted_file` from validation, and `version_taken` from the server. Choices of this pass that the document leaves open, to be confirmed: every id is 1 to 64 lower case letters, digits, hyphens and underscores; `orientation` is `portrait` or `landscape` and `fit` is `cover`, `contain` or `fill`; a key the model does not know is a problem; `[rules]` and at least one appearance are required; `duration_s` and `required_hits` are at least 1 and every time lies within the duration; the title needs English and German, a description or zone name that is given needs both; zones move and appearances name media states only in INTERACTIVE and LAYERED, VIDEO has no follow up, and an appearance has at most one follow up per zone class; a LAYERED state is found in any of its layers. A zip holds the package at its root or in one top directory; names that leave the package, repeat or are no regular files are refused. One fixture per code under `internal/scenario/testdata` fails with exactly that code; the hash of the INTERACTIVE fixture is pinned.
+- Reason: The server, the target and the editor must agree on what a valid package is, so there is one piece of code that decides it.
+- Versions: none.
+
 ## D-034 Help is part of the structure
 
 - Date: 17 September 2026 (S01-B06)
