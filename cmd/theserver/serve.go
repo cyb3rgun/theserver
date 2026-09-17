@@ -53,7 +53,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	cfg, err := loadConfig(fs, *configPath)
+	cfg, sources, err := loadConfigWithSources(fs, *configPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "theserver: %v\n", err)
 		return 1
@@ -75,7 +75,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 
 	logger := newLogger(cfg.Log, stderr)
 	slog.SetDefault(logger)
-	if err := serve(ctx, cfg, *configPath, logger); err != nil {
+	if err := serve(ctx, cfg, sources, *configPath, logger); err != nil {
 		logger.Error("theserver stopped with an error", "error", err)
 		return 1
 	}
@@ -92,7 +92,7 @@ func newLogger(c config.Log, w io.Writer) *slog.Logger {
 
 // serve runs HTTPS with the health endpoint and the device link until ctx is
 // done, then shuts down within shutdownGrace.
-func serve(ctx context.Context, cfg config.Config, configPath string, logger *slog.Logger) error {
+func serve(ctx context.Context, cfg config.Config, sources config.Sources, configPath string, logger *slog.Logger) error {
 	logger.Info("theserver starting",
 		"version", version.Version,
 		"commit", version.Commit,
@@ -131,8 +131,15 @@ func serve(ctx context.Context, cfg config.Config, configPath string, logger *sl
 	if err != nil {
 		return err
 	}
+	router := httpapi.New(httpapi.Options{
+		Store:    db,
+		Link:     deviceLink,
+		Settings: func() []config.Setting { return config.Describe(cfg, sources) },
+		Logger:   logger,
+	})
+
 	srv := &http.Server{
-		Handler:           httpapi.New(db, deviceLink, logger),
+		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 		TLSConfig: &tls.Config{
@@ -145,7 +152,7 @@ func serve(ctx context.Context, cfg config.Config, configPath string, logger *sl
 	go func() {
 		served <- srv.ServeTLS(ln, "", "")
 	}()
-	logger.Info("listening", "addr", ln.Addr().String(), "scheme", "https", "device_link", link.Path)
+	logger.Info("listening", "addr", ln.Addr().String(), "scheme", "https", "device_link", link.Path, "api", httpapi.Prefix)
 
 	select {
 	case err := <-served:

@@ -212,19 +212,49 @@ var settings = []setting{
 // that are not settings are ignored. A file that is named but missing, an
 // unknown key in the file and an invalid value are errors.
 func Load(path string, lookupEnv func(string) (string, bool), flags map[string]string) (Config, error) {
+	cfg, _, err := LoadWithSources(path, lookupEnv, flags)
+	return cfg, err
+}
+
+// A Source says where the effective value of a setting came from.
+type Source string
+
+// The sources of a setting, lowest precedence first.
+const (
+	SourceDefault Source = "default"
+	SourceFile    Source = "file"
+	SourceEnv     Source = "env"
+	SourceFlag    Source = "flag"
+)
+
+// Sources maps a setting, written section.key, to the source of its value.
+type Sources map[string]Source
+
+// LoadWithSources is Load that also reports, for every setting, which layer
+// its effective value came from.
+func LoadWithSources(path string, lookupEnv func(string) (string, bool), flags map[string]string) (Config, Sources, error) {
 	cfg := Default()
+	sources := Sources{}
+	for _, s := range settings {
+		sources[s.name()] = SourceDefault
+	}
 
 	if path != "" {
 		md, err := toml.DecodeFile(path, &cfg)
 		if err != nil {
-			return Config{}, fmt.Errorf("config file %s: %w", path, err)
+			return Config{}, nil, fmt.Errorf("config file %s: %w", path, err)
 		}
 		if undecoded := md.Undecoded(); len(undecoded) > 0 {
 			keys := make([]string, len(undecoded))
 			for i, key := range undecoded {
 				keys[i] = key.String()
 			}
-			return Config{}, fmt.Errorf("config file %s: unknown settings: %s", path, strings.Join(keys, ", "))
+			return Config{}, nil, fmt.Errorf("config file %s: unknown settings: %s", path, strings.Join(keys, ", "))
+		}
+		for _, s := range settings {
+			if md.IsDefined(s.section, s.key) {
+				sources[s.name()] = SourceFile
+			}
 		}
 	}
 
@@ -232,8 +262,9 @@ func Load(path string, lookupEnv func(string) (string, bool), flags map[string]s
 		for _, s := range settings {
 			if value, ok := lookupEnv(s.env); ok {
 				if err := s.apply(&cfg, value); err != nil {
-					return Config{}, fmt.Errorf("environment %s: %w", s.env, err)
+					return Config{}, nil, fmt.Errorf("environment %s: %w", s.env, err)
 				}
+				sources[s.name()] = SourceEnv
 			}
 		}
 	}
@@ -244,15 +275,59 @@ func Load(path string, lookupEnv func(string) (string, bool), flags map[string]s
 		}
 		if value, ok := flags[s.flag]; ok {
 			if err := s.apply(&cfg, value); err != nil {
-				return Config{}, fmt.Errorf("flag --%s: %w", s.flag, err)
+				return Config{}, nil, fmt.Errorf("flag --%s: %w", s.flag, err)
 			}
+			sources[s.name()] = SourceFlag
 		}
 	}
 
 	if err := cfg.Validate(); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
-	return cfg, nil
+	return cfg, sources, nil
+}
+
+// A Setting describes one setting with its effective value, for the API and
+// the admin page.
+type Setting struct {
+	Key     string `json:"key"`
+	Value   any    `json:"value"`
+	Default any    `json:"default"`
+	Source  Source `json:"source"`
+	Env     string `json:"env"`
+	Flag    string `json:"flag,omitempty"`
+	Comment string `json:"comment"`
+}
+
+// Describe lists every setting of c in the order of the default file. A
+// setting missing from sources is reported as coming from its default.
+func Describe(c Config, sources Sources) []Setting {
+	def := Default()
+	described := make([]Setting, 0, len(settings))
+	for _, s := range settings {
+		source := sources[s.name()]
+		if source == "" {
+			source = SourceDefault
+		}
+		flag := ""
+		if s.flag != "" {
+			flag = "--" + s.flag
+		}
+		described = append(described, Setting{
+			Key:     s.name(),
+			Value:   s.value(&c),
+			Default: s.value(&def),
+			Source:  source,
+			Env:     s.env,
+			Flag:    flag,
+			Comment: s.comment,
+		})
+	}
+	return described
+}
+
+func (s setting) name() string {
+	return s.section + "." + s.key
 }
 
 // Validate reports every setting that holds an invalid value.

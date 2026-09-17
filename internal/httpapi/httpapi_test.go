@@ -39,7 +39,7 @@ func getHealth(t *testing.T, handler http.Handler) (int, Health, http.Header) {
 }
 
 func TestHealthzOK(t *testing.T) {
-	code, body, header := getHealth(t, New(fakeDB{}, nil, quiet()))
+	code, body, header := getHealth(t, New(Options{Health: fakeDB{}, Logger: quiet()}))
 	if code != http.StatusOK {
 		t.Errorf("status %d, want 200", code)
 	}
@@ -53,7 +53,7 @@ func TestHealthzOK(t *testing.T) {
 }
 
 func TestHealthzDatabaseDown(t *testing.T) {
-	code, body, _ := getHealth(t, New(fakeDB{err: errors.New("disk gone")}, nil, quiet()))
+	code, body, _ := getHealth(t, New(Options{Health: fakeDB{err: errors.New("disk gone")}, Logger: quiet()}))
 	if code != http.StatusServiceUnavailable {
 		t.Errorf("status %d, want 503", code)
 	}
@@ -70,7 +70,7 @@ func TestHealthzClosedStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := New(st, nil, quiet())
+	handler := New(Options{Store: st, Logger: quiet()})
 	if code, _, _ := getHealth(t, handler); code != http.StatusOK {
 		t.Fatalf("status %d with an open store, want 200", code)
 	}
@@ -82,13 +82,44 @@ func TestHealthzClosedStore(t *testing.T) {
 	}
 }
 
-func TestRoutes(t *testing.T) {
-	var linkCalls int
-	deviceLink := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		linkCalls++
-		w.WriteHeader(http.StatusTeapot)
-	})
-	handler := New(fakeDB{}, deviceLink, quiet())
+func TestHealthzWithoutDatabase(t *testing.T) {
+	if code, _, _ := getHealth(t, New(Options{Logger: quiet()})); code != http.StatusServiceUnavailable {
+		t.Errorf("status %d without a database, want 503", code)
+	}
+}
+
+// fakeLink stands in for the device link in router tests.
+type fakeLink struct {
+	calls        int
+	online       []link.DeviceStatus
+	disconnected map[string]link.DisconnectReason
+}
+
+func (f *fakeLink) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.calls++
+	w.WriteHeader(http.StatusTeapot)
+}
+
+func (f *fakeLink) Online() []link.DeviceStatus {
+	return f.online
+}
+
+func (f *fakeLink) Disconnect(deviceID string, why link.DisconnectReason) bool {
+	if f.disconnected == nil {
+		f.disconnected = map[string]link.DisconnectReason{}
+	}
+	f.disconnected[deviceID] = why
+	for _, s := range f.online {
+		if s.DeviceID == deviceID {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRouterWithoutStore(t *testing.T) {
+	deviceLink := &fakeLink{}
+	handler := New(Options{Health: fakeDB{}, Link: deviceLink, Logger: quiet()})
 
 	tests := []struct {
 		method string
@@ -100,6 +131,7 @@ func TestRoutes(t *testing.T) {
 		{http.MethodPost, "/healthz", http.StatusMethodNotAllowed},
 		{http.MethodHead, "/healthz", http.StatusOK},
 		{http.MethodGet, "/nothing", http.StatusNotFound},
+		{http.MethodGet, Prefix + "/devices", http.StatusNotFound},
 	}
 	for _, tt := range tests {
 		rec := httptest.NewRecorder()
@@ -108,12 +140,12 @@ func TestRoutes(t *testing.T) {
 			t.Errorf("%s %s answered %d, want %d", tt.method, tt.path, rec.Code, tt.want)
 		}
 	}
-	if linkCalls != 1 {
-		t.Errorf("the link handler was called %d times, want 1", linkCalls)
+	if deviceLink.calls != 1 {
+		t.Errorf("the link handler was called %d times, want 1", deviceLink.calls)
 	}
 
 	rec := httptest.NewRecorder()
-	New(fakeDB{}, nil, quiet()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, link.Path, nil))
+	New(Options{Health: fakeDB{}, Logger: quiet()}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, link.Path, nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("without a link handler %s answered %d, want 404", link.Path, rec.Code)
 	}

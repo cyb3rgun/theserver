@@ -345,3 +345,58 @@ func TestSettingsCoverEveryField(t *testing.T) {
 		t.Errorf("Config has %d settings, the table has %d rows", leaves, len(settings))
 	}
 }
+
+func TestLoadWithSources(t *testing.T) {
+	file := writeFile(t, t.TempDir(), "partial.toml", `
+[server]
+listen_addr = "127.0.0.1:9000"
+
+[link]
+ack_batch = 8
+`)
+	cfg, sources, err := LoadWithSources(file,
+		envFrom(map[string]string{"THESERVER_LINK_ACKBATCH": "16", "THESERVER_LOG_FORMAT": "json"}),
+		map[string]string{"log-level": "debug", "config": file})
+	if err != nil {
+		t.Fatalf("LoadWithSources: %v", err)
+	}
+	want := map[string]Source{
+		"server.listen_addr":    SourceFile,
+		"server.data_dir":       SourceDefault,
+		"link.ack_batch":        SourceEnv,
+		"log.format":            SourceEnv,
+		"log.level":             SourceFlag,
+		"store.busy_timeout_ms": SourceDefault,
+	}
+	for key, source := range want {
+		if sources[key] != source {
+			t.Errorf("%s comes from %q, want %q", key, sources[key], source)
+		}
+	}
+	if len(sources) != len(settings) {
+		t.Errorf("%d sources for %d settings", len(sources), len(settings))
+	}
+
+	described := Describe(cfg, sources)
+	if len(described) != len(settings) {
+		t.Fatalf("Describe listed %d settings, want %d", len(described), len(settings))
+	}
+	byKey := map[string]Setting{}
+	for _, s := range described {
+		byKey[s.Key] = s
+	}
+	batch := byKey["link.ack_batch"]
+	if batch.Value != 16 || batch.Default != 32 || batch.Source != SourceEnv || batch.Env != "THESERVER_LINK_ACKBATCH" || batch.Flag != "" || batch.Comment == "" {
+		t.Errorf("link.ack_batch is described as %+v", batch)
+	}
+	listen := byKey["server.listen_addr"]
+	if listen.Value != "127.0.0.1:9000" || listen.Default != ":8443" || listen.Flag != "--listen" {
+		t.Errorf("server.listen_addr is described as %+v", listen)
+	}
+	if described[0].Key != "server.listen_addr" {
+		t.Errorf("Describe starts with %s, want the order of the default file", described[0].Key)
+	}
+	if got := Describe(Default(), nil); got[0].Source != SourceDefault {
+		t.Errorf("without sources a setting reads %q", got[0].Source)
+	}
+}

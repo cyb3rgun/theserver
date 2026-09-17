@@ -1,0 +1,456 @@
+openapi: 3.1.0
+info:
+  title: theserver API
+  version: "1"
+  description: |
+    API v1 of theserver, the local venue server of CYB3RGUN. Every request
+    except GET /openapi.yaml carries an admin token as a bearer token
+    (D-025). A missing or unknown token is answered with 401, a revoked one
+    with 403. Timestamps are unix milliseconds in UTC (D-014); 0 means not
+    set. Errors always have the shape of the Error schema.
+servers:
+  - url: /api/v1
+security:
+  - adminToken: []
+paths:
+  /devices:
+    get:
+      summary: List every device with its link state.
+      operationId: listDevices
+      responses:
+        "200":
+          description: The devices, ordered by id.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [devices]
+                properties:
+                  devices:
+                    type: array
+                    items: {$ref: "#/components/schemas/Device"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /devices/{id}:
+    get:
+      summary: Read one device.
+      operationId: getDevice
+      parameters: [{$ref: "#/components/parameters/DeviceID"}]
+      responses:
+        "200":
+          description: The device.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Device"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /devices/{id}/approve:
+    post:
+      summary: Approve a device, so it may connect.
+      operationId: approveDevice
+      parameters: [{$ref: "#/components/parameters/DeviceID"}]
+      responses:
+        "200":
+          description: The device after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Device"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /devices/{id}/block:
+    post:
+      summary: Block a device and drop its live connection.
+      description: The connection gets err unauthorized and is closed; new connections are refused with 401.
+      operationId: blockDevice
+      parameters: [{$ref: "#/components/parameters/DeviceID"}]
+      responses:
+        "200":
+          description: The device after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Device"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /devices/{id}/reset:
+    post:
+      summary: Start a new sequence epoch for a device (D-026).
+      description: |
+        The device begins at seq 1 again; the events of earlier epochs stay.
+        Its live connection is closed with WebSocket status 1012; the device
+        reconnects and learns the new epoch from the ep key of welcome.
+      operationId: resetDevice
+      parameters: [{$ref: "#/components/parameters/DeviceID"}]
+      responses:
+        "200":
+          description: The device with its new epoch.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Device"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /devices/{id}/token:
+    post:
+      summary: Replace the token of a device.
+      description: |
+        The new token is returned this once and only its hash is stored. The
+        old token stops working at once: a live connection gets err
+        unauthorized and is closed, and new connections with it get 401.
+      operationId: newDeviceToken
+      parameters: [{$ref: "#/components/parameters/DeviceID"}]
+      responses:
+        "200":
+          description: The new token.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/NewToken"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /sessions:
+    get:
+      summary: List every session, oldest first.
+      operationId: listSessions
+      responses:
+        "200":
+          description: The sessions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions]
+                properties:
+                  sessions:
+                    type: array
+                    items: {$ref: "#/components/schemas/Session"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      summary: Create a session in state created.
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewSession"}
+      responses:
+        "201":
+          description: The new session.
+          headers:
+            Location:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Session"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /sessions/{id}/start:
+    post:
+      summary: Move a created session to running.
+      operationId: startSession
+      parameters: [{$ref: "#/components/parameters/SessionID"}]
+      responses:
+        "200":
+          description: The session after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Session"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /sessions/{id}/stop:
+    post:
+      summary: Move a running session to stopped.
+      operationId: stopSession
+      parameters: [{$ref: "#/components/parameters/SessionID"}]
+      responses:
+        "200":
+          description: The session after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Session"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /sessions/{id}/devices:
+    post:
+      summary: Put a device into a session.
+      description: Adding a device twice is not an error.
+      operationId: addSessionDevice
+      parameters: [{$ref: "#/components/parameters/SessionID"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/SessionDevice"}
+      responses:
+        "200":
+          description: The session after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Session"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /rankings:
+    get:
+      summary: Compute the ranking of a session or of everything (D-023).
+      operationId: rankings
+      parameters:
+        - name: session
+          in: query
+          description: A session id; empty means all events, in a session or not.
+          schema: {type: string}
+      responses:
+        "200":
+          description: The ranking, by points, then hits, then controller id.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Ranking"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /events:
+    get:
+      summary: Read the journal, in the order the server received it.
+      operationId: events
+      parameters:
+        - {name: device, in: query, schema: {type: string}}
+        - {name: session, in: query, schema: {type: string}}
+        - {name: kind, in: query, schema: {type: string}}
+        - {name: controller, in: query, schema: {type: string}}
+        - {name: from, in: query, description: ts_server from, inclusive., schema: {type: integer, minimum: 0}}
+        - {name: to, in: query, description: ts_server to, exclusive., schema: {type: integer, minimum: 0}}
+        - {name: limit, in: query, description: Default 100., schema: {type: integer, minimum: 0, maximum: 1000}}
+        - {name: offset, in: query, schema: {type: integer, minimum: 0}}
+      responses:
+        "200":
+          description: One page of events.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, limit, offset]
+                properties:
+                  events:
+                    type: array
+                    items: {$ref: "#/components/schemas/Event"}
+                  limit: {type: integer}
+                  offset: {type: integer}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /online:
+    get:
+      summary: List the devices connected right now.
+      operationId: online
+      responses:
+        "200":
+          description: The connected devices, ordered by id.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [devices]
+                properties:
+                  devices:
+                    type: array
+                    items: {$ref: "#/components/schemas/Online"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /settings:
+    get:
+      summary: Read the effective configuration, every setting with its source.
+      description: Read only in S01. Added in S01-B04 for the settings page.
+      operationId: settings
+      responses:
+        "200":
+          description: Every setting in the order of the default file.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [settings]
+                properties:
+                  settings:
+                    type: array
+                    items: {$ref: "#/components/schemas/Setting"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+  /openapi.yaml:
+    get:
+      summary: This document.
+      operationId: openAPI
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI description of API v1.
+          content:
+            application/yaml:
+              schema: {type: string}
+components:
+  securitySchemes:
+    adminToken:
+      type: http
+      scheme: bearer
+      description: An admin token from `theserver admin token add`.
+  parameters:
+    DeviceID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string}
+    SessionID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string}
+  responses:
+    BadRequest:
+      description: The request is malformed.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Unauthorized:
+      description: No admin token, or an unknown one.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Forbidden:
+      description: The admin token was revoked.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    NotFound:
+      description: The device, session or endpoint does not exist.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    Conflict:
+      description: The session exists already, or cannot make this state change.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [bad_request, unauthorized, forbidden, not_found, method_not_allowed, conflict, bad_transition, internal]
+            message: {type: string}
+    Device:
+      type: object
+      properties:
+        id: {type: string}
+        kind: {type: string, enum: [target, controller, bridge]}
+        class: {type: string, enum: [esp, pi, pc]}
+        name: {type: string}
+        room: {type: string}
+        zone: {type: string}
+        status: {type: string, enum: [pending, approved, blocked]}
+        firmware_version: {type: string}
+        seq_epoch: {type: integer, minimum: 1}
+        has_token: {type: boolean}
+        first_seen: {type: integer}
+        last_seen: {type: integer}
+        created_at: {type: integer}
+        updated_at: {type: integer}
+        online: {type: boolean}
+        connected_at: {type: integer, description: 0 while offline.}
+        last_ack: {type: integer, description: 0 while offline.}
+    NewToken:
+      type: object
+      properties:
+        device_id: {type: string}
+        token: {type: string, description: Shown this once.}
+        warning: {type: string}
+    Session:
+      type: object
+      properties:
+        id: {type: string}
+        scenario: {type: string}
+        room: {type: string}
+        state: {type: string, enum: [created, running, stopped]}
+        started_at: {type: integer}
+        ended_at: {type: integer}
+        created_at: {type: integer}
+        updated_at: {type: integer}
+        devices:
+          type: array
+          items: {type: string}
+    NewSession:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          description: Letters, digits, dot, dash and underscore, up to 64. Empty lets the server choose.
+        scenario: {type: string}
+        room: {type: string}
+    SessionDevice:
+      type: object
+      additionalProperties: false
+      required: [device_id]
+      properties:
+        device_id: {type: string}
+    RankingEntry:
+      type: object
+      properties:
+        controller_id: {type: string}
+        hits: {type: integer}
+        misses: {type: integer}
+        points: {type: integer}
+        last_hit: {type: integer, description: Device time of the latest hit, 0 without one.}
+    Ranking:
+      type: object
+      properties:
+        session: {type: string}
+        computed_at: {type: integer}
+        entries:
+          type: array
+          items: {$ref: "#/components/schemas/RankingEntry"}
+    Event:
+      type: object
+      properties:
+        id: {type: string, description: The event UUID in text form.}
+        device_id: {type: string}
+        seq_epoch: {type: integer}
+        seq: {type: integer}
+        kind: {type: string}
+        controller_id: {type: string}
+        session_id: {type: string}
+        ts_device: {type: integer}
+        ts_server: {type: integer}
+        payload: {type: string, format: byte, description: The CBOR d map as the device sent it, base64.}
+    Online:
+      type: object
+      properties:
+        device_id: {type: string}
+        remote_addr: {type: string}
+        connected_at: {type: integer}
+        last_event_at: {type: integer}
+        last_ack: {type: integer}
+    Setting:
+      type: object
+      properties:
+        key: {type: string, description: section.key as in the TOML file.}
+        value: {description: The effective value, a string or an integer.}
+        default: {description: The built in default.}
+        source: {type: string, enum: [default, file, env, flag]}
+        env: {type: string}
+        flag: {type: string}
+        comment: {type: string}

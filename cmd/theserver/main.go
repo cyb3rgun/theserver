@@ -91,11 +91,17 @@ func parse(fs *flag.FlagSet, args []string, stderr io.Writer) int {
 
 // loadConfig reads the configuration with the flags that were set.
 func loadConfig(fs *flag.FlagSet, configPath string) (config.Config, error) {
+	cfg, _, err := loadConfigWithSources(fs, configPath)
+	return cfg, err
+}
+
+// loadConfigWithSources also reports where every setting came from.
+func loadConfigWithSources(fs *flag.FlagSet, configPath string) (config.Config, config.Sources, error) {
 	set := map[string]string{}
 	fs.Visit(func(f *flag.Flag) {
 		set[f.Name] = f.Value.String()
 	})
-	return config.Load(configPath, os.LookupEnv, set)
+	return config.LoadWithSources(configPath, os.LookupEnv, set)
 }
 
 func openStore(ctx context.Context, cfg config.Config) (*store.Store, error) {
