@@ -453,6 +453,28 @@ zone = "Zone"
 appearance = "Auftritt"
 keyframe = "Keyframe"
 
+[admin.preview]
+title = "Vorschau"
+intro = "Den Entwurf mit der Maus als Pistole spielen. Es gelten die Regeln, die auch ein Ziel ausführt."
+start = "Start"
+restart = "Neu starten"
+check = "Regeln prüfen"
+back = "Zurück zum Editor"
+canvas = "Das Bild mit den scharfen Zonen"
+points = "Punkte"
+hits = "Treffer"
+misses = "Fehlschüsse"
+timeouts = "Zeitabläufe"
+lives = "Leben"
+time = "Zeit"
+hint = "Ins Bild klicken schießt. Die Leertaste startet und hält an. Die Prüfung schickt die Schüsse dieses Laufs auch durch die Regeln des Servers und sagt, ob beide übereinstimmen."
+
+[admin.preview.js]
+agree = "Die Regeln im Browser und auf dem Server stimmen für diesen Lauf überein."
+differ = "Die Regeln im Browser und auf dem Server stimmen für diesen Lauf nicht überein."
+ended = "Das Szenario ist vorbei."
+failed = "Der Server hat die Prüfung nicht beantwortet."
+
 [admin.settings]
 title = "Einstellungen"
 intro = "Alle Einstellungen des Servers, nach Bereichen geordnet. Speichern schreibt die Änderungen nach %s. Eine Einstellung mit Neustart-Hinweis wird wirksam, wenn theserver neu startet, alle anderen sofort."

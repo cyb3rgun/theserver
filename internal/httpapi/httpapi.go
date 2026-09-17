@@ -157,6 +157,7 @@ func (s *Server) routes() []struct {
 		{Route{http.MethodGet, "/drafts/{id}/media/{name}", true, false}, s.getDraftMedia},
 		{Route{http.MethodPatch, "/drafts/{id}/media/{name}", true, false}, s.measureDraftMedia},
 		{Route{http.MethodDelete, "/drafts/{id}/media/{name}", true, false}, s.deleteDraftMedia},
+		{Route{http.MethodPost, "/drafts/{id}/trace", true, false}, s.traceDraft},
 		{Route{http.MethodPost, "/drafts/{id}/validate", true, false}, s.validateDraft},
 		{Route{http.MethodPost, "/drafts/{id}/publish", true, false}, s.publishDraft},
 		{Route{http.MethodGet, "/scenarios", true, false}, s.listScenarios},

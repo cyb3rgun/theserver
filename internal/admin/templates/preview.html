@@ -1,0 +1,36 @@
+{{define "content"}}
+<h1>{{t "admin.preview.title"}} <span class="muted">{{.Name}}</span></h1>
+<p class="muted" id="preview-intro">{{t "admin.preview.intro"}}</p>
+{{template "messages" .}}
+<div class="preview" id="preview"
+     data-draft="/admin/editor/{{path .Draft.ID}}/draft"
+     data-file="/admin/editor/{{path .Draft.ID}}/file/"
+     data-trace="/admin/editor/{{path .Draft.ID}}/trace"
+     data-tier="{{.Draft.Tier}}"
+     data-words="{{.Words}}">
+  <div class="preview-bar">
+    <button type="button" class="button primary" id="preview-start">{{t "admin.preview.start"}}</button>
+    <button type="button" class="button" id="preview-restart">{{t "admin.preview.restart"}}</button>
+    <button type="button" class="button" id="preview-check">{{t "admin.preview.check"}}</button>
+    <a class="button quiet" href="/admin/editor/{{path .Draft.ID}}">{{t "admin.preview.back"}}</a>
+    <span id="preview-result" role="status"></span>
+  </div>
+  <div class="preview-stage" id="preview-stage">
+    <video id="preview-video" playsinline></video>
+    <video id="preview-overlay" playsinline muted hidden></video>
+    <canvas id="preview-canvas" width="1080" height="1920" aria-label="{{t "admin.preview.canvas"}}"></canvas>
+    <audio id="preview-sound"></audio>
+  </div>
+  <dl class="score" id="preview-score">
+    <dt>{{t "admin.preview.points"}}</dt><dd id="score-points">0</dd>
+    <dt>{{t "admin.preview.hits"}}</dt><dd id="score-hits">0</dd>
+    <dt>{{t "admin.preview.misses"}}</dt><dd id="score-misses">0</dd>
+    <dt>{{t "admin.preview.timeouts"}}</dt><dd id="score-timeouts">0</dd>
+    <dt>{{t "admin.preview.lives"}}</dt><dd id="score-lives">0</dd>
+    <dt>{{t "admin.preview.time"}}</dt><dd id="score-time">0.0</dd>
+  </dl>
+  <p class="muted" id="preview-hint">{{t "admin.preview.hint"}}</p>
+</div>
+<script src="/admin/static/rules.js" integrity="{{.RulesScript}}" defer></script>
+<script src="/admin/static/preview.js" integrity="{{.Script}}" defer></script>
+{{end}}

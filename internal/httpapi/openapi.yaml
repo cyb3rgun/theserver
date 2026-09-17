@@ -478,6 +478,37 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+  /drafts/{id}/trace:
+    post:
+      summary: Play shots against a draft with the rule engine of section 7 (D-044).
+      description: |
+        The server runs docs/scenario.md section 7 over the draft with the
+        shots the body carries and answers the trace: appear, hit, miss,
+        timeout, clear, state and end, each with the score and the lives
+        after it. The preview in the browser runs the same rules in
+        JavaScript and compares the two traces, so a difference between the
+        two engines shows up where a person can see it.
+      operationId: traceDraft
+      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Shots"}
+      responses:
+        "200":
+          description: The trace of the run.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [trace]
+                properties:
+                  trace: {$ref: "#/components/schemas/Trace"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
   /drafts/{id}/validate:
     post:
       summary: What a publish of this draft would find.
@@ -1032,6 +1063,50 @@ components:
             id: {type: string}
             version: {type: integer, minimum: 1}
           additionalProperties: false
+      additionalProperties: false
+    Shots:
+      type: object
+      required: [shots]
+      properties:
+        shots:
+          type: array
+          items:
+            type: object
+            required: [t_ms, x, y]
+            properties:
+              t_ms: {type: integer, minimum: 0, description: The scenario time of the shot.}
+              x: {type: integer}
+              y: {type: integer}
+            additionalProperties: false
+      additionalProperties: false
+    Trace:
+      type: object
+      description: One run of the rule engine of section 7.
+      required: [events, score, hits, misses, timeouts, lives, ended_ms]
+      properties:
+        events:
+          type: array
+          items:
+            type: object
+            required: [t_ms, kind, score, lives]
+            properties:
+              t_ms: {type: integer}
+              kind: {type: string, enum: [appear, hit, miss, timeout, clear, state, end]}
+              appearance: {type: string}
+              zone: {type: string}
+              zone_class: {type: string}
+              state: {type: string}
+              points: {type: integer}
+              reason: {type: string, enum: [done, timeout, lives]}
+              score: {type: integer}
+              lives: {type: integer}
+            additionalProperties: false
+        score: {type: integer}
+        hits: {type: integer}
+        misses: {type: integer}
+        timeouts: {type: integer}
+        lives: {type: integer}
+        ended_ms: {type: integer}
       additionalProperties: false
     Measured:
       type: object

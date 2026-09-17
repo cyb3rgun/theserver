@@ -117,6 +117,8 @@ func TestEveryPageInEveryLanguage(t *testing.T) {
 		})
 		h.html("POST", "/admin/editor/"+draft+"/field", url.Values{"select": {"rules"}, "rules.lives": {"x"}})
 		h.html("POST", "/admin/editor/"+draft+"/validate", url.Values{})
+		contains(t, h.html("GET", "/admin/editor/"+draft+"/preview", nil),
+			i18n.T(lang, "admin.preview.check"), i18n.T(lang, "admin.preview.lives"))
 		h.html("POST", "/admin/editor/"+draft+"/publish", url.Values{})
 
 		h.upload(scenariotest.Zip(t, scenariotest.Broken(scenario.CodeBadPackage)))

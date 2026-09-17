@@ -109,13 +109,14 @@ func TestEveryDraftEndpointIsReachableFromThePage(t *testing.T) {
 	h.putMedia(id, "clip.mp4", mediakindtest.Clip())
 	media := h.html("GET", "/admin/editor/"+id+"/media", nil)
 	catalogue := h.html("GET", "/admin/scenarios", nil)
+	preview := h.html("GET", "/admin/editor/"+id+"/preview", nil)
 
-	attributes := regexp.MustCompile(`data-(draft|patch|panel|media|file|measure|validate|publish)="([^"]*)"`)
+	attributes := regexp.MustCompile(`data-(draft|patch|panel|media|file|measure|validate|publish|trace)="([^"]*)"`)
 	found := map[string]string{}
-	for _, m := range attributes.FindAllStringSubmatch(page, -1) {
+	for _, m := range attributes.FindAllStringSubmatch(page+preview, -1) {
 		found[m[1]] = m[2]
 	}
-	for _, name := range []string{"draft", "patch", "panel", "media", "file", "measure", "validate", "publish"} {
+	for _, name := range []string{"draft", "patch", "panel", "media", "file", "measure", "validate", "publish", "trace"} {
 		if found[name] == "" {
 			t.Fatalf("the page carries no address for %s", name)
 		}
@@ -140,6 +141,7 @@ func TestEveryDraftEndpointIsReachableFromThePage(t *testing.T) {
 		{"GET /drafts/{id}/media/{name}", "data-file", found["file"], http.MethodGet, found["file"] + "clip.mp4", ""},
 		{"PATCH /drafts/{id}/media/{name}", "data-measure", found["measure"], http.MethodPost, found["measure"] + "clip.mp4/measure", `{"duration_ms":1000,"width":64,"height":64}`},
 		{"DELETE /drafts/{id}/media/{name}", "the delete form of a file", found["media"] + "/clip.mp4/delete", http.MethodPost, found["media"] + "/clip.mp4/delete", ""},
+		{"POST /drafts/{id}/trace", "data-trace on the preview", found["trace"], http.MethodPost, found["trace"], `{"shots":[{"t_ms":10,"x":1,"y":1}]}`},
 		{"POST /drafts/{id}/validate", "data-validate", found["validate"], http.MethodPost, found["validate"], ""},
 		{"POST /drafts/{id}/publish", "data-publish", found["publish"], http.MethodPost, found["publish"], ""},
 	}
@@ -177,7 +179,7 @@ func TestEveryDraftEndpointIsReachableFromThePage(t *testing.T) {
 			t.Errorf("%s: the control %s is empty", c.api, c.control)
 			continue
 		}
-		if where := page + media + catalogue; !strings.Contains(where, c.carries) {
+		if where := page + media + catalogue + preview; !strings.Contains(where, c.carries) {
 			t.Errorf("%s: the page does not carry %s (%s)", c.api, c.carries, c.control)
 		}
 		if c.api == "POST /drafts/{id}/publish" || c.api == "DELETE /drafts/{id}" || c.api == "POST /drafts" {
@@ -193,6 +195,40 @@ func TestEveryDraftEndpointIsReachableFromThePage(t *testing.T) {
 			t.Errorf("%s: %s %s answered %d: %s", c.api, c.method, c.path, rec.Code, rec.Body.String())
 		}
 	}
+}
+
+// The preview plays the draft with the rule engine of section 7 in the
+// browser and can compare its trace with the one of the server (D-044).
+func TestPreviewPage(t *testing.T) {
+	h := newHarness(t)
+	id := h.draft("preview-test", "interactive")
+	page := h.html("GET", "/admin/editor/"+id+"/preview", nil)
+	contains(t, page,
+		`<h1>`+i18n.T("en", "admin.preview.title"),
+		`id="preview-canvas"`, `id="preview-score"`, `id="score-lives"`,
+		`data-trace="/admin/editor/`+id+`/trace"`,
+		`<script src="/admin/static/rules.js"`, `<script src="/admin/static/preview.js"`,
+		i18n.T("en", "admin.preview.check"),
+	)
+	for _, name := range []string{"rules.js", "preview.js"} {
+		script := h.do(http.MethodGet, "/admin/static/"+name, nil, true)
+		if script.Code != http.StatusOK {
+			t.Fatalf("%s answered %d", name, script.Code)
+		}
+		sum := sha512.Sum384(script.Body.Bytes())
+		hash := strings.ReplaceAll(base64.StdEncoding.EncodeToString(sum[:]), "+", "&#43;")
+		if !strings.Contains(page, `integrity="sha384-`+hash+`"`) {
+			t.Errorf("the preview does not carry the hash of %s", name)
+		}
+	}
+
+	// The trace of the server is the one the engine of internal/scenario
+	// writes; the browser compares it with its own.
+	answer := h.json(http.MethodPost, "/admin/editor/"+id+"/trace", `{"shots":[{"t_ms":500,"x":10,"y":10}]}`)
+	if answer.Code != http.StatusOK {
+		t.Fatalf("the trace answered %d: %s", answer.Code, answer.Body.String())
+	}
+	contains(t, answer.Body.String(), `"kind":"miss"`, `"ended_ms"`)
 }
 
 // The integrity hash in the page is the hash of the file that is served, so

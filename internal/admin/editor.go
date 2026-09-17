@@ -242,6 +242,60 @@ func (a *Admin) editorPage(w http.ResponseWriter, r *http.Request, s session) {
 	a.render(w, s.Lang, http.StatusOK, "editor", "layout", data)
 }
 
+// previewData is the preview page.
+type previewData struct {
+	layout
+	Draft       httpapi.Draft
+	Name        string
+	Script      string
+	RulesScript string
+	Words       template.JS
+}
+
+// previewPage plays a draft with the rules of section 7 in the browser
+// (D-044).
+func (a *Admin) previewPage(w http.ResponseWriter, r *http.Request, s session) {
+	draft, ok := a.draftOf(w, r, s)
+	if !ok {
+		return
+	}
+	data := previewData{
+		layout:      a.layout("admin.preview.title", "scenarios", s),
+		Draft:       draft,
+		Name:        titleIn(s.Lang, draft.Title, draft.ScenarioID),
+		Script:      a.scripts["preview.js"],
+		RulesScript: a.scripts["rules.js"],
+		Words:       previewWords(s.Lang),
+	}
+	a.render(w, s.Lang, http.StatusOK, "preview", "layout", data)
+}
+
+// previewWords are the texts preview.js shows; the script holds none.
+func previewWords(lang string) template.JS {
+	words := map[string]string{}
+	for _, key := range []string{"agree", "differ", "ended", "failed"} {
+		words[key] = i18n.T(lang, "admin.preview.js."+key)
+	}
+	encoded, err := json.Marshal(words)
+	if err != nil {
+		return template.JS("{}")
+	}
+	return template.JS(encoded)
+}
+
+// editorTrace hands the shots of a run to the rule engine of the server and
+// answers with its trace, which the preview compares with its own.
+func (a *Admin) editorTrace(w http.ResponseWriter, r *http.Request, s session) {
+	var answer httpapi.TraceOf
+	err := a.send(r, s, http.MethodPost, "/drafts/"+url.PathEscape(r.PathValue("id"))+"/trace",
+		r.Body, "application/json", &answer)
+	if err != nil {
+		a.editorError(w, r, s, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, answer)
+}
+
 // editorDraft hands the draft to editor.js as the API gives it.
 func (a *Admin) editorDraft(w http.ResponseWriter, r *http.Request, s session) {
 	draft, ok := a.draftOf(w, r, s)

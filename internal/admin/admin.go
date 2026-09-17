@@ -70,7 +70,7 @@ type Admin struct {
 	handler   http.Handler
 }
 
-var pageNames = []string{"login", "devices", "device", "sessions", "ranking", "scenarios", "scenario", "editor", "settings"}
+var pageNames = []string{"login", "devices", "device", "sessions", "ranking", "scenarios", "scenario", "editor", "preview", "settings"}
 
 // New returns the admin handler.
 func New(opts Options) (*Admin, error) {
@@ -100,7 +100,7 @@ func New(opts Options) (*Admin, error) {
 		integrity: "sha384-" + base64.StdEncoding.EncodeToString(sum[:]),
 		scripts:   map[string]string{},
 	}
-	for _, name := range []string{"settings.js", "scenarios.js", "editor.js"} {
+	for _, name := range []string{"settings.js", "scenarios.js", "editor.js", "rules.js", "preview.js"} {
 		script, err := staticFS.ReadFile("static/" + name)
 		if err != nil {
 			return nil, err
@@ -161,6 +161,8 @@ func New(opts Options) (*Admin, error) {
 	mux.Handle("POST /admin/editor/{id}/media/{name}/measure", a.page(a.editorMeasure))
 	mux.Handle("POST /admin/editor/{id}/validate", a.page(a.editorValidate))
 	mux.Handle("POST /admin/editor/{id}/publish", a.page(a.editorPublish))
+	mux.Handle("GET /admin/editor/{id}/preview", a.page(a.previewPage))
+	mux.Handle("POST /admin/editor/{id}/trace", a.page(a.editorTrace))
 	mux.Handle("POST /admin/editor/{id}/delete", a.page(a.editorDelete))
 	mux.Handle("GET /admin/ranking", a.page(a.rankingPage))
 	mux.Handle("GET /admin/ranking/table", a.page(a.rankingTable))

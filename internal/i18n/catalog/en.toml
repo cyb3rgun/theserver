@@ -452,6 +452,28 @@ zone = "Zone"
 appearance = "Appearance"
 keyframe = "Keyframe"
 
+[admin.preview]
+title = "Preview"
+intro = "Play the draft with the mouse as the pistol. The rules are the ones a target will run."
+start = "Start"
+restart = "Start again"
+check = "Check the rules"
+back = "Back to the editor"
+canvas = "The picture with the zones that are live"
+points = "Points"
+hits = "Hits"
+misses = "Misses"
+timeouts = "Timeouts"
+lives = "Lives"
+time = "Time"
+hint = "Click into the picture to shoot. Space starts and pauses. The check plays the shots of this run through the rules of the server as well and says whether both agree."
+
+[admin.preview.js]
+agree = "The rules of the browser and of the server agree on this run."
+differ = "The rules of the browser and of the server do not agree on this run."
+ended = "The scenario is over."
+failed = "The server did not answer the check."
+
 [admin.settings]
 title = "Settings"
 intro = "Every setting of the server, grouped by area. Saving writes the changes to %s. A setting marked with a restart note takes effect when theserver starts again, every other one at once."

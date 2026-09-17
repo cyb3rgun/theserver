@@ -94,6 +94,19 @@ type DraftProblems struct {
 	Problems []scenario.Problem `json:"problems"`
 }
 
+// Shots is the body of POST /drafts/{id}/trace: what a player fired.
+type Shots struct {
+	Shots []scenario.Shot `json:"shots"`
+}
+
+// TraceOf is the answer: the trace the rule engine of section 7 wrote.
+type TraceOf struct {
+	Trace scenario.Trace `json:"trace"`
+}
+
+// MaxShots is what one trace request may carry.
+const MaxShots = 10000
+
 // Measured is the body of PATCH /drafts/{id}/media/{name}: what the browser
 // measured on a clip, which the server does not read itself (D-045).
 type Measured struct {
@@ -440,6 +453,32 @@ func (s *Server) deleteDraftMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "draft media deleted", "draft", id, "file", name)
 	writeJSON(w, http.StatusOK, DraftChanged{Draft: s.draftJSON(r, d, true), Touched: []scenario.Problem{}})
+}
+
+// traceDraft plays the shots against the draft with the rule engine of
+// docs/scenario.md section 7 and answers with its trace (D-044). The editor
+// compares it with the trace its own engine wrote for the same shots.
+func (s *Server) traceDraft(w http.ResponseWriter, r *http.Request) {
+	d, err := s.opts.Store.GetDraft(r.Context(), r.PathValue("id"))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var body Shots
+	if err := decodeBody(r, &body); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if len(body.Shots) > MaxShots {
+		s.fail(w, r, fmt.Errorf("%w: a run carries at most %d shots", errBadRequest, MaxShots))
+		return
+	}
+	m, err := content.DecodeManifest(d.Manifest)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, TraceOf{Trace: scenario.Run(m, body.Shots)})
 }
 
 // validateDraft says what a publish would find.

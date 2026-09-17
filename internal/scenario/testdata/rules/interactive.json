@@ -1,0 +1,261 @@
+{
+  "scenario": "zombie-alley",
+  "runs": [
+    {
+      "name": "a timeout and a cleared target",
+      "shots": [
+        {
+          "t_ms": 1000,
+          "x": 540,
+          "y": 960
+        },
+        {
+          "t_ms": 9500,
+          "x": 310,
+          "y": 355
+        },
+        {
+          "t_ms": 10000,
+          "x": 700,
+          "y": 700
+        },
+        {
+          "t_ms": 11000,
+          "x": 340,
+          "y": 370
+        },
+        {
+          "t_ms": 19000,
+          "x": 100,
+          "y": 100
+        }
+      ],
+      "trace": {
+        "events": [
+          {
+            "t_ms": 1000,
+            "kind": "miss",
+            "score": 0,
+            "lives": 3
+          },
+          {
+            "t_ms": 3000,
+            "kind": "appear",
+            "appearance": "a-zombie-1",
+            "score": 0,
+            "lives": 3
+          },
+          {
+            "t_ms": 3000,
+            "kind": "state",
+            "state": "walk",
+            "score": 0,
+            "lives": 3
+          },
+          {
+            "t_ms": 6000,
+            "kind": "timeout",
+            "appearance": "a-zombie-1",
+            "score": 0,
+            "lives": 2
+          },
+          {
+            "t_ms": 9000,
+            "kind": "appear",
+            "appearance": "a-zombie-2",
+            "score": 0,
+            "lives": 2
+          },
+          {
+            "t_ms": 9500,
+            "kind": "hit",
+            "appearance": "a-zombie-2",
+            "zone": "z-head-2",
+            "zone_class": "head",
+            "points": 50,
+            "score": 50,
+            "lives": 2
+          },
+          {
+            "t_ms": 10000,
+            "kind": "miss",
+            "score": 50,
+            "lives": 2
+          },
+          {
+            "t_ms": 11000,
+            "kind": "hit",
+            "appearance": "a-zombie-2",
+            "zone": "z-head-2",
+            "zone_class": "head",
+            "points": 50,
+            "score": 100,
+            "lives": 2
+          },
+          {
+            "t_ms": 11000,
+            "kind": "clear",
+            "appearance": "a-zombie-2",
+            "zone": "z-head-2",
+            "zone_class": "head",
+            "score": 100,
+            "lives": 2
+          },
+          {
+            "t_ms": 11000,
+            "kind": "state",
+            "state": "die-head",
+            "score": 100,
+            "lives": 2
+          },
+          {
+            "t_ms": 19000,
+            "kind": "miss",
+            "score": 100,
+            "lives": 2
+          },
+          {
+            "t_ms": 20000,
+            "kind": "end",
+            "reason": "done",
+            "score": 100,
+            "lives": 2
+          }
+        ],
+        "score": 100,
+        "hits": 2,
+        "misses": 3,
+        "timeouts": 1,
+        "lives": 2,
+        "ended_ms": 20000
+      }
+    },
+    {
+      "name": "a torso hit that comes back to walking",
+      "shots": [
+        {
+          "t_ms": 3500,
+          "x": 520,
+          "y": 500
+        },
+        {
+          "t_ms": 9200,
+          "x": 305,
+          "y": 352
+        },
+        {
+          "t_ms": 12900,
+          "x": 365,
+          "y": 382
+        }
+      ],
+      "trace": {
+        "events": [
+          {
+            "t_ms": 3000,
+            "kind": "appear",
+            "appearance": "a-zombie-1",
+            "score": 0,
+            "lives": 3
+          },
+          {
+            "t_ms": 3000,
+            "kind": "state",
+            "state": "walk",
+            "score": 0,
+            "lives": 3
+          },
+          {
+            "t_ms": 3500,
+            "kind": "hit",
+            "appearance": "a-zombie-1",
+            "zone": "z-torso",
+            "zone_class": "torso",
+            "points": 50,
+            "score": 50,
+            "lives": 3
+          },
+          {
+            "t_ms": 3500,
+            "kind": "clear",
+            "appearance": "a-zombie-1",
+            "zone": "z-torso",
+            "zone_class": "torso",
+            "score": 50,
+            "lives": 3
+          },
+          {
+            "t_ms": 3500,
+            "kind": "state",
+            "state": "die-body",
+            "score": 50,
+            "lives": 3
+          },
+          {
+            "t_ms": 5000,
+            "kind": "state",
+            "state": "walk",
+            "score": 50,
+            "lives": 3
+          },
+          {
+            "t_ms": 9000,
+            "kind": "appear",
+            "appearance": "a-zombie-2",
+            "score": 50,
+            "lives": 3
+          },
+          {
+            "t_ms": 9200,
+            "kind": "hit",
+            "appearance": "a-zombie-2",
+            "zone": "z-head-2",
+            "zone_class": "head",
+            "points": 50,
+            "score": 100,
+            "lives": 3
+          },
+          {
+            "t_ms": 12900,
+            "kind": "hit",
+            "appearance": "a-zombie-2",
+            "zone": "z-head-2",
+            "zone_class": "head",
+            "points": 50,
+            "score": 150,
+            "lives": 3
+          },
+          {
+            "t_ms": 12900,
+            "kind": "clear",
+            "appearance": "a-zombie-2",
+            "zone": "z-head-2",
+            "zone_class": "head",
+            "score": 150,
+            "lives": 3
+          },
+          {
+            "t_ms": 12900,
+            "kind": "state",
+            "state": "die-head",
+            "score": 150,
+            "lives": 3
+          },
+          {
+            "t_ms": 20000,
+            "kind": "end",
+            "reason": "done",
+            "score": 150,
+            "lives": 3
+          }
+        ],
+        "score": 150,
+        "hits": 3,
+        "misses": 0,
+        "timeouts": 0,
+        "lives": 3,
+        "ended_ms": 20000
+      }
+    }
+  ]
+}
