@@ -162,6 +162,12 @@ func (s *Store) nowMilli() int64 {
 	return s.now().UTC().UnixMilli()
 }
 
+// Now is the clock of the store, for callers that stamp a value they hand
+// to it, as the editor stamps a media file.
+func (s *Store) Now() int64 {
+	return s.nowMilli()
+}
+
 type migration struct {
 	version int
 	name    string

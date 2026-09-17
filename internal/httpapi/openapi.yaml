@@ -273,6 +273,233 @@ paths:
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/ContentConflict"}
+  /drafts:
+    get:
+      summary: The editor drafts, the one changed last first (D-041).
+      operationId: listDrafts
+      responses:
+        "200":
+          description: The drafts without their manifests.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [drafts]
+                properties:
+                  drafts:
+                    type: array
+                    items: {$ref: "#/components/schemas/Draft"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      summary: Open a draft, empty or as a copy of a published version.
+      description: |
+        An empty draft needs an id and a tier; the editor of S01 works in
+        the tiers video and interactive. A copy names a published version in
+        from; its manifest and its media come with it, and the id of the
+        copy is the id of that scenario unless another one is given. The
+        draft carries no files table and no version: the server writes both
+        when it publishes (D-042).
+      operationId: createDraft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewDraft"}
+      responses:
+        "201":
+          description: The new draft with its manifest.
+          headers:
+            Location:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Draft"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /drafts/{id}:
+    get:
+      summary: One draft with its manifest, its media and its problems.
+      operationId: getDraft
+      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      responses:
+        "200":
+          description: The draft.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Draft"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    patch:
+      summary: Change the manifest of a draft with a JSON merge patch.
+      description: |
+        The body is a JSON merge patch (RFC 7386) on the manifest: a key
+        with a value replaces it, a key with null removes it, an array is
+        replaced as a whole. The result must fit the scenario model, else
+        nothing is stored and the field is named with the code bad_manifest.
+        The answer carries the whole draft and, in touched, the problems
+        that lie in the parts the change named.
+      operationId: patchDraft
+      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, description: A JSON merge patch on the manifest.}
+      responses:
+        "200":
+          description: The draft after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftChanged"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      summary: Delete a draft with its media directory.
+      operationId: deleteDraft
+      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      responses:
+        "204":
+          description: The draft is gone.
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /drafts/{id}/media:
+    post:
+      summary: Upload one media file into a draft (D-045).
+      description: |
+        The body is multipart/form-data with the file in the field file and
+        an optional field name. The server reads the container and the codec
+        from the header and takes a clip as MP4 with H.264 or AV1, an
+        overlay as WebM with VP8, VP9 or AV1, a sound as Ogg with Vorbis or
+        Opus, and a cover as PNG. Anything else is refused with 415 and the
+        code bad_media. A file of the same name is replaced. The server
+        never decodes media; the duration and the dimensions come from the
+        browser with PATCH on the file.
+      operationId: uploadDraftMedia
+      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+                name: {type: string, description: The name in the media directory.}
+      responses:
+        "201":
+          description: The draft with the file in its media list.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftChanged"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "413":
+          description: The file is larger than the upload limit; code too_large.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+        "415":
+          description: The container or the codec is not one the editor takes; code bad_media.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
+  /drafts/{id}/media/{name}:
+    patch:
+      summary: Keep what the browser measured on a clip.
+      operationId: measureDraftMedia
+      parameters:
+        - {$ref: "#/components/parameters/DraftID"}
+        - {$ref: "#/components/parameters/MediaName"}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Measured"}
+      responses:
+        "200":
+          description: The draft with the measured file.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftChanged"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      summary: Remove one media file from a draft.
+      description: |
+        The manifest keeps what it says; validation then names the file as
+        missing, so nothing disappears silently.
+      operationId: deleteDraftMedia
+      parameters:
+        - {$ref: "#/components/parameters/DraftID"}
+        - {$ref: "#/components/parameters/MediaName"}
+      responses:
+        "200":
+          description: The draft without the file.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftChanged"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /drafts/{id}/validate:
+    post:
+      summary: What a publish of this draft would find.
+      description: |
+        The server builds the manifest with the files table it would write,
+        validates it with internal/scenario and answers the problems, the
+        same ones the package would have.
+      operationId: validateDraft
+      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      responses:
+        "200":
+          description: The problems, empty when the draft is ready.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DraftProblems"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /drafts/{id}/publish:
+    post:
+      summary: Write the package of a draft and publish it (D-042).
+      description: |
+        The server writes manifest.toml from the draft, computes the SHA-256
+        of every file into the files table, zips the package, hands it to
+        the same chain an upload takes and publishes the version. The
+        version is one above the latest published version of the scenario. A
+        draft with problems publishes nothing and is answered with 422.
+      operationId: publishDraft
+      parameters: [{$ref: "#/components/parameters/DraftID"}]
+      responses:
+        "200":
+          description: The published version.
+          headers:
+            Location:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/ScenarioVersion"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "422":
+          description: The draft was not published; code invalid_package, with error.problems.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Error"}
   /scenarios:
     get:
       summary: The catalogue, one entry per scenario (D-036).
@@ -637,6 +864,17 @@ components:
       in: path
       required: true
       schema: {type: string}
+    DraftID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string}
+    MediaName:
+      name: name
+      in: path
+      required: true
+      description: The file name in the media directory of the draft.
+      schema: {type: string}
     Version:
       name: version
       in: path
@@ -693,6 +931,92 @@ components:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
   schemas:
+    Draft:
+      type: object
+      description: One editor draft (D-041).
+      required: [id, scenario_id, tier, title, media, created_at, updated_at, problems]
+      properties:
+        id: {type: string, description: "The id of the draft, not of the scenario."}
+        scenario_id: {type: string, description: The id the published scenario gets.}
+        tier: {type: string, enum: [video, interactive, layered, realtime]}
+        title:
+          type: object
+          additionalProperties: {type: string}
+        manifest:
+          type: object
+          description: The manifest as the editor changes it; left out in the list.
+        media:
+          type: array
+          items: {$ref: "#/components/schemas/DraftMedia"}
+        created_at: {type: integer}
+        created_by: {type: string}
+        updated_at: {type: integer}
+        updated_by: {type: string}
+        published_version: {type: integer, description: "The version this draft last published, 0 for none."}
+        next_version: {type: integer, description: The version the next publish gets.}
+        problems:
+          type: array
+          items: {$ref: "#/components/schemas/Problem"}
+      additionalProperties: false
+    DraftMedia:
+      type: object
+      description: One file in the media directory of a draft.
+      required: [name, path, container, codec, size]
+      properties:
+        name: {type: string}
+        path: {type: string, description: Where the file lands in the package.}
+        use: {type: string, enum: [clip, overlay, sound, cover], description: What the kind is good for; empty when nothing takes it.}
+        container: {type: string}
+        codec: {type: string}
+        size: {type: integer}
+        duration_ms: {type: integer, description: "What the browser measured, 0 until it says."}
+        width: {type: integer}
+        height: {type: integer}
+        uploaded_at: {type: integer}
+      additionalProperties: false
+    DraftChanged:
+      type: object
+      required: [draft, touched]
+      properties:
+        draft: {$ref: "#/components/schemas/Draft"}
+        touched:
+          type: array
+          description: The problems in the parts of the manifest the change named.
+          items: {$ref: "#/components/schemas/Problem"}
+      additionalProperties: false
+    DraftProblems:
+      type: object
+      required: [problems]
+      properties:
+        problems:
+          type: array
+          items: {$ref: "#/components/schemas/Problem"}
+      additionalProperties: false
+    NewDraft:
+      type: object
+      properties:
+        id: {type: string, description: The id the scenario gets.}
+        tier: {type: string, enum: [video, interactive]}
+        title:
+          type: object
+          additionalProperties: {type: string}
+        from:
+          type: object
+          description: The published version to copy.
+          required: [id, version]
+          properties:
+            id: {type: string}
+            version: {type: integer, minimum: 1}
+          additionalProperties: false
+      additionalProperties: false
+    Measured:
+      type: object
+      description: What the browser measured on a clip.
+      properties:
+        duration_ms: {type: integer, minimum: 0}
+        width: {type: integer, minimum: 0}
+        height: {type: integer, minimum: 0}
+      additionalProperties: false
     Error:
       type: object
       required: [error]

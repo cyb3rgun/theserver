@@ -11,6 +11,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 
@@ -147,6 +148,16 @@ func (s *Server) routes() []struct {
 		{Route{http.MethodPost, "/sessions/{id}/stop", true, false}, s.stopSession},
 		{Route{http.MethodPost, "/sessions/{id}/devices", true, false}, s.addSessionDevice},
 		{Route{http.MethodPost, "/sessions/{id}/scenario", true, false}, s.assignScenario},
+		{Route{http.MethodGet, "/drafts", true, false}, s.listDrafts},
+		{Route{http.MethodPost, "/drafts", true, false}, s.createDraft},
+		{Route{http.MethodGet, "/drafts/{id}", true, false}, s.getDraft},
+		{Route{http.MethodPatch, "/drafts/{id}", true, false}, s.patchDraft},
+		{Route{http.MethodDelete, "/drafts/{id}", true, false}, s.deleteDraft},
+		{Route{http.MethodPost, "/drafts/{id}/media", true, false}, s.uploadDraftMedia},
+		{Route{http.MethodPatch, "/drafts/{id}/media/{name}", true, false}, s.measureDraftMedia},
+		{Route{http.MethodDelete, "/drafts/{id}/media/{name}", true, false}, s.deleteDraftMedia},
+		{Route{http.MethodPost, "/drafts/{id}/validate", true, false}, s.validateDraft},
+		{Route{http.MethodPost, "/drafts/{id}/publish", true, false}, s.publishDraft},
 		{Route{http.MethodGet, "/scenarios", true, false}, s.listScenarios},
 		{Route{http.MethodPost, "/scenarios", true, false}, s.uploadScenario},
 		{Route{http.MethodGet, "/scenarios/{id}", true, false}, s.getScenario},
@@ -252,6 +263,8 @@ const (
 	codeVersionTaken     = "version_taken"
 	codeNotPublished     = "not_published"
 	codeAgeRating        = "age_rating"
+	codeBadMedia         = "bad_media"
+	codeBadManifest      = "bad_manifest"
 )
 
 // ErrorBody is the shape of every error answer of API v1.
@@ -282,8 +295,15 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, store.ErrDeviceNotFound), errors.Is(err, store.ErrSessionNotFound),
-		errors.Is(err, store.ErrScenarioNotFound):
+		errors.Is(err, store.ErrScenarioNotFound), errors.Is(err, store.ErrDraftNotFound),
+		errors.Is(err, os.ErrNotExist):
 		writeError(w, http.StatusNotFound, codeNotFound, err.Error())
+	case errors.Is(err, content.ErrBadMedia):
+		writeError(w, http.StatusUnsupportedMediaType, codeBadMedia, err.Error())
+	case errors.Is(err, content.ErrBadManifest):
+		writeError(w, http.StatusBadRequest, codeBadManifest, err.Error())
+	case errors.Is(err, content.ErrBadName):
+		writeError(w, http.StatusBadRequest, codeBadRequest, err.Error())
 	case errors.Is(err, store.ErrBadTransition):
 		writeError(w, http.StatusConflict, codeBadTransition, err.Error())
 	case errors.Is(err, store.ErrPublished):

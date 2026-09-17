@@ -56,7 +56,7 @@ func TestOpenCreatesDirectoryAndSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"admin_tokens", "device_scenarios", "devices", "events", "scenarios", "schema_migrations", "session_devices", "sessions"}
+	want := []string{"admin_tokens", "device_scenarios", "devices", "events", "scenario_drafts", "scenarios", "schema_migrations", "session_devices", "sessions"}
 	if !slices.Equal(names, want) {
 		t.Errorf("tables are %v, want %v", names, want)
 	}
@@ -165,7 +165,7 @@ func TestInfoReportsEmptyDatabase(t *testing.T) {
 	if info.BusyTimeoutMs != int(DefaultBusyTimeout.Milliseconds()) {
 		t.Errorf("busy timeout is %d, want %d", info.BusyTimeoutMs, DefaultBusyTimeout.Milliseconds())
 	}
-	want := map[string]int64{"admin_tokens": 0, "device_scenarios": 0, "devices": 0, "events": 0, "scenarios": 0, "schema_migrations": int64(count), "session_devices": 0, "sessions": 0}
+	want := map[string]int64{"admin_tokens": 0, "device_scenarios": 0, "devices": 0, "events": 0, "scenario_drafts": 0, "scenarios": 0, "schema_migrations": int64(count), "session_devices": 0, "sessions": 0}
 	if len(info.Tables) != len(want) {
 		t.Fatalf("Info lists %d tables, want %d", len(info.Tables), len(want))
 	}
