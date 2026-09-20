@@ -70,6 +70,9 @@ type Link struct {
 	PingIntervalS int `toml:"ping_interval_s"`
 	PongTimeoutS  int `toml:"pong_timeout_s"`
 	HelloTimeoutS int `toml:"hello_timeout_s"`
+	// InstallTimeoutS is how long the start of a session waits for a device
+	// to install the scenario before the pages call it not ready (D-059).
+	InstallTimeoutS int `toml:"install_timeout_s"`
 }
 
 // Store holds the database settings.

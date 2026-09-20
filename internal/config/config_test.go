@@ -39,7 +39,7 @@ func TestDefaultsComeFromTheRegistry(t *testing.T) {
 		Server:  Server{ListenAddr: ":8443", DataDir: "./data"},
 		Store:   Store{BusyTimeoutMs: 5000},
 		Content: Content{MaxUploadMB: 2048},
-		Link:    Link{AckIntervalMs: 100, AckBatch: 32, PingIntervalS: 15, PongTimeoutS: 10, HelloTimeoutS: 5},
+		Link:    Link{AckIntervalMs: 100, AckBatch: 32, PingIntervalS: 15, PongTimeoutS: 10, HelloTimeoutS: 5, InstallTimeoutS: 120},
 		Log:     Log{Level: "info", Format: "text"},
 		Admin:   Admin{Language: "en", SessionHours: 12},
 	}
@@ -104,7 +104,7 @@ level = "debug"
 		TLS:     TLS{CertFile: "file.crt", KeyFile: "file.key"},
 		Store:   Store{BusyTimeoutMs: 1234},
 		Content: Content{MaxUploadMB: 512, Dir: "file-content"},
-		Link:    Link{AckIntervalMs: 250, AckBatch: 8, PingIntervalS: 30, PongTimeoutS: 20, HelloTimeoutS: 3},
+		Link:    Link{AckIntervalMs: 250, AckBatch: 8, PingIntervalS: 30, PongTimeoutS: 20, HelloTimeoutS: 3, InstallTimeoutS: 120},
 		Log:     Log{Level: "warn", Format: "json"},
 		Admin:   Admin{Language: "de", SessionHours: 8},
 	}
@@ -155,7 +155,7 @@ level = "debug"
 				TLS:     TLS{CertFile: "env.crt", KeyFile: "env.key"},
 				Store:   Store{BusyTimeoutMs: 250},
 				Content: Content{MaxUploadMB: 100, Dir: "env-content"},
-				Link:    Link{AckIntervalMs: 50, AckBatch: 16, PingIntervalS: 5, PongTimeoutS: 4, HelloTimeoutS: 2},
+				Link:    Link{AckIntervalMs: 50, AckBatch: 16, PingIntervalS: 5, PongTimeoutS: 4, HelloTimeoutS: 2, InstallTimeoutS: 120},
 				Log:     Log{Level: "error", Format: "json"},
 				Admin:   Admin{Language: "de", SessionHours: 2},
 			},

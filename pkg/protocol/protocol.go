@@ -110,13 +110,17 @@ type Hello struct {
 // Welcome answers a hello. Ses is nil when no session is running, and is
 // then sent as CBOR null. Ep is the sequence epoch of the device, added in
 // S01-B04 (protocol section 8.8); a device whose journal belongs to another
-// epoch starts over at seq 1. It is 0 when a server does not send it.
+// epoch starts over at seq 1. It is 0 when a server does not send it. Scn is
+// the scenario version the running session plays, added in S01-B11
+// (protocol section 8.11); it is null when no session runs or the session
+// has none assigned.
 type Welcome struct {
-	T   string  `cbor:"t"`
-	Ack uint64  `cbor:"ack"`
-	Now int64   `cbor:"now"`
-	Ses *string `cbor:"ses"`
-	Ep  uint64  `cbor:"ep,omitempty"`
+	T   string   `cbor:"t"`
+	Ack uint64   `cbor:"ack"`
+	Now int64    `cbor:"now"`
+	Ses *string  `cbor:"ses"`
+	Scn *Holding `cbor:"scn"`
+	Ep  uint64   `cbor:"ep,omitempty"`
 }
 
 // Event is one journal entry of a device. D is the kind specific map exactly
@@ -265,6 +269,29 @@ type (
 		E   string `cbor:"e,omitempty"`
 	}
 )
+
+// SessionStart is the argument map of session_start: the session and the
+// scenario version it plays (protocol section 8.11). A device that gets it
+// knows what to load without guessing from the last announcement.
+type SessionStart struct {
+	Ses string  `cbor:"ses"`
+	Scn Holding `cbor:"scn"`
+}
+
+// Args returns the start as the a map of a command.
+func (s SessionStart) Args() map[string]any {
+	return map[string]any{"ses": s.Ses, "scn": map[string]any{"id": s.Scn.ID, "ver": s.Scn.Ver}}
+}
+
+// SessionStop is the argument map of session_stop.
+type SessionStop struct {
+	Ses string `cbor:"ses"`
+}
+
+// Args returns the stop as the a map of a command.
+func (s SessionStop) Args() map[string]any {
+	return map[string]any{"ses": s.Ses}
+}
 
 // ContentAvailable is the argument map of content_available: the scenario
 // version ID and Ver, the manifest hash Sha in lower case hex, and the size

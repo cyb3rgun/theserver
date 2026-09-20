@@ -198,6 +198,22 @@ var registry = []Setting{
 		},
 	},
 	{
+		Key: "link.install_timeout_s", Section: "link", Kind: Duration, Default: int64(120),
+		Unit: "s", Min: bound(1), Max: bound(3600),
+		Text: map[string]Text{
+			"en": {
+				Label:       "Time for an install",
+				Description: "Time a starting session waits for a device to install the scenario it plays.",
+				Why:         "A session only starts a device once that device holds the scenario version. Until it does, the session page shows the device as not ready, and after this time it says that the install is taking too long. The server keeps waiting either way; a device that finishes later is still told to play. Raise the value for large packages or a slow network.",
+			},
+			"de": {
+				Label:       "Zeit für eine Installation",
+				Description: "Zeit, die eine startende Sitzung auf die Installation des Szenarios eines Geräts wartet.",
+				Why:         "Eine Sitzung startet ein Gerät erst, wenn es die Szenario-Version hat. Bis dahin zeigt die Sitzungsseite das Gerät als nicht bereit, und nach dieser Zeit sagt sie, dass die Installation zu lange dauert. Der Server wartet in beiden Fällen weiter; ein Gerät, das später fertig wird, bekommt seinen Start trotzdem. Erhöhen Sie den Wert für große Pakete oder ein langsames Netz.",
+			},
+		},
+	},
+	{
 		Key: "log.level", Section: "log", Kind: Enum, Default: "info",
 		Enum: []string{"debug", "info", "warn", "error"}, Flag: "log-level",
 		Text: map[string]Text{

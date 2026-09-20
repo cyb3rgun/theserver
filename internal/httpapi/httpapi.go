@@ -268,6 +268,7 @@ const (
 	codeHasProblems      = "has_problems"
 	codeVersionTaken     = "version_taken"
 	codeNotPublished     = "not_published"
+	codeNoScenario       = "no_scenario"
 	codeAgeRating        = "age_rating"
 	codeBadMedia         = "bad_media"
 	codeBadManifest      = "bad_manifest"
@@ -322,6 +323,8 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, codeVersionTaken, err.Error())
 	case errors.Is(err, store.ErrNotPublished):
 		writeError(w, http.StatusConflict, codeNotPublished, err.Error())
+	case errors.Is(err, store.ErrNoScenario):
+		writeError(w, http.StatusConflict, codeNoScenario, err.Error())
 	case errors.Is(err, store.ErrAgeRating):
 		writeError(w, http.StatusConflict, codeAgeRating, err.Error())
 	case errors.Is(err, store.ErrDraftLocked):

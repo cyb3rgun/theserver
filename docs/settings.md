@@ -54,6 +54,7 @@ Every setting can be set in the configuration file, by an environment variable o
 | `link.ping_interval_s` | Ping interval | Time between two keepalive pings to a connected device. | `15` | s | 1 to 3600 | no | `THESERVER_LINK_PINGINTERVALS` |  |
 | `link.pong_timeout_s` | Ping answer time | Time a device has to answer a ping before it counts as offline. | `10` | s | 1 to 600 | no | `THESERVER_LINK_PONGTIMEOUTS` |  |
 | `link.hello_timeout_s` | Greeting time | Time a new device connection has to introduce itself. | `5` | s | 1 to 600 | no | `THESERVER_LINK_HELLOTIMEOUTS` |  |
+| `link.install_timeout_s` | Time for an install | Time a starting session waits for a device to install the scenario it plays. | `120` | s | 1 to 3600 | no | `THESERVER_LINK_INSTALLTIMEOUTS` |  |
 
 **Acknowledgement interval** (`link.ack_interval_ms`). A target keeps every event until theserver acknowledges it. A short interval frees the target's journal sooner, a longer one stores more events per write. 100 ms suits most venues. A change applies to the next batch.
 
@@ -64,6 +65,8 @@ Every setting can be set in the configuration file, by an environment variable o
 **Ping answer time** (`link.pong_timeout_s`). A device that does not answer in time is disconnected and shown as offline. It connects again and delivers what it recorded in the meantime. Raise the value on a weak WiFi.
 
 **Greeting time** (`link.hello_timeout_s`). A new connection must send its greeting, the hello, within this time, or it is closed. This keeps half open connections from piling up. A change applies to connections that open after it.
+
+**Time for an install** (`link.install_timeout_s`). A session only starts a device once that device holds the scenario version. Until it does, the session page shows the device as not ready, and after this time it says that the install is taking too long. The server keeps waiting either way; a device that finishes later is still told to play. Raise the value for large packages or a slow network.
 
 ## log
 

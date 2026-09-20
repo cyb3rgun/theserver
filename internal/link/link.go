@@ -51,6 +51,10 @@ type Config struct {
 	// StatusCheck is how often the server looks for devices that lost their
 	// approval, so that a revoked device is dropped within that time.
 	StatusCheck time.Duration
+	// InstallTimeout is how long the start of a session waits for a device
+	// to install the scenario it plays before the pages call that device not
+	// ready (D-059). The link keeps waiting; only the answer changes.
+	InstallTimeout time.Duration
 }
 
 // DefaultConfig returns the numbers of docs/protocol.md.
@@ -63,6 +67,7 @@ func DefaultConfig() Config {
 		HelloTimeout:   5 * time.Second,
 		CommandTimeout: 5 * time.Second,
 		StatusCheck:    500 * time.Millisecond,
+		InstallTimeout: 120 * time.Second,
 	}
 }
 
@@ -106,6 +111,10 @@ type Server struct {
 	conns  map[string]*deviceConn
 	closed bool
 	active sync.WaitGroup
+
+	// sessions is what the link is doing for the devices of running
+	// sessions (D-057).
+	sessions *sessions
 }
 
 // New returns a link server that journals into st.
@@ -114,11 +123,12 @@ func New(st *store.Store, cfg Config, logger *slog.Logger) *Server {
 		logger = slog.Default()
 	}
 	return &Server{
-		store: st,
-		cfg:   cfg,
-		log:   logger.With("component", "link"),
-		now:   time.Now,
-		conns: map[string]*deviceConn{},
+		store:    st,
+		cfg:      cfg,
+		log:      logger.With("component", "link"),
+		now:      time.Now,
+		conns:    map[string]*deviceConn{},
+		sessions: newSessions(),
 	}
 }
 
@@ -567,16 +577,25 @@ func (c *deviceConn) serve() {
 	go c.batchLoop()
 	defer c.finish()
 
-	if !c.handshake() {
+	session, ok := c.handshake()
+	if !ok {
 		return
 	}
 	go c.pingLoop()
+	// A device that connects into a running session is told what it plays,
+	// once its read loop can answer the command (D-057).
+	c.srv.active.Add(1)
+	go func() {
+		defer c.srv.active.Done()
+		c.sessionOnConnect(session)
+	}()
 	c.readLoop()
 }
 
-// handshake reads the hello and answers it. It reports whether the connection
-// goes on.
-func (c *deviceConn) handshake() bool {
+// handshake reads the hello and answers it. It returns the running session
+// of the device, empty when there is none, and whether the connection goes
+// on.
+func (c *deviceConn) handshake() (store.Session, bool) {
 	helloCtx, cancel := context.WithTimeout(c.ctx, c.srv.Config().HelloTimeout)
 	typ, data, err := c.ws.Read(helloCtx)
 	cancel()
@@ -586,29 +605,29 @@ func (c *deviceConn) handshake() bool {
 		} else {
 			c.setReason("closed before hello: " + describeReadError(err))
 		}
-		return false
+		return store.Session{}, false
 	}
 	c.touch()
 
 	msg, ok := c.decode(typ, data)
 	if !ok {
-		return false
+		return store.Session{}, false
 	}
 	hello, isHello := msg.(protocol.Hello)
 	if !isHello {
 		c.fail(protocol.CodeBadMessage, fmt.Sprintf("expected hello, got %s", msg.Type()))
-		return false
+		return store.Session{}, false
 	}
 	switch {
 	case hello.Proto != protocol.Version:
 		c.fail(protocol.CodeProtoUnsupported, fmt.Sprintf("protocol %d is not supported, this server speaks %d", hello.Proto, protocol.Version))
-		return false
+		return store.Session{}, false
 	case hello.Dev != c.deviceID:
 		c.fail(protocol.CodeUnauthorized, fmt.Sprintf("the token belongs to %s, not to %s", c.deviceID, hello.Dev))
-		return false
+		return store.Session{}, false
 	case hello.Cls != protocol.ClassESP && hello.Cls != protocol.ClassPi && hello.Cls != protocol.ClassPC:
 		c.fail(protocol.CodeBadMessage, fmt.Sprintf("unknown class %q", hello.Cls))
-		return false
+		return store.Session{}, false
 	}
 	if hello.Cls != c.device.Class {
 		c.log.Warn("device reports another class than registered", "hello_class", hello.Cls, "registered_class", c.device.Class)
@@ -619,7 +638,7 @@ func (c *deviceConn) handshake() bool {
 	old, err := c.srv.register(c)
 	if err != nil {
 		c.close(closing{code: websocket.StatusGoingAway, reason: "server shutting down"})
-		return false
+		return store.Session{}, false
 	}
 	if old != nil {
 		c.log.Info("replacing an older connection of the device", "old_remote", old.remote)
@@ -637,13 +656,13 @@ func (c *deviceConn) handshake() bool {
 	epoch, serverAck, err := c.srv.store.SeqState(ctx, c.deviceID)
 	if err != nil {
 		c.storeFailure("read sequence state", err)
-		return false
+		return store.Session{}, false
 	}
 	c.epoch = epoch
 	if hello.Last < serverAck {
 		c.fail(protocol.CodeSeqRegression,
 			fmt.Sprintf("device journal ends at %d, the server has %d; reset the device in the admin UI", hello.Last, serverAck))
-		return false
+		return store.Session{}, false
 	}
 	if hello.FW != "" && hello.FW != c.device.FirmwareVersion {
 		if err := c.srv.store.SetFirmwareVersion(ctx, c.deviceID, hello.FW); err != nil {
@@ -653,12 +672,15 @@ func (c *deviceConn) handshake() bool {
 	session, inSession, err := c.srv.store.RunningSessionFor(ctx, c.deviceID)
 	if err != nil {
 		c.storeFailure("read running session", err)
-		return false
+		return store.Session{}, false
 	}
 
 	welcome := protocol.Welcome{Ack: serverAck, Now: c.srv.now().UnixMilli(), Ep: epoch}
 	if inSession {
-		welcome.Ses = &session
+		welcome.Ses = &session.ID
+		if session.ScenarioVersion >= 1 {
+			welcome.Scn = &protocol.Holding{ID: session.Scenario, Ver: uint64(session.ScenarioVersion)}
+		}
 	}
 
 	c.statMu.Lock()
@@ -669,18 +691,22 @@ func (c *deviceConn) handshake() bool {
 
 	c.log.Info("device hello",
 		"fw", hello.FW, "class", hello.Cls, "device_last", hello.Last,
-		"epoch", epoch, "server_ack", serverAck, "replay_expected", hello.Last-serverAck, "session", session)
+		"epoch", epoch, "server_ack", serverAck, "replay_expected", hello.Last-serverAck,
+		"session", session.ID, "scenario", session.Scenario, "version", session.ScenarioVersion)
 
 	if err := c.send(welcome); err != nil {
-		return false
+		return store.Session{}, false
 	}
 	if hello.Last <= serverAck {
 		// Nothing to replay, so the replay is complete right away.
 		if err := c.send(protocol.Ack{Seq: serverAck}); err != nil {
-			return false
+			return store.Session{}, false
 		}
 	}
-	return true
+	if !inSession {
+		return store.Session{}, true
+	}
+	return session, true
 }
 
 // readLoop takes frames until the connection ends.
@@ -907,6 +933,7 @@ func (c *deviceConn) healthHoldings(ctx context.Context, event store.Event) {
 	}
 	c.holdingsKey, c.holdingsKnown = key, true
 	c.log.Info("device holdings", "scenarios", key)
+	c.srv.maybeStart(ctx, c.deviceID)
 	if !c.announced {
 		// A device that was offline when a scenario was assigned hears of
 		// it now (D-038).
@@ -939,6 +966,11 @@ func (c *deviceConn) contentReport(ctx context.Context, event store.Event) {
 		// The next health report is recorded again, whatever it says.
 		c.holdingsKnown = false
 		c.log.Info("content reported", attrs...)
+		if report.St == protocol.ContentInstalled {
+			// The session that waited for this package can start now
+			// (D-059).
+			c.srv.maybeStart(ctx, c.deviceID)
+		}
 	case protocol.ContentInstalling:
 		c.log.Info("content reported", attrs...)
 	case protocol.ContentFailed:

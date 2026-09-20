@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -25,6 +26,7 @@ import (
 	"github.com/cyb3rgun/theserver/internal/store"
 	"github.com/cyb3rgun/theserver/pkg/journal"
 	"github.com/cyb3rgun/theserver/pkg/protocol"
+	"github.com/cyb3rgun/theserver/pkg/scenario/scenariotest"
 )
 
 type apiHarness struct {
@@ -111,6 +113,15 @@ func (h *apiHarness) callAs(method, path, body, authorization string) *httptest.
 	rec := httptest.NewRecorder()
 	h.srv.ServeHTTP(rec, req)
 	return rec
+}
+
+// publishFixture uploads a fixture package and publishes version 1 of it,
+// so that a session has something to play (D-058).
+func (h *apiHarness) publishFixture(name string) {
+	h.t.Helper()
+	upload := decode[Upload](h.t, h.upload(scenariotest.Zip(h.t, name)), http.StatusCreated)
+	decode[ScenarioVersion](h.t, h.call(http.MethodPost,
+		fmt.Sprintf("%s/scenarios/%s/%d/publish", Prefix, upload.Scenario.ID, upload.Scenario.Version), ""), http.StatusOK)
 }
 
 func (h *apiHarness) device(id, status string, tokenHash []byte) {
@@ -319,6 +330,11 @@ func TestSessionRoutes(t *testing.T) {
 	expectError(t, h.call("POST", Prefix+"/sessions/evening/devices", `{"device_id":"nobody"}`), 404, codeNotFound)
 	expectError(t, h.call("POST", Prefix+"/sessions/evening/devices", `{}`), 400, codeBadRequest)
 	expectError(t, h.call("POST", Prefix+"/sessions/nothing/devices", `{"device_id":"tgt-01"}`), 404, codeNotFound)
+
+	// A session plays a published scenario before it can start (D-058).
+	expectError(t, h.call("POST", Prefix+"/sessions/evening/start", ""), http.StatusConflict, codeNoScenario)
+	h.publishFixture(scenariotest.Video)
+	decode[SessionAssignment](t, h.call("POST", Prefix+"/sessions/evening/scenario", `{"id":"night-range","version":1}`), 200)
 
 	started := decode[Session](t, h.call("POST", Prefix+"/sessions/evening/start", ""), 200)
 	if started.State != store.SessionRunning || started.StartedAt == 0 {

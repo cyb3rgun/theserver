@@ -39,6 +39,27 @@ func TestCreateAndGetSession(t *testing.T) {
 	}
 }
 
+// playable gives sessions a published scenario version, which a session
+// needs before it can start (D-058).
+func playable(t *testing.T, s *Store, sessionIDs ...string) {
+	t.Helper()
+	ctx := t.Context()
+	sc := draft("night-range", 1)
+	if _, err := s.GetScenario(ctx, sc.ID, sc.Version); errors.Is(err, ErrScenarioNotFound) {
+		if err := s.PutScenario(ctx, sc); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.PublishScenario(ctx, sc.ID, sc.Version); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range sessionIDs {
+		if err := s.AssignScenario(ctx, id, sc.ID, sc.Version); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestSessionTransitions(t *testing.T) {
 	type step struct {
 		name    string
@@ -77,6 +98,7 @@ func TestSessionTransitions(t *testing.T) {
 			if err := s.CreateSession(t.Context(), Session{ID: "s-1"}); err != nil {
 				t.Fatal(err)
 			}
+			playable(t, s, "s-1")
 			for _, st := range tt.steps {
 				err := st.apply(s, "s-1")
 				if st.wantErr == nil && err != nil {
@@ -100,6 +122,18 @@ func TestSessionTransitions(t *testing.T) {
 	if err := s.StartSession(t.Context(), "nothing"); !errors.Is(err, ErrSessionNotFound) {
 		t.Errorf("StartSession of an unknown id returned %v, want ErrSessionNotFound", err)
 	}
+	if err := s.CreateSession(t.Context(), Session{ID: "empty", Scenario: "a label"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.StartSession(t.Context(), "empty"); !errors.Is(err, ErrNoScenario) {
+		t.Errorf("a session without a scenario started: %v", err)
+	}
+	if err := s.PutScenario(t.Context(), draft("zombie-alley", 1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AssignScenario(t.Context(), "empty", "zombie-alley", 1); !errors.Is(err, ErrNotPublished) {
+		t.Errorf("a draft was assigned: %v", err)
+	}
 	if err := s.StopSession(t.Context(), "nothing"); !errors.Is(err, ErrSessionNotFound) {
 		t.Errorf("StopSession of an unknown id returned %v, want ErrSessionNotFound", err)
 	}
@@ -111,6 +145,7 @@ func TestSessionTimestamps(t *testing.T) {
 	if err := s.CreateSession(ctx, Session{ID: "s-1"}); err != nil {
 		t.Fatal(err)
 	}
+	playable(t, s, "s-1")
 
 	s.now = testClock(time.UnixMilli(1_700_000_010_000))
 	if err := s.StartSession(ctx, "s-1"); err != nil {
@@ -209,6 +244,7 @@ func TestRunningSessionFor(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	playable(t, s, "early", "late", "idle")
 	s.now = testClock(time.UnixMilli(1_000))
 	if err := s.StartSession(ctx, "early"); err != nil {
 		t.Fatal(err)
@@ -218,17 +254,21 @@ func TestRunningSessionFor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	id, ok, err := s.RunningSessionFor(ctx, "t-1")
-	if err != nil || !ok || id != "late" {
-		t.Errorf("RunningSessionFor returned %q, %v, %v, want the latest started", id, ok, err)
+	session, ok, err := s.RunningSessionFor(ctx, "t-1")
+	if err != nil || !ok || session.ID != "late" {
+		t.Errorf("RunningSessionFor returned %q, %v, %v, want the latest started", session.ID, ok, err)
+	}
+	// The session says what it plays, which the welcome carries (D-056).
+	if session.Scenario != "night-range" || session.ScenarioVersion != 1 {
+		t.Errorf("the running session plays %s version %d", session.Scenario, session.ScenarioVersion)
 	}
 
 	if err := s.StopSession(ctx, "late"); err != nil {
 		t.Fatal(err)
 	}
-	id, ok, err = s.RunningSessionFor(ctx, "t-1")
-	if err != nil || !ok || id != "early" {
-		t.Errorf("after the stop RunningSessionFor returned %q, %v, %v, want early", id, ok, err)
+	session, ok, err = s.RunningSessionFor(ctx, "t-1")
+	if err != nil || !ok || session.ID != "early" {
+		t.Errorf("after the stop RunningSessionFor returned %q, %v, %v, want early", session.ID, ok, err)
 	}
 }
 
@@ -253,6 +293,8 @@ func TestEventsAreAttributedByDeviceTime(t *testing.T) {
 	if err := s.AddSessionDevice(ctx, "second", "t-1"); err != nil {
 		t.Fatal(err)
 	}
+
+	playable(t, s, "first", "second")
 
 	// first runs from 10,000 to 20,000, second from 30,000 on.
 	s.now = testClock(time.UnixMilli(10_000))

@@ -27,6 +27,7 @@ import (
 	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/store"
 	"github.com/cyb3rgun/theserver/pkg/protocol"
+	"github.com/cyb3rgun/theserver/pkg/scenario/scenariotest"
 )
 
 type harness struct {
@@ -443,6 +444,10 @@ func TestSessionsPageAndActions(t *testing.T) {
 
 	added := h.html("POST", "/admin/sessions/evening/devices", url.Values{"device_id": {"tgt-01"}})
 	contains(t, added, "Device tgt-01 is in session evening.")
+
+	// A session plays a published scenario before it can start (D-058).
+	h.publish(scenariotest.Video)
+	h.html("POST", "/admin/sessions/evening/scenario", url.Values{"scenario": {"night-range@1"}})
 
 	started := h.html("POST", "/admin/sessions/evening/start", url.Values{})
 	contains(t, started, "Session evening is running.", `hx-post="/admin/sessions/evening/stop"`)

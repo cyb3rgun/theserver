@@ -802,6 +802,8 @@ func TestWelcomeCarriesRunningSession(t *testing.T) {
 	if err := h.store.AddSessionDevice(ctx, "s-1", "tgt-01"); err != nil {
 		t.Fatal(err)
 	}
+	// A session plays a published scenario before it can start (D-058).
+	h.assign("s-1", "night-range", 1)
 	if err := h.store.StartSession(ctx, "s-1"); err != nil {
 		t.Fatal(err)
 	}

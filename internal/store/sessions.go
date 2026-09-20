@@ -22,6 +22,10 @@ var (
 	// ErrBadTransition is a state change the session cannot make from where
 	// it is, such as starting a stopped session.
 	ErrBadTransition = errors.New("session state change not allowed")
+	// ErrNoScenario refuses to start a session that plays nothing: a device
+	// has to be told what to load, so a published version must be assigned
+	// first (D-058).
+	ErrNoScenario = errors.New("session has no published scenario assigned")
 )
 
 // A Session is one row of sessions with the ids of its devices. StartedAt and
@@ -58,8 +62,26 @@ VALUES (?, ?, ?, ?, ?, ?)`,
 	return nil
 }
 
-// StartSession moves a created session to running and stamps started_at.
+// StartSession moves a created session to running and stamps started_at. A session that plays no
+// published scenario version is refused with ErrNoScenario (D-058).
 func (s *Store) StartSession(ctx context.Context, id string) error {
+	session, err := s.GetSession(ctx, id)
+	if err != nil {
+		return err
+	}
+	if session.State == SessionCreated {
+		if session.ScenarioVersion < 1 {
+			return fmt.Errorf("session %s plays nothing: %w", id, ErrNoScenario)
+		}
+		sc, err := s.GetScenario(ctx, session.Scenario, session.ScenarioVersion)
+		if err != nil {
+			return fmt.Errorf("session %s: %w", id, err)
+		}
+		if sc.Status != ScenarioPublished {
+			return fmt.Errorf("session %s plays %s version %d, which is a draft: %w",
+				id, sc.ID, sc.Version, ErrNoScenario)
+		}
+	}
 	return s.transition(ctx, id, SessionCreated, SessionRunning, "started_at")
 }
 
@@ -184,22 +206,22 @@ func (s *Store) ListSessions(ctx context.Context) ([]Session, error) {
 
 // RunningSessionFor returns the running session that holds the device, the
 // latest started if there are several, for the welcome of the device link.
-func (s *Store) RunningSessionFor(ctx context.Context, deviceID string) (string, bool, error) {
-	var id string
-	err := s.db.QueryRowContext(ctx, `
-SELECT s.id
+func (s *Store) RunningSessionFor(ctx context.Context, deviceID string) (Session, bool, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT `+sessionColumns+`
   FROM sessions s
   JOIN session_devices sd ON sd.session_id = s.id
  WHERE sd.device_id = ? AND s.state = ?
  ORDER BY s.started_at DESC, s.id
- LIMIT 1`, deviceID, SessionRunning).Scan(&id)
+ LIMIT 1`, deviceID, SessionRunning)
+	session, err := scanSession(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
+		return Session{}, false, nil
 	}
 	if err != nil {
-		return "", false, fmt.Errorf("running session of %s: %w", deviceID, err)
+		return Session{}, false, fmt.Errorf("running session of %s: %w", deviceID, err)
 	}
-	return id, true, nil
+	return session, true, nil
 }
 
 func (s *Store) sessionDevices(ctx context.Context, sessionIDs []string) (map[string][]string, error) {

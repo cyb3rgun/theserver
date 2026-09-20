@@ -258,6 +258,7 @@ func linkConfig(c config.Link) link.Config {
 	cfg.PingInterval = time.Duration(c.PingIntervalS) * time.Second
 	cfg.PongTimeout = time.Duration(c.PongTimeoutS) * time.Second
 	cfg.HelloTimeout = time.Duration(c.HelloTimeoutS) * time.Second
+	cfg.InstallTimeout = time.Duration(c.InstallTimeoutS) * time.Second
 	return cfg
 }
 
