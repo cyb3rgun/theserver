@@ -2,6 +2,40 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-055 The tag v0.2.0
+
+- Date: 20 September 2026 (S01-B10)
+- Decision: The close of S01-B10 is tagged `v0.2.0` on `main` and pushed, and theclient pins it. The minor number is raised because `pkg/journal` writes another file and takes options, and because a caller has to close it now (D-049).
+- Details: The storage under `pkg/journal` changed; the calls a caller makes did not, apart from the Close a database needs. A device that is updated from `v0.1.0` keeps its events: the CBOR journal is imported on the first open (D-053).
+- Reason: theclient cannot pin a moving branch, and the journal it builds on is another thing than it was in `v0.1.0`.
+- Versions: none.
+
+## D-054 Durability is tested, not assumed
+
+- Date: 20 September 2026 (S01-B10)
+- Decision: The journal proves what it promises in tests: one that appends and is never closed, and one that opens an image of the database and its write ahead log copied while the journal was open. Both find every event that was appended.
+- Details: `TestJournalKeepsEventsWithoutAClose` drops the handle as a killed process drops it and opens the same files again. `TestJournalSurvivesACopiedWalFile` copies `journal.db`, `journal.db-wal` and `journal.db-shm` away while the journal is open and nothing is checkpointed, and reads the copy, which is the image a power cut leaves. `TestRunKeepsItsJournalAcrossARestart` in `internal/simtarget` is the same thing one level up: two events written while nothing was connected are replayed after a restart, and the sequence carries on. The timing of 10,000 appends is reported and never asserted, because a build machine is not a target: `go test ./pkg/journal -run Timing -v -appends=10000`.
+- Reason: The reason for this pass is a target on an SD card that must keep its hits. A promise of durability that no test makes is a hope.
+- Versions: none.
+
+## D-053 The journal keeps its API and imports the old file
+
+- Date: 20 September 2026 (S01-B10)
+- Decision: `pkg/journal` keeps the calls it had: `Open`, `Append`, `Acked`, `After`, `Epoch`, `Reset`, `LastSeq` and `Pending`. A `journal.cbor` of an earlier version is read on the first open, written into the database with its epoch, its last sequence and its unacknowledged events, and renamed to `journal.cbor.imported`.
+- Agreed with the architect during this pass: a database has to be closed, so `Close` is added and every caller closes; `Open` takes options, `WithSync` and `WithDeviceID`, which existing calls do not have to pass. `WithDeviceID` writes the device into the journal and refuses the journal of another device, which is the mistake a shared directory makes.
+- Details: An open database cannot be removed on Windows, so the tests that hand a journal to the simulator close it; that is the whole change outside `pkg/journal`. The import refuses a file it cannot read instead of starting empty, so a device does not silently lose what it held.
+- Reason: theclient builds on this package and pins a tag; a storage change must not become a rewrite on the other side.
+- Versions: none.
+
+## D-052 The device journal stores in SQLite
+
+- Date: 20 September 2026 (S01-B10)
+- Decision: `pkg/journal` keeps its events in one SQLite file, `journal.db`, in the directory it is given: WAL mode, `foreign_keys` on, `synchronous` FULL, through `modernc.org/sqlite`, which theserver already depends on. `meta(key, value)` holds the schema version, the device id, the epoch, the last sequence handed out and the last acked sequence; `events(seq INTEGER PRIMARY KEY, epoch, event_id BLOB, kind, ts_device, payload BLOB)` holds what the server has not acknowledged. An append is one insert in one transaction, an ack deletes the rows up to the acked sequence.
+- Agreed with the architect during this pass: `synchronous` is FULL by default, not NORMAL, because the reason for the change is a power cut on an SD card and NORMAL in WAL mode may roll the last transactions back; `WithSync(SyncNormal)` stays for a simulator that cares more about speed than about a power cut.
+- Details: The file that was rewritten in full on every append and every ack, without fsync, is gone. Reads stay in memory: the pending events are loaded at open and kept there, so a replay does not wait for a query, while the database is the truth. The pool is one connection, because one device writes one journal. What durability costs is measured on the homelab (i9-11900K, NVMe): 10,000 appends took 24.0 s with FULL, 2.402 ms each, and 1.06 s with NORMAL, 0.106 ms each.
+- Reason: theclient found in its B01 that the journal rewrote one CBOR file on every change and never called fsync. That is fine for a simulator and wrong for a target that must keep hits across a power loss, which `docs/concept.md` of theclient asks for.
+- Versions: `modernc.org/sqlite v1.59.0`, already in `go.mod` since S01-B02; this pass added no dependency.
+
 ## D-051 Undo and redo in the browser, a history on the server
 
 - Date: 18 September 2026 (S01-B09)

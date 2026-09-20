@@ -284,7 +284,7 @@ theserver/
 |   +-- tlsboot/            # Self signed certificate bootstrap
 |   +-- version/            # Build information
 +-- pkg/                    # The public surface, versioned by tags (D-048, D-049)
-|   +-- journal/            # Device side journal: sequence, epoch, unacked, ack, replay
+|   +-- journal/            # Device side journal on SQLite: sequence, epoch, unacked, ack, replay
 |   +-- protocol/           # CBOR message types and codec for link v1
 |   +-- scenario/           # The scenario model: manifest, checks, hash, rules, fixtures
 +-- docs/                   # Concept, protocol, capabilities, decisions, seasons,
@@ -307,6 +307,7 @@ theserver/
 | Device link with handshake, replay, commands, keepalive | Working |
 | TLS bootstrap | Working |
 | Simulated target with local journal and forced drops | Working |
+| Device journal on SQLite, durable across a power cut | Working |
 | Rankings, verified against an independent computation | Working |
 | API v1 with OpenAPI | Working |
 | Admin pages: devices, sessions, scenarios, ranking, settings | Working |
