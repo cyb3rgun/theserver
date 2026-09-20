@@ -8,11 +8,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/fxamacker/cbor/v2"
 
 	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/store"
@@ -260,6 +263,149 @@ func TestRunStopsOnRefusedToken(t *testing.T) {
 	if ctx.Err() != nil {
 		t.Error("Run kept retrying a refused token")
 	}
+}
+
+// A target that is stopped and started again keeps its journal: the events
+// an earlier process wrote reach the server after the restart, and the
+// sequence carries on where it stopped. The storage of the journal changed
+// in S01-B10; what the link sees did not (D-052).
+func TestRunKeepsItsJournalAcrossARestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs for a few seconds")
+	}
+	ctx := context.Background()
+	st, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	token, err := store.NewDeviceToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertDevice(ctx, store.Device{
+		ID: "tgt-03", Kind: store.KindTarget, Status: store.StatusApproved, TokenHash: store.HashToken(token),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := link.DefaultConfig()
+	cfg.AckInterval = 20 * time.Millisecond
+	deviceLink := link.New(st, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	mux := http.NewServeMux()
+	mux.Handle(link.Path, deviceLink)
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+	defer deviceLink.Close(ctx)
+
+	dir := filepath.Join(t.TempDir(), "device")
+	options := func() Options {
+		return Options{
+			Server:    "wss" + strings.TrimPrefix(srv.URL, "https"),
+			DeviceID:  "tgt-03",
+			Token:     token,
+			Insecure:  true,
+			Rate:      40,
+			Duration:  700 * time.Millisecond,
+			Reconnect: 100 * time.Millisecond,
+			Health:    time.Hour,
+			Seed:      7,
+			Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		}
+	}
+
+	first := mustJournalIn(t, dir)
+	one, err := Run(ctx, options(), first)
+	if err != nil {
+		t.Fatalf("the first run: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close the first journal: %v", err)
+	}
+	if one.Generated == 0 || one.LastSeq != one.Generated {
+		t.Fatalf("the first run generated %d events and counted to %d", one.Generated, one.LastSeq)
+	}
+
+	// The target is off. It still writes two events, as one does that fires
+	// while nothing is connected, and is stopped again.
+	between := mustJournalIn(t, dir)
+	var written []protocol.Event
+	for i := range uint64(2) {
+		payload, err := cbor.Marshal(protocol.ShotData{Ctl: "ctl-restart", Cseq: i + 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		event, err := between.Append(journal.Draft{Kind: protocol.KindShot, Data: payload}, time.Now().UnixMilli())
+		if err != nil {
+			t.Fatal(err)
+		}
+		written = append(written, event)
+	}
+	if written[0].Seq != one.LastSeq+1 {
+		t.Fatalf("the event after the stop has seq %d, the run ended at %d", written[0].Seq, one.LastSeq)
+	}
+	if err := between.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second := mustJournalIn(t, dir)
+	two, err := Run(ctx, options(), second)
+	if err != nil {
+		t.Fatalf("the second run: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("first %+v", one)
+	t.Logf("second %+v", two)
+
+	switch {
+	case two.Epoch != 1:
+		t.Errorf("the second run counts in epoch %d", two.Epoch)
+	case two.Replayed < len(written):
+		t.Errorf("the second run replayed %d events, want at least the %d from the stop", two.Replayed, len(written))
+	case two.Unacked != 0:
+		t.Errorf("%d events were never acknowledged", two.Unacked)
+	case two.LastSeq != one.LastSeq+uint64(len(written))+two.Generated:
+		t.Errorf("the second run ended at %d; the first ended at %d, %d were written between and %d generated",
+			two.LastSeq, one.LastSeq, len(written), two.Generated)
+	}
+
+	// The server holds every event once, in one unbroken sequence, and the
+	// two events of the stop are among them.
+	events, err := st.ListEvents(ctx, store.Filter{DeviceID: "tgt-03", Limit: 100_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if uint64(len(events)) != two.LastSeq {
+		t.Fatalf("the server stored %d events, the target counted to %d", len(events), two.LastSeq)
+	}
+	for i, event := range events {
+		if event.Seq != uint64(i+1) {
+			t.Fatalf("stored seq %d at position %d: the journal has a gap or a duplicate", event.Seq, i)
+		}
+	}
+	for _, want := range written {
+		found := false
+		for _, event := range events {
+			found = found || event.Seq == want.Seq && event.ID == store.EventID(want.ID)
+		}
+		if !found {
+			t.Errorf("the event %d written while the target was off did not reach the server", want.Seq)
+		}
+	}
+}
+
+// mustJournalIn opens the journal of a device in a directory of its own, as
+// a target keeps one across restarts.
+func mustJournalIn(t *testing.T, dir string) *journal.Journal {
+	t.Helper()
+	j, err := journal.Open(dir, journal.WithDeviceID("tgt-03"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { j.Close() })
+	return j
 }
 
 func mustJournal(t *testing.T) *journal.Journal {
