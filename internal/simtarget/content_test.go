@@ -152,6 +152,7 @@ func (h *contentHarness) run(journalDir string, opts Options) (stop func() Stats
 	if err != nil {
 		h.t.Fatal(err)
 	}
+	h.t.Cleanup(func() { j.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan Stats, 1)
 	go func() {

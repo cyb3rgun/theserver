@@ -91,11 +91,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if *contentDir == "" {
 		*contentDir = filepath.Join(*journalDir, "content")
 	}
-	j, err := journal.Open(*journalDir)
+	j, err := journal.Open(*journalDir, journal.WithDeviceID(*id))
 	if err != nil {
 		fmt.Fprintf(stderr, "simtarget: %v\n", err)
 		return 1
 	}
+	defer j.Close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

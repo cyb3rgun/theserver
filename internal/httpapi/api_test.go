@@ -801,5 +801,8 @@ func mustJournal(t *testing.T) *journal.Journal {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The journal is a database file: an open one cannot be removed on
+	// Windows, so the test closes it before its directory goes.
+	t.Cleanup(func() { j.Close() })
 	return j
 }

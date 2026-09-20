@@ -28,6 +28,7 @@ func TestGeneratorProducesValidFrames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { journal.Close() })
 
 	points := map[string]int64{"head": 100, "torso": 50, "arm": 25, "leg": 25}
 	var shot protocol.ShotData
@@ -267,6 +268,7 @@ func mustJournal(t *testing.T) *journal.Journal {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { journal.Close() })
 	return journal
 }
 

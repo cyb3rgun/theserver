@@ -306,6 +306,7 @@ func TestScenarioChainThroughThePages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { j.Close() })
 	var stats *simtarget.Stats
 	stop := func() simtarget.Stats {
 		if stats == nil {
