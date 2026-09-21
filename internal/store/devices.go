@@ -59,6 +59,9 @@ type Device struct {
 	// MinAge is the age the device is set for (D-039), 18 for a new device;
 	// only SetMinAge changes it.
 	MinAge int
+	// TargetType is the kind of target the device is (D-061), empty until
+	// an operator assigns one; only SetDeviceTargetType changes it.
+	TargetType string
 }
 
 // UpsertDevice inserts a device or updates the one with the same id.
@@ -112,7 +115,8 @@ ON CONFLICT(id) DO UPDATE SET
 }
 
 const deviceColumns = `id, kind, class, name, room, zone, status, token_hash,
-  firmware_version, config_json, seq_epoch, first_seen, last_seen, created_at, updated_at, min_age`
+  firmware_version, config_json, seq_epoch, first_seen, last_seen, created_at, updated_at, min_age,
+  target_type`
 
 // GetDevice reads one device. It returns ErrDeviceNotFound for an unknown id.
 func (s *Store) GetDevice(ctx context.Context, id string) (Device, error) {
@@ -325,14 +329,17 @@ func scanDevice(row rowScanner) (Device, error) {
 		tokenHash           []byte
 		epoch               int64
 		firstSeen, lastSeen sql.NullInt64
+		targetType          sql.NullString
 	)
 	err := row.Scan(
 		&d.ID, &d.Kind, &d.Class, &d.Name, &d.Room, &d.Zone, &d.Status, &tokenHash,
 		&d.FirmwareVersion, &d.ConfigJSON, &epoch, &firstSeen, &lastSeen, &d.CreatedAt, &d.UpdatedAt, &d.MinAge,
+		&targetType,
 	)
 	if err != nil {
 		return Device{}, err
 	}
+	d.TargetType = targetType.String
 	d.TokenHash = tokenHash
 	d.SeqEpoch = uint64(epoch)
 	d.FirstSeen = firstSeen.Int64
