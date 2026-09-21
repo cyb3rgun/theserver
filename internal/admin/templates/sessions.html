@@ -27,7 +27,19 @@
         <td><span class="badge {{.State}}">{{word "admin.state" .State}}</span></td>
         <td>{{if .StartedAt}}{{when .StartedAt}}{{else}}<span class="muted">{{t "admin.not_yet"}}</span>{{end}}</td>
         <td>{{if .EndedAt}}{{when .EndedAt}}{{else}}<span class="muted">{{t "admin.not_yet"}}</span>{{end}}</td>
-        <td>{{range $i, $d := .Devices}}{{if $i}}, {{end}}{{$d}}{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</td>
+        <td>
+          <ul class="devices">
+          {{range .Readiness}}
+            <li><span>{{.DeviceID}}</span>
+              {{if .Ready}}<span class="badge ok">{{t "admin.ready.yes"}}</span>
+              {{else}}<span class="badge ready-{{.Reason}}" title="{{t "admin.ready.waited" .WaitedS}}">{{word "admin.ready" .Reason}}</span>{{end}}
+              {{with .Detail}}<span class="muted">{{.}}</span>{{end}}
+            </li>
+          {{else}}
+            <li><span class="muted">{{t "admin.none"}}</span></li>
+          {{end}}
+          </ul>
+        </td>
         <td class="actions">
           {{if eq .State "created"}}
           <form class="inline" hx-post="/admin/sessions/{{path .ID}}/scenario" hx-target="#sessions" hx-swap="outerHTML">

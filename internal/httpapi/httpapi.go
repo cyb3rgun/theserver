@@ -43,6 +43,12 @@ type DeviceLink interface {
 	Online() []link.DeviceStatus
 	Disconnect(deviceID string, why link.DisconnectReason) bool
 	AnnouncePending(ctx context.Context, deviceID, sessionID string) ([]link.Announcement, error)
+	// StartSession tells the devices of a session what it plays, and
+	// StopSession that it is over (D-057).
+	StartSession(ctx context.Context, session store.Session) ([]link.SessionState, error)
+	StopSession(ctx context.Context, session store.Session) error
+	// SessionStates is what the link is doing for the devices of a session.
+	SessionStates(sessionID string) []link.SessionState
 }
 
 var _ DeviceLink = (*link.Server)(nil)
@@ -143,6 +149,7 @@ func (s *Server) routes() []struct {
 		{Route{http.MethodPost, "/devices/{id}/min_age", true, false}, s.setMinAge},
 		{Route{http.MethodGet, "/devices/{id}/scenarios", true, false}, s.deviceScenarios},
 		{Route{http.MethodGet, "/sessions", true, false}, s.listSessions},
+		{Route{http.MethodGet, "/sessions/{id}", true, false}, s.getSession},
 		{Route{http.MethodPost, "/sessions", true, false}, s.createSession},
 		{Route{http.MethodPost, "/sessions/{id}/start", true, false}, s.startSession},
 		{Route{http.MethodPost, "/sessions/{id}/stop", true, false}, s.stopSession},

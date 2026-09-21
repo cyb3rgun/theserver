@@ -354,6 +354,82 @@ func TestSessionRoutes(t *testing.T) {
 	}
 }
 
+// The session detail says for every device whether it can play what the
+// session plays, and when it cannot, why (D-059).
+func TestSessionDetailSaysWhoIsReady(t *testing.T) {
+	h := newAPI(t)
+	ctx := context.Background()
+	h.device("tgt-01", store.StatusApproved, nil)
+	h.device("tgt-02", store.StatusApproved, nil)
+	h.device("tgt-03", store.StatusApproved, nil)
+	decode[Session](t, h.call("POST", Prefix+"/sessions", `{"id":"evening"}`), http.StatusCreated)
+	for _, device := range []string{"tgt-01", "tgt-02", "tgt-03"} {
+		decode[Session](t, h.call("POST", Prefix+"/sessions/evening/devices", `{"device_id":"`+device+`"}`), 200)
+	}
+
+	// Without a scenario no device can be ready.
+	before := decode[Session](t, h.call("GET", Prefix+"/sessions/evening", ""), 200)
+	if len(before.Readiness) != 3 {
+		t.Fatalf("the session answered with %d readiness entries", len(before.Readiness))
+	}
+	for _, item := range before.Readiness {
+		if item.Ready || item.Reason != ReadyNoScenario {
+			t.Errorf("without a scenario %s is %+v", item.DeviceID, item)
+		}
+	}
+
+	h.publishFixture(scenariotest.Video)
+	decode[SessionAssignment](t, h.call("POST", Prefix+"/sessions/evening/scenario", `{"id":"night-range","version":1}`), 200)
+	holding := []store.Holding{{ScenarioID: "night-range", Version: 1}}
+	if err := h.st.RecordDeviceScenarios(ctx, "tgt-01", holding); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.RecordDeviceScenarios(ctx, "tgt-02", holding); err != nil {
+		t.Fatal(err)
+	}
+	h.link.online = []link.DeviceStatus{{DeviceID: "tgt-01"}, {DeviceID: "tgt-03"}}
+
+	// Connected and holding the version: ready. Holding it but offline, or
+	// connected without it: not ready, each with its reason.
+	want := map[string]string{"tgt-01": "", "tgt-02": ReadyOffline, "tgt-03": ReadyMissing}
+	for _, item := range decode[Session](t, h.call("GET", Prefix+"/sessions/evening", ""), 200).Readiness {
+		if item.Reason != want[item.DeviceID] || item.Ready != (want[item.DeviceID] == "") {
+			t.Errorf("%s is %+v, want reason %q", item.DeviceID, item, want[item.DeviceID])
+		}
+	}
+
+	// Starting the session tells the link; what it reports back is what the
+	// detail says afterwards.
+	h.link.states = map[string][]link.SessionState{"evening": {
+		{DeviceID: "tgt-01", SessionID: "evening", State: link.StateStarted},
+		{DeviceID: "tgt-03", SessionID: "evening", State: link.StateWaiting, Waited: 4},
+	}}
+	decode[Session](t, h.call("POST", Prefix+"/sessions/evening/start", ""), 200)
+	if len(h.link.started) != 1 || h.link.started[0] != "evening" {
+		t.Errorf("the link was told to start %v", h.link.started)
+	}
+	running := decode[Session](t, h.call("GET", Prefix+"/sessions/evening", ""), 200)
+	states := map[string]Readiness{}
+	for _, item := range running.Readiness {
+		states[item.DeviceID] = item
+	}
+	if item := states["tgt-01"]; !item.Ready || !item.Started {
+		t.Errorf("the device that took the start is %+v", item)
+	}
+	if item := states["tgt-03"]; item.Reason != ReadyInstalling || item.WaitedS != 4 {
+		t.Errorf("the installing device is %+v", item)
+	}
+	if item := states["tgt-02"]; item.Reason != ReadyOffline {
+		t.Errorf("the offline device is %+v", item)
+	}
+
+	decode[Session](t, h.call("POST", Prefix+"/sessions/evening/stop", ""), 200)
+	if len(h.link.stopped) != 1 || h.link.stopped[0] != "evening" {
+		t.Errorf("the link was told to stop %v", h.link.stopped)
+	}
+	expectError(t, h.call("GET", Prefix+"/sessions/nothing", ""), 404, codeNotFound)
+}
+
 // seedEvents stores hits and misses of two controllers for tgt-01, half of
 // them in session s-1.
 func seedEvents(t *testing.T, h *apiHarness) {

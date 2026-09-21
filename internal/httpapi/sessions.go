@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/cyb3rgun/theserver/internal/link"
 	"github.com/cyb3rgun/theserver/internal/store"
 )
 
@@ -18,18 +20,59 @@ const maxBody = 64 << 10
 
 // Session is a session as API v1 shows it. Scenario and ScenarioVersion
 // name the scenario version it plays; the version is 0 while none is
-// assigned, and Scenario is then a label given at creation.
+// assigned, and Scenario is then a label given at creation. Readiness says
+// per device whether it can play what the session plays (D-059).
 type Session struct {
-	ID              string   `json:"id"`
-	Scenario        string   `json:"scenario"`
-	ScenarioVersion int      `json:"scenario_version"`
-	Room            string   `json:"room"`
-	State           string   `json:"state"`
-	StartedAt       int64    `json:"started_at"`
-	EndedAt         int64    `json:"ended_at"`
-	CreatedAt       int64    `json:"created_at"`
-	UpdatedAt       int64    `json:"updated_at"`
-	Devices         []string `json:"devices"`
+	ID              string      `json:"id"`
+	Scenario        string      `json:"scenario"`
+	ScenarioVersion int         `json:"scenario_version"`
+	Room            string      `json:"room"`
+	State           string      `json:"state"`
+	StartedAt       int64       `json:"started_at"`
+	EndedAt         int64       `json:"ended_at"`
+	CreatedAt       int64       `json:"created_at"`
+	UpdatedAt       int64       `json:"updated_at"`
+	Devices         []string    `json:"devices"`
+	Readiness       []Readiness `json:"readiness"`
+}
+
+// The reasons a device of a session is not ready to play.
+const (
+	// ReadyReasonNone is the empty reason of a device that is ready.
+	ReadyReasonNone = ""
+	// ReadyNoScenario: the session has no published version assigned yet.
+	ReadyNoScenario = "no_scenario"
+	// ReadyOffline: the device is not connected.
+	ReadyOffline = "offline"
+	// ReadyInstalling: the device is fetching the scenario.
+	ReadyInstalling = "installing"
+	// ReadyTimeout: the install is taking longer than
+	// link.install_timeout_s.
+	ReadyTimeout = "timeout"
+	// ReadyFailed: the device refused the start or could not install.
+	ReadyFailed = "failed"
+	// ReadyMissing: the device does not hold the version and nothing is
+	// under way yet.
+	ReadyMissing = "missing"
+	// ReadyNotStarted: the device holds the version but has not taken the
+	// start yet.
+	ReadyNotStarted = "not_started"
+)
+
+// Readiness is one device of a session: whether it is connected, whether it
+// holds what the session plays, whether it was told to play, and, when it is
+// not ready, why.
+type Readiness struct {
+	DeviceID string `json:"device_id"`
+	Online   bool   `json:"online"`
+	Holds    bool   `json:"holds"`
+	Started  bool   `json:"started"`
+	Ready    bool   `json:"ready"`
+	Reason   string `json:"reason,omitempty"`
+	// Detail is what the link said, empty when it said nothing.
+	Detail string `json:"detail,omitempty"`
+	// WaitedS is how long the device has been installing, in seconds.
+	WaitedS int `json:"waited_s,omitempty"`
 }
 
 // NewSession is the body of POST /sessions. An empty ID is chosen by the
@@ -53,8 +96,70 @@ func sessionJSON(s store.Session) Session {
 	return Session{
 		ID: s.ID, Scenario: s.Scenario, ScenarioVersion: s.ScenarioVersion, Room: s.Room, State: s.State,
 		StartedAt: s.StartedAt, EndedAt: s.EndedAt, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
-		Devices: devices,
+		Devices: devices, Readiness: []Readiness{},
 	}
+}
+
+// readiness says for every device of a session whether it can play what the
+// session plays: the store says what it holds, the link says whether it is
+// connected and what it was told (D-059).
+func (s *Server) readiness(ctx context.Context, session store.Session) []Readiness {
+	out := make([]Readiness, 0, len(session.Devices))
+	online := map[string]bool{}
+	states := map[string]link.SessionState{}
+	if s.opts.Link != nil {
+		for _, status := range s.opts.Link.Online() {
+			online[status.DeviceID] = true
+		}
+		for _, state := range s.opts.Link.SessionStates(session.ID) {
+			states[state.DeviceID] = state
+		}
+	}
+	for _, deviceID := range session.Devices {
+		item := Readiness{DeviceID: deviceID, Online: online[deviceID]}
+		if session.ScenarioVersion >= 1 {
+			holds, err := s.opts.Store.HoldsScenario(ctx, deviceID, session.Scenario, session.ScenarioVersion)
+			if err != nil {
+				s.log.Error("could not read what a device holds", "device", deviceID, "error", err)
+			}
+			item.Holds = holds
+		}
+		state, told := states[deviceID]
+		item.Started = told && state.State == link.StateStarted
+		item.Detail = state.Error
+		item.WaitedS = state.Waited
+		switch {
+		case session.ScenarioVersion < 1:
+			item.Reason = ReadyNoScenario
+		case told && state.State == link.StateStarted:
+			item.Ready = true
+		case told && state.State == link.StateFailed:
+			item.Reason = ReadyFailed
+		case told && state.State == link.StateTimeout:
+			item.Reason = ReadyTimeout
+		case !item.Online:
+			item.Reason = ReadyOffline
+		case told && state.State == link.StateWaiting && !item.Holds:
+			item.Reason = ReadyInstalling
+		case !item.Holds:
+			item.Reason = ReadyMissing
+		case session.State == store.SessionRunning:
+			item.Reason = ReadyNotStarted
+		default:
+			// A created session with a device that is here and holds the
+			// version: it is ready to be started.
+			item.Ready = true
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// sessionAnswer is sessionJSON with the readiness of its devices.
+func (s *Server) sessionAnswer(ctx context.Context, session store.Session) Session {
+	out := sessionJSON(session)
+	out.Readiness = s.readiness(ctx, session)
+	return out
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
@@ -65,9 +170,14 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]Session, 0, len(sessions))
 	for _, session := range sessions {
-		out = append(out, sessionJSON(session))
+		out = append(out, s.sessionAnswer(r.Context(), session))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": out})
+}
+
+// getSession is one session with what its devices are doing.
+func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
+	s.writeSession(w, r, r.PathValue("id"), http.StatusOK)
 }
 
 func (s *Server) writeSession(w http.ResponseWriter, r *http.Request, id string, status int) {
@@ -76,7 +186,8 @@ func (s *Server) writeSession(w http.ResponseWriter, r *http.Request, id string,
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, status, sessionJSON(session))
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, status, s.sessionAnswer(r.Context(), session))
 }
 
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
@@ -118,21 +229,46 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.opts.Store.StartSession(r.Context(), id); err != nil {
+	ctx := r.Context()
+	if err := s.opts.Store.StartSession(ctx, id); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "session started", "session", id)
+	session, err := s.opts.Store.GetSession(ctx, id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.audit(r, "session started", "session", id, "scenario", session.Scenario, "version", session.ScenarioVersion)
+	if s.opts.Link != nil {
+		// Every device is told what it plays; one that does not hold the
+		// version is announced to and told when it reports it installed
+		// (D-057, D-059).
+		if _, err := s.opts.Link.StartSession(ctx, session); err != nil {
+			s.log.Error("could not tell the devices what the session plays", "session", id, "error", err)
+		}
+	}
 	s.writeSession(w, r, id, http.StatusOK)
 }
 
 func (s *Server) stopSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := s.opts.Store.StopSession(r.Context(), id); err != nil {
+	ctx := r.Context()
+	session, err := s.opts.Store.GetSession(ctx, id)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if err := s.opts.Store.StopSession(ctx, id); err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	s.audit(r, "session stopped", "session", id)
+	if s.opts.Link != nil {
+		if err := s.opts.Link.StopSession(ctx, session); err != nil {
+			s.log.Error("could not tell the devices that the session is over", "session", id, "error", err)
+		}
+	}
 	s.writeSession(w, r, id, http.StatusOK)
 }
 
@@ -147,12 +283,23 @@ func (s *Server) addSessionDevice(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, fmt.Errorf("%w: device_id is required", errBadRequest))
 		return
 	}
-	if err := s.opts.Store.AddSessionDevice(r.Context(), id, body.DeviceID); err != nil {
+	ctx := r.Context()
+	if err := s.opts.Store.AddSessionDevice(ctx, id, body.DeviceID); err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	s.audit(r, "device added to session", "session", id, "device", body.DeviceID)
 	s.announce(r, body.DeviceID, id)
+	// A device that joins a session that already runs is told what it plays
+	// as well (D-057).
+	if session, err := s.opts.Store.GetSession(ctx, id); err == nil &&
+		session.State == store.SessionRunning && s.opts.Link != nil {
+		session.Devices = []string{body.DeviceID}
+		if _, err := s.opts.Link.StartSession(ctx, session); err != nil {
+			s.log.Error("could not tell a joining device what the session plays",
+				"session", id, "device", body.DeviceID, "error", err)
+		}
+	}
 	s.writeSession(w, r, id, http.StatusOK)
 }
 

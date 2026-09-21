@@ -97,6 +97,26 @@ type fakeLink struct {
 	// what it returns.
 	asked  []string
 	answer []link.Announcement
+	// started records every StartSession and stopped every StopSession, by
+	// session id; states is what SessionStates answers.
+	started []string
+	stopped []string
+	states  map[string][]link.SessionState
+}
+
+func (f *fakeLink) StartSession(ctx context.Context, session store.Session) ([]link.SessionState, error) {
+	f.started = append(f.started, session.ID)
+	return f.states[session.ID], nil
+}
+
+func (f *fakeLink) StopSession(ctx context.Context, session store.Session) error {
+	f.stopped = append(f.stopped, session.ID)
+	delete(f.states, session.ID)
+	return nil
+}
+
+func (f *fakeLink) SessionStates(sessionID string) []link.SessionState {
+	return f.states[sessionID]
 }
 
 func (f *fakeLink) AnnouncePending(ctx context.Context, deviceID, sessionID string) ([]link.Announcement, error) {

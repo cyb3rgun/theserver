@@ -190,9 +190,33 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "409": {$ref: "#/components/responses/Conflict"}
+  /sessions/{id}:
+    get:
+      summary: One session with what its devices are doing.
+      description: |
+        readiness says for every device of the session whether it is
+        connected, whether it holds the scenario version the session plays,
+        whether it was told to play, and when it is not ready, why (D-059).
+      operationId: getSession
+      parameters: [{$ref: "#/components/parameters/SessionID"}]
+      responses:
+        "200":
+          description: The session.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Session"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
   /sessions/{id}/start:
     post:
       summary: Move a created session to running.
+      description: |
+        A session plays a published scenario version: without one assigned
+        the start is refused with no_scenario (D-058). Every device of the
+        session is then told what it plays; a device that does not hold the
+        version gets content_available and is told to play when it reports
+        the version installed (D-057, D-059).
       operationId: startSession
       parameters: [{$ref: "#/components/parameters/SessionID"}]
       responses:
@@ -1071,7 +1095,11 @@ components:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
     Conflict:
-      description: The session exists already, or cannot make this state change.
+      description: |
+        The session exists already, or cannot make this state change:
+        conflict, the id is taken; bad_transition, the session is not in the
+        state the change needs; no_scenario, a session cannot start before a
+        published scenario version is assigned to it.
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -1349,6 +1377,33 @@ components:
         devices:
           type: array
           items: {type: string}
+        readiness:
+          type: array
+          description: One entry per device of the session, in the order of devices.
+          items: {$ref: "#/components/schemas/Readiness"}
+    Readiness:
+      type: object
+      description: Whether one device of a session can play what the session plays (D-059).
+      properties:
+        device_id: {type: string}
+        online: {type: boolean, description: The device is connected to the link.}
+        holds: {type: boolean, description: The device holds the scenario version the session plays.}
+        started: {type: boolean, description: The device took session_start for this session.}
+        ready: {type: boolean, description: "The device plays, or can be started at once."}
+        reason:
+          type: string
+          description: |
+            Why the device is not ready, empty when it is: no_scenario, the
+            session has no published version assigned; offline, the device is
+            not connected; installing, the device is fetching the scenario;
+            timeout, the install takes longer than link.install_timeout_s and
+            the server keeps waiting; failed, the device refused the start or
+            could not install; missing, the device does not hold the version
+            and nothing is under way; not_started, the device holds the
+            version and has not taken the start yet.
+          enum: [no_scenario, offline, installing, timeout, failed, missing, not_started]
+        detail: {type: string, description: "What the device or the link said, empty when nothing was said."}
+        waited_s: {type: integer, description: "How long the device has been installing, in seconds."}
     NewSession:
       type: object
       additionalProperties: false

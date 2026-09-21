@@ -271,6 +271,38 @@ select {
   border-color: var(--danger);
 }
 
+.badge.ready-installing,
+.badge.ready-missing,
+.badge.ready-not_started {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.badge.ready-offline {
+  color: var(--muted);
+}
+
+.badge.ready-timeout,
+.badge.ready-failed,
+.badge.ready-no_scenario {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+/* One line per device of a session: its id and whether it can play. */
+ul.devices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+ul.devices li {
+  display: flex;
+  gap: 0.35rem;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
 .lang {
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   color: var(--muted);

@@ -443,11 +443,26 @@ func TestSessionsPageAndActions(t *testing.T) {
 	contains(t, duplicate, `class="error"`, "exists")
 
 	added := h.html("POST", "/admin/sessions/evening/devices", url.Values{"device_id": {"tgt-01"}})
-	contains(t, added, "Device tgt-01 is in session evening.")
+	contains(t, added, "Device tgt-01 is in session evening.", "tgt-01", "no scenario")
 
-	// A session plays a published scenario before it can start (D-058).
+	// A session plays a published scenario before it can start (D-058), and
+	// the page says so in the language of the operator.
+	refused := h.html("POST", "/admin/sessions/evening/start", url.Values{})
+	contains(t, refused, `class="error"`, "A session plays a published scenario: assign one before it starts.")
+	if strings.Contains(refused, "is running.") {
+		t.Error("a session without a scenario was said to run")
+	}
+	h.lang = "de"
+	contains(t, h.html("POST", "/admin/sessions/evening/start", url.Values{}),
+		"Eine Sitzung spielt ein veröffentlichtes Szenario", "kein Szenario")
+	h.lang = ""
+
 	h.publish(scenariotest.Video)
 	h.html("POST", "/admin/sessions/evening/scenario", url.Values{"scenario": {"night-range@1"}})
+
+	// The device of the session is not connected, so it is not ready
+	// (D-059).
+	contains(t, h.html("GET", "/admin/sessions", nil), `class="badge ready-offline"`, "offline")
 
 	started := h.html("POST", "/admin/sessions/evening/start", url.Values{})
 	contains(t, started, "Session evening is running.", `hx-post="/admin/sessions/evening/stop"`)
