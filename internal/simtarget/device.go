@@ -93,6 +93,14 @@ type Stats struct {
 	// InstallsFailed counts announcements whose package did not install.
 	InstallsFailed int
 	Held           []protocol.Holding // scenario versions held at the end
+	// Session is the session the target plays and Playing the scenario
+	// version it was told to play, both empty until a session_start and
+	// cleared again by a session_stop (D-057).
+	Session string
+	Playing protocol.Holding
+	// Refused counts session_start commands for a version the target does
+	// not hold.
+	Refused int
 }
 
 // Run drives the simulated target until the duration is over and every event
@@ -321,12 +329,16 @@ func (d *device) session(ctx context.Context) (sessionEnd, error) {
 	d.stats.Connections++
 	d.stats.LastAck = max(d.stats.LastAck, welcome.Ack)
 	d.mu.Unlock()
-	session := ""
+	session, scenario, version := "", "", uint64(0)
 	if welcome.Ses != nil {
 		session = *welcome.Ses
 	}
+	if welcome.Scn != nil {
+		scenario, version = welcome.Scn.ID, welcome.Scn.Ver
+	}
 	d.log.Info("connected", "epoch", welcome.Ep, "journal_last", helloLast, "server_ack", welcome.Ack,
-		"to_replay", len(d.journal.After(welcome.Ack)), "session", session)
+		"to_replay", len(d.journal.After(welcome.Ack)), "session", session,
+		"scenario", scenario, "version", version)
 	// A target reports its health, and with it what it holds, as soon as
 	// it is connected.
 	if err := d.appendDraft(d.healthDraft(time.Now())); err != nil {
@@ -446,9 +458,14 @@ func (d *device) readLoop(ctx context.Context, ws *websocket.Conn, sendMu *sync.
 		case protocol.Command:
 			var result protocol.Result
 			restart := false
-			if m.N == protocol.CommandContentAvailable {
+			switch m.N {
+			case protocol.CommandContentAvailable:
 				result = d.announced(ctx, m)
-			} else {
+			case protocol.CommandSessionStart:
+				result = d.plays(m)
+			case protocol.CommandSessionStop:
+				result = d.stopsPlaying(m)
+			default:
 				result, restart = answer(m)
 			}
 			sendMu.Lock()
@@ -479,18 +496,59 @@ func (d *device) readLoop(ctx context.Context, ws *websocket.Conn, sendMu *sync.
 	}
 }
 
-// answer is how the simulated target responds to a command: time marks and
-// session changes are accepted, a reboot is accepted and followed by a
-// reconnect, anything else is refused.
+// answer is how the simulated target responds to a command: a time mark is
+// accepted, a reboot is accepted and followed by a reconnect, anything else
+// is refused. The session commands have their own answers.
 func answer(cmd protocol.Command) (protocol.Result, bool) {
 	switch cmd.N {
-	case protocol.CommandTimeMark, protocol.CommandSessionStart, protocol.CommandSessionStop:
+	case protocol.CommandTimeMark:
 		return protocol.Result{ID: cmd.ID, OK: true}, false
 	case protocol.CommandReboot:
 		return protocol.Result{ID: cmd.ID, OK: true}, true
 	default:
 		return protocol.Result{ID: cmd.ID, OK: false, E: "simtarget does not support " + cmd.N}, false
 	}
+}
+
+// plays answers session_start: the target says in the log which scenario
+// version it would play, and refuses a start for content it does not hold,
+// which is what a real target does (D-057).
+func (d *device) plays(cmd protocol.Command) protocol.Result {
+	var start protocol.SessionStart
+	if err := protocol.DecodeArgs(cmd.A, &start); err != nil {
+		d.log.Warn("session_start without a scenario", "error", err)
+		return protocol.Result{ID: cmd.ID, OK: false, E: "session_start: " + err.Error()}
+	}
+	d.heldMu.Lock()
+	held := d.held[start.Scn]
+	d.heldMu.Unlock()
+	if !held {
+		d.log.Warn("session_start for content the target does not hold",
+			"session", start.Ses, "scenario", start.Scn.ID, "version", start.Scn.Ver)
+		d.mu.Lock()
+		d.stats.Refused++
+		d.mu.Unlock()
+		return protocol.Result{ID: cmd.ID, OK: false,
+			E: fmt.Sprintf("the target does not hold %s version %d", start.Scn.ID, start.Scn.Ver)}
+	}
+	d.log.Info("playing", "session", start.Ses, "scenario", start.Scn.ID, "version", start.Scn.Ver)
+	d.mu.Lock()
+	d.stats.Session, d.stats.Playing = start.Ses, start.Scn
+	d.mu.Unlock()
+	return protocol.Result{ID: cmd.ID, OK: true, R: map[string]any{"playing": start.Scn.ID}}
+}
+
+// stopsPlaying answers session_stop: the target stops and says so.
+func (d *device) stopsPlaying(cmd protocol.Command) protocol.Result {
+	var stop protocol.SessionStop
+	if err := protocol.DecodeArgs(cmd.A, &stop); err != nil {
+		return protocol.Result{ID: cmd.ID, OK: false, E: "session_stop: " + err.Error()}
+	}
+	d.log.Info("stopped playing", "session", stop.Ses)
+	d.mu.Lock()
+	d.stats.Session, d.stats.Playing = "", protocol.Holding{}
+	d.mu.Unlock()
+	return protocol.Result{ID: cmd.ID, OK: true}
 }
 
 func (d *device) dial(ctx context.Context) (*websocket.Conn, error) {

@@ -23,6 +23,7 @@ import (
 	"github.com/cyb3rgun/theserver/internal/simtarget"
 	"github.com/cyb3rgun/theserver/internal/version"
 	"github.com/cyb3rgun/theserver/pkg/journal"
+	"github.com/cyb3rgun/theserver/pkg/protocol"
 )
 
 func main() {
@@ -129,6 +130,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "  epoch:       %d, resets by the server: %d, events dropped by them: %d\n", stats.Epoch, stats.EpochResets, stats.Dropped)
 	fmt.Fprintf(stdout, "  commands:    %d answered\n", stats.Commands)
 	fmt.Fprintf(stdout, "  content:     %d installed, %d failed, holds %s\n", stats.Installs, stats.InstallsFailed, orNone(simtarget.FormatHoldings(stats.Held)))
+	fmt.Fprintf(stdout, "  plays:       %s, starts refused: %d\n", orNone(playing(stats)), stats.Refused)
 	fmt.Fprintf(stdout, "  last ack:    %d, unacknowledged: %d\n", stats.LastAck, stats.Unacked)
 	fmt.Fprintf(stdout, "  journal:     %s\n", *journalDir)
 	fmt.Fprintf(stdout, "  packages:    %s\n", *contentDir)
@@ -145,6 +147,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// playing is the session and scenario version the target was last told to
+// play, empty when no session told it anything.
+func playing(stats simtarget.Stats) string {
+	if stats.Session == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s in session %s", simtarget.FormatHoldings([]protocol.Holding{stats.Playing}), stats.Session)
 }
 
 func orNone(s string) string {

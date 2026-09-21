@@ -117,8 +117,6 @@ func TestAnswer(t *testing.T) {
 		restart bool
 	}{
 		{protocol.CommandTimeMark, true, false},
-		{protocol.CommandSessionStart, true, false},
-		{protocol.CommandSessionStop, true, false},
 		{protocol.CommandReboot, true, true},
 		{protocol.CommandSetConfig, false, false},
 		{"launch", false, false},
