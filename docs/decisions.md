@@ -14,8 +14,11 @@ Numbered newest first. Every entry names its date, the decision, the reason and 
 
 - Date: 21 September 2026 (S01-B12)
 - Decision: The migration seeds the three types that exist today, marked `builtin`: `board-10` (10.1 inch, 1280 x 800, four clusters at the midpoints of the picture edges), `bar-12` (11.9 inch, 1480 x 320, HDMI sound, four clusters at the corners of a 350 by 200 mm frame around the picture) and `tv-50` (50 inch, 1920 x 1080, four clusters at the edge midpoints). A builtin type can be edited but not deleted, and neither can a type that devices are set to.
-- Agreed with the architect during this pass: the briefing gives the diagonals and the resolutions but not the picture sizes, so they are computed from the diagonal and the aspect ratio and rounded to whole millimetres: board-10 217 x 136 mm, bar-12 295 x 64 mm, tv-50 1107 x 623 mm. The class and the sound of a seed are the obvious ones, `pi` with a speaker on the board, `pi` over HDMI, `pc` over HDMI. Every one of these numbers is corrected in the admin without a release, which is what makes a seed a seed.
-- Details: The phone stand and the mannequin follow as data, not code. The migration is 0010, not 0008 as the briefing says: 0008 and 0009 were taken by the draft locks and the draft history of B09.
+- Agreed with the architect at the close of the pass, all three points:
+  - **The migration is 0010**, not 0008 as the briefing says: 0008 and 0009 were taken by the draft locks and the draft history of B09, and a migration number is never reused.
+  - **The picture sizes are computed.** The briefing gives the diagonals and the resolutions but not the millimetres, so they follow from the diagonal and the aspect ratio, rounded to whole millimetres: board-10 217 x 136 mm, bar-12 295 x 64 mm, tv-50 1107 x 623 mm. The class and the sound of a seed are the obvious ones, `pi` with a speaker on the board, `pi` over HDMI, `pc` over HDMI. Every one of these numbers is corrected in the admin without a release, which is what makes a seed a seed.
+  - **The commits follow the dependencies, not the numbering of the briefing.** `feat(scenario)` stands before `feat(admin)`, because the draft that starts from a type needs the manifest field first; every commit is green on its own.
+- Details: The phone stand and the mannequin follow as data, not code.
 - Reason: An empty table teaches nobody. Three types that are real make the shape of the data obvious and give the first device something to be.
 - Versions: none.
 
