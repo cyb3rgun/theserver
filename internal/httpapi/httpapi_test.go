@@ -102,6 +102,10 @@ type fakeLink struct {
 	started []string
 	stopped []string
 	states  map[string][]link.SessionState
+	// calibrated records every SendCalibration by device id; calibration is
+	// what it answers, by device id.
+	calibrated  []string
+	calibration map[string]store.Calibration
 }
 
 func (f *fakeLink) StartSession(ctx context.Context, session store.Session) ([]link.SessionState, error) {
@@ -117,6 +121,12 @@ func (f *fakeLink) StopSession(ctx context.Context, session store.Session) error
 
 func (f *fakeLink) SessionStates(sessionID string) []link.SessionState {
 	return f.states[sessionID]
+}
+
+func (f *fakeLink) SendCalibration(ctx context.Context, deviceID string) (store.Calibration, bool, error) {
+	f.calibrated = append(f.calibrated, deviceID)
+	calib, ok := f.calibration[deviceID]
+	return calib, ok, nil
 }
 
 func (f *fakeLink) AnnouncePending(ctx context.Context, deviceID, sessionID string) ([]link.Announcement, error) {

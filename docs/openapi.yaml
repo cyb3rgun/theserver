@@ -151,6 +151,141 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+  /devices/{id}/target-type:
+    post:
+      summary: Say which target type a device is, and calibrate it (D-061, D-063).
+      description: |
+        An empty target_type takes the type off the device. The device is
+        told the beacon rectangle of its new type at once with set_config
+        and the key calib.rect; a device that is offline is told when it
+        connects. sent says whether it took the setting.
+      operationId: setDeviceTargetType
+      parameters: [{$ref: "#/components/parameters/DeviceID"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DeviceTargetType"}
+      responses:
+        "200":
+          description: The device after the change, with what it was told.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DeviceCalibrated"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+  /target-types:
+    get:
+      summary: List every target type, by id (D-061).
+      operationId: listTargetTypes
+      responses:
+        "200":
+          description: The target types, each with the devices that are set to it.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [target_types]
+                properties:
+                  target_types:
+                    type: array
+                    items: {$ref: "#/components/schemas/TargetType"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      summary: Describe a new target type.
+      description: |
+        builtin is never taken from the body: only the migration writes the
+        types that ship with the server (D-064).
+      operationId: createTargetType
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TargetType"}
+      responses:
+        "201":
+          description: The new target type.
+          headers:
+            Location:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TargetType"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /target-types/{id}:
+    get:
+      summary: One target type with the devices that are set to it.
+      operationId: getTargetType
+      parameters: [{$ref: "#/components/parameters/TargetTypeID"}]
+      responses:
+        "200":
+          description: The target type.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TargetType"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    put:
+      summary: Write the values of a target type.
+      description: |
+        The id in the path decides; one in the body is ignored. A builtin
+        type can be changed like any other. Every device of the type is told
+        the rectangle of the new layout at once (D-063).
+      operationId: updateTargetType
+      parameters: [{$ref: "#/components/parameters/TargetTypeID"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/TargetType"}
+      responses:
+        "200":
+          description: The target type after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/TargetType"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      summary: Remove a target type.
+      operationId: deleteTargetType
+      parameters: [{$ref: "#/components/parameters/TargetTypeID"}]
+      responses:
+        "204": {description: The target type is gone.}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/TargetTypeConflict"}
+  /target-types/{id}/calibration:
+    get:
+      summary: The beacon rectangle a device of this type is told (D-063).
+      description: |
+        The rectangle is derived from the beacon layout and the picture
+        size: a millimetre is res/display pixels, and the rectangle is the
+        bounding box of the clusters, its corners in the order top left, top
+        right, bottom right, bottom left. A layout that spans no area has
+        none and is refused with no_calibration.
+      operationId: targetTypeCalibration
+      parameters: [{$ref: "#/components/parameters/TargetTypeID"}]
+      responses:
+        "200":
+          description: The rectangle in canvas coordinates.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Calibration"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/TargetTypeConflict"}
   /sessions:
     get:
       summary: List every session, oldest first.
@@ -1047,6 +1182,11 @@ components:
       in: path
       required: true
       schema: {type: string}
+    TargetTypeID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string}
     SessionID:
       name: id
       in: path
@@ -1111,6 +1251,14 @@ components:
         a draft cannot be assigned; age_rating, the scenario is rated above
         the age a device is set for; bad_transition, the session is no longer
         created.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    TargetTypeConflict:
+      description: |
+        The change conflicts with the target type: builtin, a type that
+        ships with the server cannot be deleted; in_use, devices are set to
+        the type; no_calibration, the beacon layout spans no rectangle.
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -1356,6 +1504,77 @@ components:
         connected_at: {type: integer, description: 0 while offline.}
         last_ack: {type: integer, description: 0 while offline.}
         min_age: {type: integer, enum: [0, 6, 12, 16, 18], description: The age the device is set for (D-039).}
+        target_type: {type: string, description: "The id of the target type the device is, empty while none is assigned."}
+    TargetType:
+      type: object
+      description: A kind of target, described once (D-061).
+      required: [id, name, class, display_w_mm, display_h_mm, res_w, res_h, orientation, sound]
+      properties:
+        id: {type: string, description: "Lower case, letters, digits, dot, dash and underscore."}
+        name:
+          type: object
+          additionalProperties: {type: string}
+          description: The name by language; English is needed.
+        class: {type: string, enum: [esp, pi, pc], description: The computer behind the display.}
+        display_w_mm: {type: number, description: The width of the picture in millimetres.}
+        display_h_mm: {type: number, description: The height of the picture in millimetres.}
+        res_w: {type: integer, minimum: 1, description: "The width of the picture in pixels, which is the canvas."}
+        res_h: {type: integer, minimum: 1, description: The height of the picture in pixels.}
+        orientation: {type: string, enum: [landscape, portrait]}
+        beacons:
+          type: array
+          description: The beacon clusters, at most 16.
+          items: {$ref: "#/components/schemas/Beacon"}
+        sound: {type: string, enum: [none, builtin, hdmi, usb]}
+        notes:
+          type: object
+          additionalProperties: {type: string}
+          description: A note about the type by language.
+        builtin: {type: boolean, readOnly: true, description: "A type that ships with the server: editable, not deletable."}
+        created_at: {type: integer, readOnly: true}
+        updated_at: {type: integer, readOnly: true}
+        devices:
+          type: array
+          readOnly: true
+          description: The devices that are set to this type.
+          items: {type: string}
+    Beacon:
+      type: object
+      description: |
+        One beacon cluster, in millimetres from the top left corner of the
+        picture. A cluster may sit outside the picture, so both values may
+        be negative.
+      required: [x, y]
+      properties:
+        x: {type: number}
+        y: {type: number}
+    Calibration:
+      type: object
+      description: The beacon rectangle of a target type in canvas coordinates (D-063).
+      properties:
+        target_type: {type: string}
+        rect:
+          type: array
+          description: "The four corners, top left, top right, bottom right, bottom left."
+          items:
+            type: array
+            minItems: 2
+            items: {type: integer}
+        value: {type: string, description: "The rectangle as calib.rect carries it: x,y x,y x,y x,y."}
+        canvas_w: {type: integer}
+        canvas_h: {type: integer}
+    DeviceTargetType:
+      type: object
+      additionalProperties: false
+      required: [target_type]
+      properties:
+        target_type: {type: string, description: "The id of the type, empty to take the type off the device."}
+    DeviceCalibrated:
+      type: object
+      properties:
+        device: {$ref: "#/components/schemas/Device"}
+        calibration: {$ref: "#/components/schemas/Calibration"}
+        sent: {type: boolean, description: "Whether the device took the setting; an offline device gets it on its next connection."}
     NewToken:
       type: object
       properties:

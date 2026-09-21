@@ -49,6 +49,10 @@ type DeviceLink interface {
 	StopSession(ctx context.Context, session store.Session) error
 	// SessionStates is what the link is doing for the devices of a session.
 	SessionStates(sessionID string) []link.SessionState
+	// SendCalibration tells a device where the beacons of its target type
+	// sit (D-063). The second value says whether anything was sent: a
+	// device without a type is told nothing.
+	SendCalibration(ctx context.Context, deviceID string) (store.Calibration, bool, error)
 }
 
 var _ DeviceLink = (*link.Server)(nil)
@@ -148,6 +152,13 @@ func (s *Server) routes() []struct {
 		{Route{http.MethodPost, "/devices/{id}/token", true, false}, s.newDeviceToken},
 		{Route{http.MethodPost, "/devices/{id}/min_age", true, false}, s.setMinAge},
 		{Route{http.MethodGet, "/devices/{id}/scenarios", true, false}, s.deviceScenarios},
+		{Route{http.MethodPost, "/devices/{id}/target-type", true, false}, s.setDeviceTargetType},
+		{Route{http.MethodGet, "/target-types", true, false}, s.listTargetTypes},
+		{Route{http.MethodPost, "/target-types", true, false}, s.createTargetType},
+		{Route{http.MethodGet, "/target-types/{id}", true, false}, s.getTargetType},
+		{Route{http.MethodPut, "/target-types/{id}", true, false}, s.updateTargetType},
+		{Route{http.MethodDelete, "/target-types/{id}", true, false}, s.deleteTargetType},
+		{Route{http.MethodGet, "/target-types/{id}/calibration", true, false}, s.targetTypeCalibration},
 		{Route{http.MethodGet, "/sessions", true, false}, s.listSessions},
 		{Route{http.MethodGet, "/sessions/{id}", true, false}, s.getSession},
 		{Route{http.MethodPost, "/sessions", true, false}, s.createSession},
@@ -276,6 +287,9 @@ const (
 	codeVersionTaken     = "version_taken"
 	codeNotPublished     = "not_published"
 	codeNoScenario       = "no_scenario"
+	codeBuiltin          = "builtin"
+	codeInUse            = "in_use"
+	codeNoCalibration    = "no_calibration"
 	codeAgeRating        = "age_rating"
 	codeBadMedia         = "bad_media"
 	codeBadManifest      = "bad_manifest"
@@ -332,12 +346,24 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, codeNotPublished, err.Error())
 	case errors.Is(err, store.ErrNoScenario):
 		writeError(w, http.StatusConflict, codeNoScenario, err.Error())
+	case errors.Is(err, store.ErrTargetTypeNotFound):
+		writeError(w, http.StatusNotFound, codeNotFound, err.Error())
+	case errors.Is(err, store.ErrTargetTypeExists):
+		writeError(w, http.StatusConflict, codeConflict, err.Error())
+	case errors.Is(err, store.ErrTargetTypeBuiltin):
+		writeError(w, http.StatusConflict, codeBuiltin, err.Error())
+	case errors.Is(err, store.ErrTargetTypeInUse):
+		writeError(w, http.StatusConflict, codeInUse, err.Error())
+	case errors.Is(err, store.ErrBadTargetType):
+		writeError(w, http.StatusBadRequest, codeBadRequest, err.Error())
 	case errors.Is(err, store.ErrAgeRating):
 		writeError(w, http.StatusConflict, codeAgeRating, err.Error())
 	case errors.Is(err, store.ErrDraftLocked):
 		writeError(w, http.StatusConflict, codeDraftLocked, err.Error())
 	case errors.Is(err, store.ErrVersionNotFound):
 		writeError(w, http.StatusNotFound, codeNoVersion, err.Error())
+	case errors.As(err, new(*noCalibrationError)):
+		writeError(w, http.StatusConflict, codeNoCalibration, err.Error())
 	case errors.Is(err, errBadRequest):
 		writeError(w, http.StatusBadRequest, codeBadRequest, err.Error())
 	case errors.Is(err, errConflict):

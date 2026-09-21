@@ -131,6 +131,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "  commands:    %d answered\n", stats.Commands)
 	fmt.Fprintf(stdout, "  content:     %d installed, %d failed, holds %s\n", stats.Installs, stats.InstallsFailed, orNone(simtarget.FormatHoldings(stats.Held)))
 	fmt.Fprintf(stdout, "  plays:       %s, starts refused: %d\n", orNone(playing(stats)), stats.Refused)
+	fmt.Fprintf(stdout, "  calibration: %s\n", orNone(stats.Calib))
 	fmt.Fprintf(stdout, "  last ack:    %d, unacknowledged: %d\n", stats.LastAck, stats.Unacked)
 	fmt.Fprintf(stdout, "  journal:     %s\n", *journalDir)
 	fmt.Fprintf(stdout, "  packages:    %s\n", *contentDir)

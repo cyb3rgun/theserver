@@ -101,6 +101,11 @@ type Stats struct {
 	// Refused counts session_start commands for a version the target does
 	// not hold.
 	Refused int
+	// Config is what set_config wrote on the target, by key, and Calib the
+	// beacon rectangle of calib.rect, empty until the server sends one
+	// (D-063).
+	Config map[string]string
+	Calib  string
 }
 
 // Run drives the simulated target until the duration is over and every event
@@ -465,6 +470,8 @@ func (d *device) readLoop(ctx context.Context, ws *websocket.Conn, sendMu *sync.
 				result = d.plays(m)
 			case protocol.CommandSessionStop:
 				result = d.stopsPlaying(m)
+			case protocol.CommandSetConfig:
+				result = d.configured(m)
 			default:
 				result, restart = answer(m)
 			}
@@ -498,7 +505,7 @@ func (d *device) readLoop(ctx context.Context, ws *websocket.Conn, sendMu *sync.
 
 // answer is how the simulated target responds to a command: a time mark is
 // accepted, a reboot is accepted and followed by a reconnect, anything else
-// is refused. The session commands have their own answers.
+// is refused. The session commands and set_config have their own answers.
 func answer(cmd protocol.Command) (protocol.Result, bool) {
 	switch cmd.N {
 	case protocol.CommandTimeMark:
@@ -536,6 +543,29 @@ func (d *device) plays(cmd protocol.Command) protocol.Result {
 	d.stats.Session, d.stats.Playing = start.Ses, start.Scn
 	d.mu.Unlock()
 	return protocol.Result{ID: cmd.ID, OK: true, R: map[string]any{"playing": start.Scn.ID}}
+}
+
+// configured answers set_config: the target writes the setting and says in
+// the log what it now holds. calib.rect is the beacon rectangle its target
+// type gives, which the server derives so that nobody types it by hand
+// (D-063).
+func (d *device) configured(cmd protocol.Command) protocol.Result {
+	var setting protocol.SetConfig
+	if err := protocol.DecodeArgs(cmd.A, &setting); err != nil || setting.K == "" {
+		d.log.Warn("set_config without a usable setting", "error", err)
+		return protocol.Result{ID: cmd.ID, OK: false, E: "set_config: the command names no setting"}
+	}
+	d.log.Info("configured", "key", setting.K, "value", setting.V)
+	d.mu.Lock()
+	if d.stats.Config == nil {
+		d.stats.Config = map[string]string{}
+	}
+	d.stats.Config[setting.K] = setting.V
+	if setting.K == protocol.ConfigCalibRect {
+		d.stats.Calib = setting.V
+	}
+	d.mu.Unlock()
+	return protocol.Result{ID: cmd.ID, OK: true}
 }
 
 // stopsPlaying answers session_stop: the target stops and says so.

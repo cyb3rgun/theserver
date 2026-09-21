@@ -293,6 +293,23 @@ func (s SessionStop) Args() map[string]any {
 	return map[string]any{"ses": s.Ses}
 }
 
+// ConfigCalibRect is the set_config key that carries the beacon rectangle
+// of a target type, the four corners in canvas coordinates written as
+// "x,y x,y x,y x,y" (protocol section 8.12).
+const ConfigCalibRect = "calib.rect"
+
+// SetConfig is the argument map of set_config: one setting of the device by
+// its key, with its value as text.
+type SetConfig struct {
+	K string `cbor:"k"`
+	V string `cbor:"v"`
+}
+
+// Args returns the setting as the a map of a command.
+func (s SetConfig) Args() map[string]any {
+	return map[string]any{"k": s.K, "v": s.V}
+}
+
 // ContentAvailable is the argument map of content_available: the scenario
 // version ID and Ver, the manifest hash Sha in lower case hex, and the size
 // of the package in bytes.

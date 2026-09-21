@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/cyb3rgun/theserver/internal/link"
@@ -29,6 +30,9 @@ type Device struct {
 	LastAck         uint64 `json:"last_ack"`
 	// MinAge is the age the device is set for (D-039).
 	MinAge int `json:"min_age"`
+	// TargetType is the kind of target the device is (D-061), empty while
+	// none is assigned.
+	TargetType string `json:"target_type"`
 }
 
 // NewToken is the answer to a token change; the token is shown this once.
@@ -54,7 +58,7 @@ func deviceJSON(d store.Device, online map[string]link.DeviceStatus) Device {
 		ID: d.ID, Kind: d.Kind, Class: d.Class, Name: d.Name, Room: d.Room, Zone: d.Zone,
 		Status: d.Status, FirmwareVersion: d.FirmwareVersion, SeqEpoch: d.SeqEpoch,
 		HasToken: len(d.TokenHash) > 0, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
-		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt, MinAge: d.MinAge,
+		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt, MinAge: d.MinAge, TargetType: d.TargetType,
 	}
 	if status, ok := online[d.ID]; ok {
 		out.Online = true
@@ -98,6 +102,13 @@ func (s *Server) approveDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "device approved", "device", id)
+	// A device that is allowed in learns where the beacons of its type sit
+	// (D-063); one without a type is told nothing.
+	if s.opts.Link != nil {
+		if _, _, err := s.opts.Link.SendCalibration(r.Context(), id); err != nil && !errors.Is(err, link.ErrDeviceOffline) {
+			s.log.Warn("could not calibrate the device", "device", id, "error", err)
+		}
+	}
 	s.writeDevice(w, r, id, http.StatusOK)
 }
 
