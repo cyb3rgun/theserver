@@ -171,3 +171,13 @@ Added 21 September 2026 with S01-B11 (D-056, D-057, D-059). It fills in what sec
 - **A device that does not hold the version** is not told to start. It gets `content_available` of 8.10 first, and `session_start` after its `installed` report for that version. A device that is offline gets both when it connects. The server waits for the install as long as the session runs; after `link.install_timeout_s` (120) the admin page shows the device as not ready for that session and says how long it has been installing, while the link keeps waiting.
 - **A session plays a published version.** A session without one assigned cannot start; the API answers `no_scenario` and the admin page says so. So a `session_start` always carries a version that is published and that the device is allowed to play by the age check of 8.10.
 - The reference is simtarget: it logs the scenario version of the `welcome` when it connects, answers `session_start` with the version it would play, and refuses a start for a version it does not hold.
+
+### 8.12 The calibration a device is told
+
+Added 21 September 2026 with S01-B12 (D-063). It fills in the arguments of `set_config` of section 5 for one key; every other key stays a matter between an operator and a device.
+
+- **Command `set_config`.** `a` is `{k, v}`: the key of one setting and its value as text. The device answers `res` with `ok` true when it took the setting; a key it does not know is refused with `ok` false and a reason.
+- **The key `calib.rect`.** Its value is the beacon rectangle of the target type of the device in canvas coordinates: four points as `"x,y x,y x,y x,y"`, whole numbers, in the order top left, top right, bottom right, bottom left. A value may be negative, because a beacon cluster may sit outside the picture.
+- **Where the numbers come from.** theserver keeps target types (D-061): the picture of a type in millimetres, its resolution in pixels, and the beacon clusters in millimetres from the top left corner of the picture. A millimetre is `res/display` pixels, and the rectangle is the bounding box of the clusters in those pixels. Nobody types the four points by hand; the setting of the device stays the manual override.
+- **When the server sends it.** When a device is approved, when its target type is set or changed, when the layout of its type changes, and after every handshake, before the device is told what it plays. A device without a target type, and one whose layout spans no rectangle, is told nothing.
+- The reference is simtarget: it takes `set_config`, writes the setting and logs the key and the value it now holds.

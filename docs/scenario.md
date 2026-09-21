@@ -45,6 +45,7 @@ licence     = "official"            # official | community | private
 canvas      = { w = 1080, h = 1920 }   # the coordinate space of all zones
 orientation = "portrait"
 fit         = "cover"                  # how the canvas maps to the target's screen
+target_type = "bar-12"                 # optional, the kind of target this was made for
 
 [rules]
 points_per_hit_default = 50
@@ -54,6 +55,8 @@ timeout_penalty        = 100
 lives                  = 3
 score_cap              = 0            # 0 means none
 ```
+
+`target_type` was added on 21 September 2026 with S01-B12 (D-062) and is optional. It names a target type of theserver, which describes one kind of target once: its display in millimetres, its resolution, how it is mounted and where its beacon clusters sit. The canvas of a scenario made for a type is the resolution of that type, and the editor starts a draft with exactly that canvas. A scenario without a target type keeps its own canvas and plays on any target, as before. theserver checks the field at upload: a package that names a type the server does not have keeps its draft and carries the problem `unknown_target_type`.
 
 Zones, appearances, reactions and media follow; they are described in the next sections.
 

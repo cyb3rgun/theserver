@@ -2,6 +2,47 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-065 The devices page assigns the type, the type page draws the layout
+
+- Date: 21 September 2026 (S01-B12)
+- Decision: The devices page and the page of one device show the target type and let an operator set it; the page of a type draws its beacon layout as a simple outline picture, the picture as a rectangle, the frame the clusters span as a dashed one and a dot per cluster.
+- Details: The drawing is an inline SVG the server writes in millimetres, without text, in the colour of the page; it is structure, not design, and it is there so that an operator sees what the numbers mean before a target hangs on a wall. The layout is edited as a table of rows without a script: a row that is emptied is dropped, and the empty row at the end adds a cluster. Beside the drawing stand the picture size, the canvas and the rectangle the server sends, and the notice after a change names that rectangle.
+- Reason: Four numbers in millimetres say nothing until they are seen. A picture that is drawn from the same numbers the server computes with is the cheapest check against a typing mistake.
+- Versions: none.
+
+## D-064 Three seed types ship with the migration
+
+- Date: 21 September 2026 (S01-B12)
+- Decision: The migration seeds the three types that exist today, marked `builtin`: `board-10` (10.1 inch, 1280 x 800, four clusters at the midpoints of the picture edges), `bar-12` (11.9 inch, 1480 x 320, HDMI sound, four clusters at the corners of a 350 by 200 mm frame around the picture) and `tv-50` (50 inch, 1920 x 1080, four clusters at the edge midpoints). A builtin type can be edited but not deleted, and neither can a type that devices are set to.
+- Agreed with the architect during this pass: the briefing gives the diagonals and the resolutions but not the picture sizes, so they are computed from the diagonal and the aspect ratio and rounded to whole millimetres: board-10 217 x 136 mm, bar-12 295 x 64 mm, tv-50 1107 x 623 mm. The class and the sound of a seed are the obvious ones, `pi` with a speaker on the board, `pi` over HDMI, `pc` over HDMI. Every one of these numbers is corrected in the admin without a release, which is what makes a seed a seed.
+- Details: The phone stand and the mannequin follow as data, not code. The migration is 0010, not 0008 as the briefing says: 0008 and 0009 were taken by the draft locks and the draft history of B09.
+- Reason: An empty table teaches nobody. Three types that are real make the shape of the data obvious and give the first device something to be.
+- Versions: none.
+
+## D-063 The calibration is derived, never typed
+
+- Date: 21 September 2026 (S01-B12)
+- Decision: theserver computes the beacon rectangle of a target type in canvas coordinates and sends it to the device as `set_config` with the key `calib.rect`: when the device is approved, when its type is set or changed, and after every handshake. theclient keeps its own `calib.rect` setting as the manual override. Protocol section 8.12 records the key and the shape of its value.
+- Details: A millimetre is `res/display` pixels, and the rectangle is the bounding box of the clusters, written as the four points `"x,y x,y x,y x,y"` in the order top left, top right, bottom right, bottom left, which is the order theclient reads the setting in (its D-012). The three seeds give `0,0 1280,0 1280,800 0,800` for board-10, `-138,-340 1618,-340 1618,660 -138,660` for bar-12 and `0,0 1920,0 1920,1080 0,1080` for tv-50. A device without a type, and a type whose clusters span no area, are told nothing; a device that is offline is told when it connects.
+- Reason: The four points are the one number that a person cannot guess and that a wrong entry makes every shot miss by a little. They follow from the type, so the type is the only place they are written down.
+- Versions: none.
+
+## D-062 The canvas follows the target type
+
+- Date: 21 September 2026 (S01-B12)
+- Decision: A target type has a canvas, which is its resolution and its orientation. The editor offers the canvas of a chosen type when a draft is created, and a scenario records the type in `[display].target_type` of its manifest, optional and validated when present. A scenario without a type keeps its own canvas as before.
+- Details: `pkg/scenario` checks the field for a usable id; whether the server has that type is checked at upload, where the types are known, and a package that names an unknown one keeps its draft and carries the problem `unknown_target_type` in both languages. `docs/scenario.md` section 2 carries the field with its date.
+- Reason: A scenario drawn on a canvas that is not the canvas of the target it plays on is stretched or cut. Naming the type is the shortest way to say what the numbers were meant for, and the only way a later tool can check the fit.
+- Versions: none.
+
+## D-061 A target type is data, not code
+
+- Date: 21 September 2026 (S01-B12)
+- Decision: A kind of target is described once, in the table `target_types`, and edited in the admin: id, name in every language, class, the picture in millimetres, the resolution in pixels, the orientation, the beacon layout as a list of clusters with x and y in millimetres from the top left corner of the picture, the sound, notes in every language, and the times. Devices carry `devices.target_type`.
+- Details: A cluster may sit outside the picture, so its values may be negative; a layout holds at most sixteen clusters. The fields live in the registry `internal/targettype` with label, description and why in English and German, like the settings and the editor fields, and the admin renders all three with one help component. The API is `/api/v1/target-types` with the usual five operations plus the derived calibration.
+- Reason: The display, the resolution and the beacon positions were carried by hand in three repositories at once. A new kind of target should be a row an operator writes, not a release.
+- Versions: none.
+
 ## D-060 The tag v0.3.0
 
 - Date: 21 September 2026 (S01-B11)
