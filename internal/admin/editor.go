@@ -797,8 +797,9 @@ func (a *Admin) newDraft(w http.ResponseWriter, r *http.Request, s session) {
 		return
 	}
 	body := httpapi.NewDraft{
-		ID:   strings.TrimSpace(r.FormValue("id")),
-		Tier: r.FormValue("tier"),
+		ID:         strings.TrimSpace(r.FormValue("id")),
+		Tier:       r.FormValue("tier"),
+		TargetType: strings.TrimSpace(r.FormValue("target_type")),
 	}
 	if title := strings.TrimSpace(r.FormValue("title")); title != "" {
 		body.Title = map[string]string{}

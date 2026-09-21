@@ -10,3 +10,47 @@
 {{define "error"}}
 {{if .Error}}<p class="error" role="alert">{{.Error}}{{with .ErrorDetail}}<small class="detail">{{.}}</small>{{end}}</p>{{end}}
 {{end}}
+
+{{define "target-type-fields"}}
+{{range .}}
+{{$field := .}}
+<div class="field" id="field-{{.ID}}">
+  <div class="field-head">
+    <label for="{{.ID}}">{{.Label}}</label>
+    {{template "help" .}}
+    {{if .Optional}}<span class="muted">{{t "admin.target_types.optional"}}</span>{{end}}
+    <code class="key">{{.Key}}</code>
+  </div>
+  <div class="control">
+    {{if eq .Control "select"}}
+    <select id="{{.ID}}" name="{{.Key}}">
+      {{range .Options}}<option value="{{.Value}}"{{if eq .Value $field.Value}} selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+    {{else if eq .Control "texts"}}
+    <span class="texts">
+      {{range .Texts}}<label class="lang" for="{{$field.ID}}-{{.Lang}}">{{.Label}}</label>
+      <input type="text" id="{{$field.ID}}-{{.Lang}}" name="{{.Name}}" value="{{.Value}}">{{end}}
+    </span>
+    {{else if eq .Control "number"}}
+    <input type="number" id="{{.ID}}" name="{{.Key}}" value="{{.Value}}" step="{{.Step}}"{{with .Min}} min="{{.}}"{{end}}{{with .Max}} max="{{.}}"{{end}}>
+    {{else if eq .Control "beacons"}}
+    <table class="beacons" id="{{.ID}}">
+      <thead><tr><th class="number">{{t "admin.target_types.beacon_no"}}</th><th class="number">{{t "admin.target_types.beacon_x"}}</th><th class="number">{{t "admin.target_types.beacon_y"}}</th></tr></thead>
+      <tbody>
+      {{range .Beacons}}
+        <tr><td class="number">{{.Index}}</td>
+          <td><input type="number" step="any" name="beacon.x" value="{{.X}}" aria-label="{{t "admin.target_types.beacon_x_of" .Index}}"></td>
+          <td><input type="number" step="any" name="beacon.y" value="{{.Y}}" aria-label="{{t "admin.target_types.beacon_y_of" .Index}}"></td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <input type="text" id="{{.ID}}" name="{{.Key}}" value="{{.Value}}" spellcheck="false">
+    {{end}}
+    {{with .Unit}}<span class="unit">{{.}}</span>{{end}}
+  </div>
+  <details class="why"><summary>{{t "admin.settings.why"}}</summary><p>{{.Why}}</p></details>
+</div>
+{{end}}
+{{end}}

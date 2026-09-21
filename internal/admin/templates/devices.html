@@ -11,7 +11,7 @@
   <table>
     <thead>
       <tr>
-        <th>{{t "admin.devices.col_device"}}</th><th>{{t "admin.devices.col_kind"}}</th><th>{{t "admin.devices.col_class"}}</th><th>{{t "admin.devices.col_room"}}</th><th>{{t "admin.devices.col_status"}}</th>
+        <th>{{t "admin.devices.col_device"}}</th><th>{{t "admin.devices.col_kind"}}</th><th>{{t "admin.devices.col_class"}}</th><th>{{t "admin.devices.col_room"}}</th><th>{{t "admin.devices.col_target_type"}}</th><th>{{t "admin.devices.col_status"}}</th>
         <th>{{t "admin.devices.col_online"}}</th><th>{{t "admin.devices.col_last_seen"}}</th><th class="number">{{t "admin.devices.col_epoch"}}</th><th class="number">{{t "admin.devices.col_last_ack"}}</th><th>{{t "admin.devices.col_firmware"}}</th><th>{{t "admin.devices.col_actions"}}</th>
       </tr>
     </thead>
@@ -22,6 +22,7 @@
         <td>{{word "admin.kind" .Kind}}</td>
         <td>{{.Class}}</td>
         <td>{{.Room}}</td>
+        <td>{{if .TargetType}}<a href="/admin/target-types/{{path .TargetType}}">{{.TargetType}}</a>{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</td>
         <td><span class="badge {{.Status}}">{{word "admin.status" .Status}}</span></td>
         <td>{{if .Online}}<span class="badge online">{{t "admin.devices.online"}}</span>{{else}}<span class="badge offline">{{t "admin.devices.offline"}}</span>{{end}}</td>
         <td>{{when .LastSeen}}</td>
@@ -43,7 +44,7 @@
         </td>
       </tr>
     {{else}}
-      <tr><td colspan="11">{{t "admin.devices.empty"}} <code>theserver device add</code>.</td></tr>
+      <tr><td colspan="12">{{t "admin.devices.empty"}} <code>theserver device add</code>.</td></tr>
     {{end}}
     </tbody>
   </table>

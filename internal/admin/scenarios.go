@@ -59,7 +59,10 @@ type scenariosData struct {
 	Problems    []problemView
 	MaxUploadMB int
 	Tiers       []tierChoice
-	Script      string // integrity of static/scenarios.js
+	// Types are the target types a new draft can take its canvas from
+	// (D-062).
+	Types  []typeChoice
+	Script string // integrity of static/scenarios.js
 }
 
 // draftEntry is one editor draft in the catalogue.
@@ -80,8 +83,13 @@ func (a *Admin) newScenariosData(s session) scenariosData {
 	return scenariosData{layout: a.layout("admin.scenarios.title", "scenarios", s), Script: a.scripts["scenarios.js"]}
 }
 
-// loadCatalogue reads the catalogue and the upload limit.
+// loadCatalogue reads the catalogue, the upload limit and the target types.
 func (a *Admin) loadCatalogue(w http.ResponseWriter, r *http.Request, s session, data *scenariosData) bool {
+	types, _, ok := a.targetTypeChoices(w, r, s, &data.alert)
+	if !ok {
+		return false
+	}
+	data.Types = types
 	var list httpapi.ScenarioList
 	if a.failed(w, r, a.call(r, s, http.MethodGet, "/scenarios", nil, &list), &data.alert) {
 		return false
@@ -412,6 +420,16 @@ type deviceData struct {
 	Assignments []httpapi.Assignment
 	Titles      map[string]string
 	Ages        []int
+	// Types are the target types to choose from, TypeNames their names in
+	// the language of the page (D-065).
+	Types     []typeChoice
+	TypeNames map[string]string
+}
+
+// typeChoice is one target type in a select.
+type typeChoice struct {
+	ID    string
+	Label string
 }
 
 func (a *Admin) devicePage(w http.ResponseWriter, r *http.Request, s session) {
@@ -452,7 +470,31 @@ func (a *Admin) loadDevice(w http.ResponseWriter, r *http.Request, s session, id
 	_, data.Titles = choicesIn(s.Lang, list)
 	data.Holdings = holdingsIn(held.Holdings, data.Titles)
 	data.Assignments = held.Assignments
+	types, names, ok := a.targetTypeChoices(w, r, s, &data.alert)
+	if !ok {
+		return data, false
+	}
+	data.Types, data.TypeNames = types, names
 	return data, true
+}
+
+// targetTypeChoices reads the target types for a select, with their names
+// in the language of the page.
+func (a *Admin) targetTypeChoices(w http.ResponseWriter, r *http.Request, s session, out *alert) ([]typeChoice, map[string]string, bool) {
+	var list struct {
+		TargetTypes []httpapi.TargetType `json:"target_types"`
+	}
+	if a.failed(w, r, a.call(r, s, http.MethodGet, "/target-types", nil, &list), out) {
+		return nil, nil, false
+	}
+	choices := make([]typeChoice, 0, len(list.TargetTypes))
+	names := map[string]string{}
+	for _, t := range list.TargetTypes {
+		label := textIn(t.Name, s.Lang)
+		choices = append(choices, typeChoice{ID: t.ID, Label: label})
+		names[t.ID] = label
+	}
+	return choices, names, true
 }
 
 // setDeviceAge sets the age a device is set for.

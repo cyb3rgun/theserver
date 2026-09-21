@@ -25,6 +25,12 @@
     <select id="new-tier" name="tier">
       {{range .Tiers}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
     </select>
+    <label for="new-target-type">{{t "admin.scenarios.new_target_type"}}</label>
+    <select id="new-target-type" name="target_type">
+      <option value="">{{t "admin.scenarios.new_target_type_none"}}</option>
+      {{range .Types}}<option value="{{.ID}}">{{.Label}}</option>{{end}}
+    </select>
+    <p class="muted">{{t "admin.scenarios.new_target_type_help"}}</p>
     <button class="button primary" type="submit">{{t "admin.scenarios.new_button"}}</button>
   </form>
 </section>

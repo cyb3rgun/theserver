@@ -11,7 +11,19 @@
     <dt>{{t "admin.devices.col_status"}}</dt><dd><span class="badge {{.Device.Status}}">{{word "admin.status" .Device.Status}}</span></dd>
     <dt>{{t "admin.devices.col_online"}}</dt><dd>{{if .Device.Online}}<span class="badge online">{{t "admin.devices.online"}}</span>{{else}}<span class="badge offline">{{t "admin.devices.offline"}}</span>{{end}}</dd>
     <dt>{{t "admin.devices.col_firmware"}}</dt><dd>{{.Device.FirmwareVersion}}</dd>
+    <dt>{{t "admin.devices.col_target_type"}}</dt>
+    <dd>{{if .Device.TargetType}}<a href="/admin/target-types/{{path .Device.TargetType}}">{{or (index $.TypeNames .Device.TargetType) .Device.TargetType}}</a>{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</dd>
   </dl>
+  <form class="inline" id="target-type-form" method="post" action="/admin/devices/{{path .Device.ID}}/target-type">
+    <label for="target-type">{{t "admin.device.target_type"}}</label>
+    <select id="target-type" name="target_type">
+      <option value="">{{t "admin.device.target_type_none"}}</option>
+      {{$current := .Device.TargetType}}
+      {{range .Types}}<option value="{{.ID}}"{{if eq .ID $current}} selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+    <button class="button" type="submit">{{t "admin.device.set_target_type"}}</button>
+  </form>
+  <p class="muted">{{t "admin.device.target_type_help"}}</p>
   <form class="inline" id="age-form" method="post" action="/admin/devices/{{path .Device.ID}}/age">
     <label for="min-age">{{t "admin.device.min_age"}}</label>
     <select id="min-age" name="min_age">

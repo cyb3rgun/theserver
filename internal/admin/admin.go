@@ -70,7 +70,8 @@ type Admin struct {
 	handler   http.Handler
 }
 
-var pageNames = []string{"login", "devices", "device", "sessions", "ranking", "scenarios", "scenario", "editor", "preview", "settings"}
+var pageNames = []string{"login", "devices", "device", "sessions", "ranking", "scenarios", "scenario",
+	"target-types", "target-type", "editor", "preview", "settings"}
 
 // New returns the admin handler.
 func New(opts Options) (*Admin, error) {
@@ -138,7 +139,13 @@ func New(opts Options) (*Admin, error) {
 	mux.Handle("GET /admin/devices/table", a.page(a.devicesTable))
 	mux.Handle("GET /admin/devices/{id}/view", a.page(a.devicePage))
 	mux.Handle("POST /admin/devices/{id}/age", a.page(a.setDeviceAge))
+	mux.Handle("POST /admin/devices/{id}/target-type", a.page(a.setDeviceTargetType))
 	mux.Handle("POST /admin/devices/{id}/{action}", a.page(a.deviceAction))
+	mux.Handle("GET /admin/target-types", a.page(a.targetTypesPage))
+	mux.Handle("POST /admin/target-types", a.page(a.createTargetType))
+	mux.Handle("GET /admin/target-types/{id}", a.page(a.targetTypePage))
+	mux.Handle("POST /admin/target-types/{id}", a.page(a.saveTargetType))
+	mux.Handle("POST /admin/target-types/{id}/delete", a.page(a.deleteTargetType))
 	mux.Handle("GET /admin/sessions", a.page(a.sessionsPage))
 	mux.Handle("POST /admin/sessions", a.page(a.createSession))
 	mux.Handle("POST /admin/sessions/{id}/{action}", a.page(a.sessionAction))

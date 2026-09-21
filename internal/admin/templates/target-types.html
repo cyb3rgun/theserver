@@ -1,0 +1,43 @@
+{{define "content"}}
+<h1>{{t "admin.target_types.title"}}</h1>
+<p class="muted">{{t "admin.target_types.intro"}}</p>
+{{template "messages" .}}
+
+<div class="scroll">
+<table id="target-types">
+  <thead>
+    <tr><th>{{t "admin.target_types.col_name"}}</th><th>{{t "admin.target_types.col_class"}}</th>
+    <th class="number">{{t "admin.target_types.col_resolution"}}</th><th class="number">{{t "admin.target_types.col_display"}}</th>
+    <th>{{t "admin.target_types.col_sound"}}</th><th class="number">{{t "admin.target_types.col_beacons"}}</th>
+    <th class="number">{{t "admin.target_types.col_devices"}}</th></tr>
+  </thead>
+  <tbody>
+  {{range .Types}}
+    <tr id="type-{{.ID}}">
+      <td><a href="/admin/target-types/{{path .ID}}">{{.Label}}</a><br><code>{{.ID}}</code>
+        {{if .Builtin}}<span class="badge">{{t "admin.target_types.builtin"}}</span>{{end}}</td>
+      <td>{{word "admin.class" .Class}}</td>
+      <td class="number">{{.ResW}} x {{.ResH}}</td>
+      <td class="number">{{.DisplayWMM}} x {{.DisplayHMM}}</td>
+      <td>{{word "admin.sound" .Sound}}</td>
+      <td class="number">{{len .Beacons}}</td>
+      <td class="number">{{.Devices}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="7">{{t "admin.target_types.empty"}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+<section class="card new-target-type">
+  <h2>{{t "admin.target_types.new_title"}}</h2>
+  <p class="muted">{{t "admin.target_types.new_intro"}}</p>
+  <form id="new-target-type" class="settings" method="post" action="/admin/target-types">
+    {{template "target-type-fields" .Fields}}
+    <div class="savebar">
+      <button class="button primary" type="submit">{{t "admin.target_types.create"}}</button>
+    </div>
+  </form>
+</section>
+{{end}}

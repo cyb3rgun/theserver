@@ -72,9 +72,11 @@ func TestEveryPageInEveryLanguage(t *testing.T) {
 
 	titles := map[string]map[string]string{
 		"en": {"/admin/devices": "Devices", "/admin/sessions": "Sessions", "/admin/ranking": "Ranking", "/admin/settings": "Settings",
-			"/admin/scenarios": "Scenarios", "/admin/scenarios/zombie-alley": "Zombie Alley", "/admin/devices/tgt-01/view": "Device tgt-01"},
+			"/admin/scenarios": "Scenarios", "/admin/scenarios/zombie-alley": "Zombie Alley", "/admin/devices/tgt-01/view": "Device tgt-01",
+			"/admin/target-types": "Target types", "/admin/target-types/bar-12": "Bar display 11.9 inch"},
 		"de": {"/admin/devices": "Geräte", "/admin/sessions": "Sitzungen", "/admin/ranking": "Rangliste", "/admin/settings": "Einstellungen",
-			"/admin/scenarios": "Szenarien", "/admin/scenarios/zombie-alley": "Zombie-Gasse", "/admin/devices/tgt-01/view": "Gerät tgt-01"},
+			"/admin/scenarios": "Szenarien", "/admin/scenarios/zombie-alley": "Zombie-Gasse", "/admin/devices/tgt-01/view": "Gerät tgt-01",
+			"/admin/target-types": "Zieltypen", "/admin/target-types/bar-12": "Leistendisplay 11,9 Zoll"},
 	}
 	for _, lang := range i18n.Languages() {
 		h.lang = lang
@@ -88,6 +90,24 @@ func TestEveryPageInEveryLanguage(t *testing.T) {
 		h.html("POST", "/admin/devices/tgt-02/approve", url.Values{})
 		h.html("POST", "/admin/devices/tgt-01/token", url.Values{})
 		h.html("POST", "/admin/sessions/s-1/devices", url.Values{"device_id": {"tgt-01"}})
+		// The target type pages in this language: a type described, changed,
+		// set on a device and refused twice (D-065).
+		h.do("POST", "/admin/target-types", url.Values{
+			"id": {"stand-" + lang}, "name.en": {"Stand"}, "name.de": {"Halter"}, "class": {"pi"},
+			"display_w_mm": {"150"}, "display_h_mm": {"70"}, "res_w": {"1080"}, "res_h": {"1920"},
+			"orientation": {"portrait"}, "sound": {"usb"},
+			"beacon.x": {"0", "150", "150", "0"}, "beacon.y": {"0", "0", "70", "70"},
+		}, true)
+		h.html("GET", "/admin/target-types/stand-"+lang+"?created=1", nil)
+		h.html("GET", "/admin/target-types/stand-"+lang+"?saved=1", nil)
+		h.do("POST", "/admin/target-types/stand-"+lang, url.Values{"display_w_mm": {"wide"}}, true)
+		h.html("POST", "/admin/devices/tgt-01/target-type", url.Values{"target_type": {"stand-" + lang}})
+		h.html("POST", "/admin/devices/tgt-01/target-type", url.Values{"target_type": {"nothing"}})
+		h.do("POST", "/admin/target-types/stand-"+lang+"/delete", url.Values{}, true)
+		h.html("POST", "/admin/devices/tgt-01/target-type", url.Values{"target_type": {""}})
+		h.do("POST", "/admin/target-types/stand-"+lang+"/delete", url.Values{}, true)
+		h.do("POST", "/admin/target-types/bar-12/delete", url.Values{}, true)
+		h.do("GET", "/admin/target-types/nothing", nil, true)
 		h.html("POST", "/admin/sessions/s-1/scenario", url.Values{"scenario": {""}})
 		h.html("POST", "/admin/sessions/s-1/scenario", url.Values{"scenario": {"night-range@1"}})
 		for _, page := range []string{"/admin/scenarios/night-range?uploaded=1", "/admin/scenarios/night-range?uploaded=1&replaced=1",

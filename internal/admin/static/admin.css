@@ -289,6 +289,38 @@ select {
   border-color: var(--danger);
 }
 
+/* The layout of a target type: the picture, the frame the beacon clusters
+   span, and a dot per cluster. Structure, not design. */
+svg.layout {
+  display: block;
+  width: 100%;
+  max-width: 28rem;
+  height: auto;
+  margin: 0.5rem 0 1rem;
+  color: var(--text);
+}
+
+table.beacons {
+  width: auto;
+  margin: 0;
+}
+
+table.beacons input {
+  width: 7rem;
+}
+
+.texts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: baseline;
+}
+
+.texts .lang {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
 /* One line per device of a session: its id and whether it can play. */
 ul.devices {
   list-style: none;
