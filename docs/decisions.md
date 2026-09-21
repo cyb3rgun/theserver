@@ -2,6 +2,46 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-060 The tag v0.3.0
+
+- Date: 21 September 2026 (S01-B11)
+- Decision: The close of S01-B11 is tagged `v0.3.0` on `main` and pushed, and theclient pins it. The minor number is raised because `pkg/protocol` gained the types of the session side: `Welcome.Scn`, `SessionStart` and `SessionStop` with their `Args` (D-049).
+- Details: Nothing that `v0.2.0` offered changed its meaning. A caller that ignores `Scn` in the welcome keeps working, and the two argument types are new names beside the existing ones.
+- Reason: theclient found the hole this pass closes and needs the types to read the new fields.
+- Versions: none.
+
+## D-059 Content first, then the start
+
+- Date: 21 September 2026 (S01-B11)
+- Decision: A device that does not hold the version its session plays is not told to start. It gets `content_available` first and `session_start` after its `installed` report for that version. `link.install_timeout_s` (default 120, range 1 to 3600) says how long a start waits before the admin page calls the device not ready for that session; the link keeps waiting, so a device that finishes later is still told to play.
+- Details: The link keeps per device what it is doing for a running session: `waiting` while the start is on its way or the content is missing, `started` when the device took it, `offline` when it was not connected, `failed` when it refused, and `timeout` for a wait that ran past the timeout. The session answer of API v1 carries `readiness`, one entry per device with `online`, `holds`, `started`, `ready`, the reason it is not ready and how long it has been installing; the sessions page shows that reason as a badge beside each device, in both languages. A device that connects later, one that reports the version installed, and one that is put into a running session all run through the same path.
+- Reason: A device that is told to play something it does not have shows a black screen, and an operator who sees a green session with a black target has no way to tell why. The order and the reason together make the state of a room readable.
+- Versions: none.
+
+## D-058 A session plays a published scenario before it starts
+
+- Date: 21 September 2026 (S01-B11)
+- Decision: A session cannot start without a published scenario version assigned. The store refuses with `ErrNoScenario`, the API answers 409 with the code `no_scenario`, and the admin page says so in the language of the operator.
+- Details: This is checked at the start, not at creation: a session is created with a label, gets its version on the sessions page, and only then can run. A version that was assigned and later withdrawn cannot happen, because a published version never changes (D-036).
+- Reason: `session_start` carries the version the device plays (D-057). A session that plays nothing has nothing to send, and the hole this pass closes would open again through a session that runs without content.
+- Versions: none.
+
+## D-057 session_start carries the session and its scenario
+
+- Date: 21 September 2026 (S01-B11)
+- Decision: `session_start` carries `{ses, scn: {id, ver}}`. theserver sends it to every device of the session when the session starts, to a device that connects while the session runs, right after its `welcome`, and to a device that is put into a running session. `session_stop {ses}` stays as it was. Section 8 of `docs/protocol.md` is appended as 8.11; sections 1 to 7 are unchanged.
+- Details: The link keeps what it sent per device and what came of it, and forgets a session when it stops. A refusal or a failed command is kept with its reason and shown on the sessions page (D-059). The simulated target answers by logging the version it would play, which is what the end to end tests read.
+- Reason: Section 5 named `scn` in `session_start` from the first day, and theserver never filled it. A device that has to guess plays the wrong version after an announcement that belonged to another session.
+- Versions: none.
+
+## D-056 The welcome says what the session plays
+
+- Date: 21 September 2026 (S01-B11)
+- Decision: `welcome` carries `scn`, the scenario version of the running session of that device, as `{id, ver}` next to `ses`, or null when no session of the device runs or the running session has no version assigned.
+- Details: `pkg/protocol` gains `Welcome.Scn *Holding`; a device that does not know the key ignores it, as section 2 of the protocol asks. A device that reconnects into a running session knows from the welcome alone what it is in and what it plays, before any command arrives.
+- Reason: theclient found in its B02 that theserver never told a device which version its session plays, so the device guessed from the last announcement. The welcome is the one place where the answer is free of ordering.
+- Versions: none.
+
 ## D-055 The tag v0.2.0
 
 - Date: 20 September 2026 (S01-B10)
