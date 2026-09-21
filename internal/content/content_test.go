@@ -46,6 +46,47 @@ func withVersion(t *testing.T, version string) []byte {
 	return data
 }
 
+// forTargetType is the VIDEO fixture zipped with a target type in its
+// display section.
+func forTargetType(t *testing.T, id string) []byte {
+	t.Helper()
+	files := scenariotest.Files(t, scenariotest.Dir(scenariotest.Video))
+	manifest := string(files[scenario.ManifestName])
+	if !strings.Contains(manifest, "fit         = ") {
+		t.Fatal("the VIDEO fixture has no fit line")
+	}
+	withType := `orientation = "portrait"
+target_type = "` + id + `"`
+	files[scenario.ManifestName] = []byte(strings.Replace(manifest, `orientation = "portrait"`, withType, 1))
+	data, err := scenariotest.ZipFiles(files, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// A package may name the target type it was made for; the server checks it
+// against the types it has (D-062).
+func TestPutChecksTheTargetType(t *testing.T) {
+	c, _ := newContent(t)
+
+	known := put(t, c, forTargetType(t, "bar-12"))
+	if !known.Stored || len(known.Problems) != 0 {
+		t.Fatalf("a package for a known type came to %+v", known)
+	}
+
+	unknown := put(t, c, forTargetType(t, "nothing"))
+	if len(unknown.Problems) != 1 || unknown.Problems[0].Code != scenario.CodeUnknownTargetType {
+		t.Fatalf("a package for an unknown type has the problems %+v", unknown.Problems)
+	}
+	if unknown.Problems[0].Field != "display.target_type" || unknown.Problems[0].Detail == "" {
+		t.Errorf("the problem says too little: %+v", unknown.Problems[0])
+	}
+	if !unknown.Stored {
+		t.Error("a package with an unknown type was not kept as a draft")
+	}
+}
+
 func put(t *testing.T, c *Store, data []byte) Result {
 	t.Helper()
 	result, err := c.Put(t.Context(), bytes.NewReader(data), 1<<20, "founder")

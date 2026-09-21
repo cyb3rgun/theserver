@@ -140,11 +140,14 @@ func (t Text) In(lang string) string {
 }
 
 // Display is the [display] section. All zones are in canvas coordinates,
-// origin top left.
+// origin top left. TargetType is optional and names the kind of target the
+// scenario was made for (D-062); its canvas is the resolution of that type.
+// A scenario without one keeps its own canvas and plays on any target.
 type Display struct {
 	Canvas      *Canvas `toml:"canvas" json:"canvas"`
 	Orientation string  `toml:"orientation" json:"orientation"`
 	Fit         string  `toml:"fit" json:"fit"`
+	TargetType  string  `toml:"target_type" json:"target_type,omitempty"`
 }
 
 // Canvas is the coordinate space of the zones.
@@ -312,6 +315,9 @@ const (
 	CodeHashMismatch           = "hash_mismatch"
 	CodeUnlistedFile           = "unlisted_file"
 	CodeVersionTaken           = "version_taken"
+	// CodeUnknownTargetType is a [display] section that names a target type
+	// the server does not have (D-062).
+	CodeUnknownTargetType = "unknown_target_type"
 )
 
 // Codes lists every code, in the order of the constants.
@@ -323,7 +329,7 @@ func Codes() []string {
 		CodeKeyframesUnordered, CodeBadTimeWindow, CodeZoneWithoutAppearance, CodeZoneShared,
 		CodeAppearanceUnknownZone, CodeAppearanceWithoutZones, CodeUnknownAppearance,
 		CodeUnknownMediaState, CodeNotInTier, CodeTierMediaMismatch, CodeMissingMedia,
-		CodeHashMismatch, CodeUnlistedFile, CodeVersionTaken,
+		CodeHashMismatch, CodeUnlistedFile, CodeVersionTaken, CodeUnknownTargetType,
 	}
 }
 

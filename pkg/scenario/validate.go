@@ -139,6 +139,9 @@ func (c *checker) display() {
 	}
 	c.oneOf("display.orientation", d.Orientation, orientation)
 	c.oneOf("display.fit", d.Fit, fits)
+	if d.TargetType != "" && !ValidID(d.TargetType) {
+		c.add("display.target_type", CodeBadID, "the target type %q is not a usable id", d.TargetType)
+	}
 }
 
 func (c *checker) rules() {

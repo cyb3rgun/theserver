@@ -231,6 +231,33 @@ func TestPublishRefusesADraftWithProblems(t *testing.T) {
 
 // A draft copied from a published version publishes a version that is the
 // hand made package again, with the next version number (D-042).
+// A draft made for a target type takes its canvas from that type, keeps
+// its id in the manifest and is refused for a type the server does not have
+// (D-062).
+func TestDraftFromATargetType(t *testing.T) {
+	h := newAPI(t)
+	created := decode[Draft](t, h.call(http.MethodPost, Prefix+"/drafts",
+		`{"id": "bar-test", "tier": "video", "target_type": "bar-12"}`), http.StatusCreated)
+
+	var m scenario.Manifest
+	if err := json.Unmarshal(created.Manifest, &m); err != nil {
+		t.Fatal(err)
+	}
+	switch {
+	case m.Display == nil || m.Display.Canvas == nil:
+		t.Fatalf("the draft has no canvas: %s", created.Manifest)
+	case m.Display.Canvas.W != 1480 || m.Display.Canvas.H != 320:
+		t.Errorf("the canvas is %d x %d, want the resolution of bar-12", m.Display.Canvas.W, m.Display.Canvas.H)
+	case m.Display.TargetType != "bar-12":
+		t.Errorf("the manifest names the target type %q", m.Display.TargetType)
+	case m.Display.Orientation != "landscape":
+		t.Errorf("the draft is mounted %q", m.Display.Orientation)
+	}
+
+	expectError(t, h.call(http.MethodPost, Prefix+"/drafts",
+		`{"id": "nowhere-test", "tier": "video", "target_type": "nothing"}`), http.StatusNotFound, codeNotFound)
+}
+
 func TestDraftCopiedFromAPublishedVersion(t *testing.T) {
 	h := newAPI(t)
 	fixture := scenariotest.Zip(t, scenariotest.Video)

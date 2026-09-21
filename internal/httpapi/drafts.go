@@ -118,12 +118,15 @@ type DraftList struct {
 }
 
 // NewDraft is the body of POST /drafts: a fresh draft with an id, a tier and
-// a title, or a copy of a published version.
+// a title, or a copy of a published version. TargetType names the kind of
+// target the scenario is made for; its resolution and orientation are then
+// the canvas of the draft (D-062).
 type NewDraft struct {
-	ID    string            `json:"id"`
-	Tier  string            `json:"tier"`
-	Title map[string]string `json:"title"`
-	From  *FromVersion      `json:"from"`
+	ID         string            `json:"id"`
+	Tier       string            `json:"tier"`
+	Title      map[string]string `json:"title"`
+	From       *FromVersion      `json:"from"`
+	TargetType string            `json:"target_type"`
 }
 
 // FromVersion names the published version a draft copies.
@@ -253,6 +256,16 @@ func (s *Server) createDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	token, _ := AdminFrom(r.Context())
 	spec := content.NewDraft{ScenarioID: body.ID, Tier: body.Tier, Title: scenario.Text(body.Title), By: token.Name}
+	if body.TargetType != "" {
+		// The canvas of the draft is the resolution of the target type
+		// (D-062).
+		t, err := s.opts.Store.GetTargetType(r.Context(), body.TargetType)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		spec.TargetType = &t
+	}
 	if body.From != nil {
 		sc, err := s.opts.Store.GetScenario(r.Context(), body.From.ID, body.From.Version)
 		if err != nil {
@@ -285,7 +298,8 @@ func (s *Server) createDraft(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	s.audit(r, "draft created", "draft", d.ID, "scenario", d.ScenarioID, "tier", spec.Tier, "copied", body.From != nil)
+	s.audit(r, "draft created", "draft", d.ID, "scenario", d.ScenarioID, "tier", spec.Tier,
+		"copied", body.From != nil, "target_type", body.TargetType)
 	w.Header().Set("Location", fmt.Sprintf("%s/drafts/%s", Prefix, d.ID))
 	writeJSON(w, http.StatusCreated, s.draftJSON(r, d, true))
 }

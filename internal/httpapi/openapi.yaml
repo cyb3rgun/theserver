@@ -458,7 +458,8 @@ paths:
         from; its manifest and its media come with it, and the id of the
         copy is the id of that scenario unless another one is given. The
         draft carries no files table and no version: the server writes both
-        when it publishes (D-042).
+        when it publishes (D-042). target_type takes the canvas from a target
+        type (D-062).
       operationId: createDraft
       requestBody:
         required: true
@@ -1383,6 +1384,13 @@ components:
       properties:
         id: {type: string, description: The id the scenario gets.}
         tier: {type: string, enum: [video, interactive]}
+        target_type:
+          type: string
+          description: |
+            The kind of target the scenario is made for (D-062). Its
+            resolution and orientation become the canvas of the draft, and
+            the manifest keeps the id under display.target_type. A draft
+            without one keeps the default canvas.
         title:
           type: object
           additionalProperties: {type: string}

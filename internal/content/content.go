@@ -110,6 +110,9 @@ func (c *Store) Put(ctx context.Context, r io.Reader, limit int64, by string) (R
 		Status:       store.ScenarioDraft,
 		Problems:     pkg.Validate(),
 	}
+	if problem, ok := c.unknownTargetType(ctx, m); ok {
+		sc.Problems = append(sc.Problems, problem)
+	}
 	result := Result{Scenario: sc, Problems: sc.Problems}
 	if !scenario.ValidID(sc.ID) || sc.Version < 1 {
 		return result, nil
@@ -154,6 +157,27 @@ func (c *Store) Put(ctx context.Context, r io.Reader, limit int64, by string) (R
 	}
 	result.Stored, result.Scenario = true, stored
 	return result, nil
+}
+
+// unknownTargetType reports a manifest that names a target type the server
+// does not have (D-062). A manifest without one names nothing and is fine.
+func (c *Store) unknownTargetType(ctx context.Context, m scenario.Manifest) (scenario.Problem, bool) {
+	if m.Display == nil || m.Display.TargetType == "" || !scenario.ValidID(m.Display.TargetType) {
+		return scenario.Problem{}, false
+	}
+	_, err := c.db.GetTargetType(ctx, m.Display.TargetType)
+	if err == nil {
+		return scenario.Problem{}, false
+	}
+	if !errors.Is(err, store.ErrTargetTypeNotFound) {
+		// The table could not be read; the package is not to blame.
+		return scenario.Problem{}, false
+	}
+	return scenario.Problem{
+		Field:  "display.target_type",
+		Code:   scenario.CodeUnknownTargetType,
+		Detail: fmt.Sprintf("the server has no target type %s", m.Display.TargetType),
+	}, true
 }
 
 func versionTaken(sc store.Scenario, latest int) scenario.Problem {

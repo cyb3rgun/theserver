@@ -343,8 +343,10 @@ func expectOnly(t *testing.T, problems []scenario.Problem, code string) {
 	}
 }
 
-// Every code but the one of the server has a broken fixture, and every code
-// has a text in every language of the catalogues (D-040).
+// Every code but the two of the server has a broken fixture, and every code
+// has a text in every language of the catalogues (D-040). The server codes
+// are version_taken and unknown_target_type: both need the index of the
+// server, so no package on its own carries them.
 func TestEveryCodeHasAFixtureAndTexts(t *testing.T) {
 	fixtures := []string{scenario.CodeBadPackage}
 	covered := []string{scenario.CodeBadPackage}
@@ -355,7 +357,8 @@ func TestEveryCodeHasAFixtureAndTexts(t *testing.T) {
 		}
 	}
 	for _, code := range scenario.Codes() {
-		if code != scenario.CodeVersionTaken && !slices.Contains(covered, code) {
+		serverCode := code == scenario.CodeVersionTaken || code == scenario.CodeUnknownTargetType
+		if !serverCode && !slices.Contains(covered, code) {
 			t.Errorf("the code %s has no broken fixture", code)
 		}
 		for _, lang := range i18n.Languages() {
@@ -364,7 +367,7 @@ func TestEveryCodeHasAFixtureAndTexts(t *testing.T) {
 			}
 		}
 	}
-	if len(covered) != len(scenario.Codes())-1 {
+	if len(covered) != len(scenario.Codes())-2 {
 		t.Errorf("%d codes have a fixture, the model has %d", len(covered), len(scenario.Codes()))
 	}
 	for _, key := range i18n.Keys(i18n.Fallback) {

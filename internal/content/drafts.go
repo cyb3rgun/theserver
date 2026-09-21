@@ -55,7 +55,11 @@ type NewDraft struct {
 	// From copies a published version, its manifest and its media; Tier and
 	// Title are then taken from it.
 	From *store.Scenario
-	By   string
+	// TargetType is the kind of target the scenario is made for (D-062).
+	// Its resolution and orientation are the canvas of the draft, and the
+	// manifest keeps its id.
+	TargetType *store.TargetType
+	By         string
 }
 
 // DraftsDir is the directory that holds the drafts.
@@ -77,6 +81,16 @@ func (c *Store) CreateDraft(ctx context.Context, spec NewDraft) (store.Draft, er
 		},
 		Display: &scenario.Display{Canvas: &scenario.Canvas{W: 1080, H: 1920}, Orientation: "portrait", Fit: "cover"},
 		Rules:   &scenario.Rules{PointsPerHitDefault: 50, TimeoutCountsAsHit: true, TimeoutPenalty: 100, Lives: 3},
+	}
+	if t := spec.TargetType; t != nil {
+		// The canvas of a scenario is the resolution of the target it is
+		// made for (D-062).
+		m.Display = &scenario.Display{
+			Canvas:      &scenario.Canvas{W: t.ResW, H: t.ResH},
+			Orientation: t.Orientation,
+			Fit:         "cover",
+			TargetType:  t.ID,
+		}
 	}
 	media := map[string]store.DraftMedia{}
 	id := draftID()
