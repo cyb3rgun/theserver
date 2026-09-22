@@ -154,6 +154,18 @@ func (s *Server) routes() []struct {
 		{Route{http.MethodPost, "/devices/{id}/min_age", true, false}, s.setMinAge},
 		{Route{http.MethodGet, "/devices/{id}/scenarios", true, false}, s.deviceScenarios},
 		{Route{http.MethodPost, "/devices/{id}/target-type", true, false}, s.setDeviceTargetType},
+		{Route{http.MethodPost, "/devices/{id}/place", true, false}, s.placeDevice},
+		{Route{http.MethodGet, "/sites", true, false}, s.listSites},
+		{Route{http.MethodPost, "/sites", true, false}, s.createSite},
+		{Route{http.MethodGet, "/sites/{id}", true, false}, s.getSite},
+		{Route{http.MethodPut, "/sites/{id}", true, false}, s.updateSite},
+		{Route{http.MethodDelete, "/sites/{id}", true, false}, s.deleteSite},
+		{Route{http.MethodGet, "/rooms", true, false}, s.listRooms},
+		{Route{http.MethodPost, "/rooms", true, false}, s.createRoom},
+		{Route{http.MethodGet, "/rooms/{id}", true, false}, s.getRoom},
+		{Route{http.MethodPut, "/rooms/{id}", true, false}, s.updateRoom},
+		{Route{http.MethodDelete, "/rooms/{id}", true, false}, s.deleteRoom},
+		{Route{http.MethodGet, "/rooms/{id}/plan", true, false}, s.roomPlan},
 		{Route{http.MethodGet, "/target-types", true, false}, s.listTargetTypes},
 		{Route{http.MethodPost, "/target-types", true, false}, s.createTargetType},
 		{Route{http.MethodGet, "/target-types/{id}", true, false}, s.getTargetType},
@@ -166,6 +178,7 @@ func (s *Server) routes() []struct {
 		{Route{http.MethodPost, "/sessions/{id}/start", true, false}, s.startSession},
 		{Route{http.MethodPost, "/sessions/{id}/stop", true, false}, s.stopSession},
 		{Route{http.MethodPost, "/sessions/{id}/devices", true, false}, s.addSessionDevice},
+		{Route{http.MethodDelete, "/sessions/{id}/devices/{device}", true, false}, s.removeSessionDevice},
 		{Route{http.MethodPost, "/sessions/{id}/scenario", true, false}, s.assignScenario},
 		{Route{http.MethodGet, "/drafts", true, false}, s.listDrafts},
 		{Route{http.MethodPost, "/drafts", true, false}, s.createDraft},
@@ -289,6 +302,7 @@ const (
 	codeNotPublished     = "not_published"
 	codeNoScenario       = "no_scenario"
 	codeBuiltin          = "builtin"
+	codeSlotTaken        = "slot_taken"
 	codeInUse            = "in_use"
 	codeNoCalibration    = "no_calibration"
 	codeAgeRating        = "age_rating"
@@ -347,8 +361,17 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusConflict, codeNotPublished, err.Error())
 	case errors.Is(err, store.ErrNoScenario):
 		writeError(w, http.StatusConflict, codeNoScenario, err.Error())
-	case errors.Is(err, store.ErrTargetTypeNotFound):
+	case errors.Is(err, store.ErrTargetTypeNotFound), errors.Is(err, store.ErrSiteNotFound),
+		errors.Is(err, store.ErrRoomNotFound):
 		writeError(w, http.StatusNotFound, codeNotFound, err.Error())
+	case errors.Is(err, store.ErrSiteExists), errors.Is(err, store.ErrRoomExists):
+		writeError(w, http.StatusConflict, codeConflict, err.Error())
+	case errors.Is(err, store.ErrSiteInUse), errors.Is(err, store.ErrRoomInUse):
+		writeError(w, http.StatusConflict, codeInUse, err.Error())
+	case errors.Is(err, store.ErrSlotTaken):
+		writeError(w, http.StatusConflict, codeSlotTaken, err.Error())
+	case errors.Is(err, store.ErrBadSite), errors.Is(err, store.ErrBadRoom):
+		writeError(w, http.StatusBadRequest, codeBadRequest, err.Error())
 	case errors.Is(err, store.ErrTargetTypeExists):
 		writeError(w, http.StatusConflict, codeConflict, err.Error())
 	case errors.Is(err, store.ErrTargetTypeBuiltin):

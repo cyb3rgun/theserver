@@ -32,6 +32,12 @@ type Device struct {
 	// TargetType is the kind of target the device is (D-061), empty while
 	// none is assigned.
 	TargetType string `json:"target_type"`
+	// SiteID and RoomID are where the device stands (D-066), BeaconSlot the
+	// slot it holds in the plan of its room and Position a free note.
+	SiteID     string `json:"site_id"`
+	RoomID     string `json:"room_id"`
+	BeaconSlot int    `json:"beacon_slot"`
+	Position   string `json:"position"`
 }
 
 // NewToken is the answer to a token change; the token is shown this once.
@@ -58,6 +64,7 @@ func deviceJSON(d store.Device, online map[string]link.DeviceStatus) Device {
 		Status: d.Status, FirmwareVersion: d.FirmwareVersion, SeqEpoch: d.SeqEpoch,
 		HasToken: len(d.TokenHash) > 0, FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt, MinAge: d.MinAge, TargetType: d.TargetType,
+		SiteID: d.SiteID, RoomID: d.RoomID, BeaconSlot: d.BeaconSlot, Position: d.Position,
 	}
 	if status, ok := online[d.ID]; ok {
 		out.Online = true

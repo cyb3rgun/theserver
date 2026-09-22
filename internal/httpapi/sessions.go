@@ -27,6 +27,7 @@ type Session struct {
 	Scenario        string      `json:"scenario"`
 	ScenarioVersion int         `json:"scenario_version"`
 	Room            string      `json:"room"`
+	RoomID          string      `json:"room_id"`
 	State           string      `json:"state"`
 	StartedAt       int64       `json:"started_at"`
 	EndedAt         int64       `json:"ended_at"`
@@ -75,12 +76,15 @@ type Readiness struct {
 	WaitedS int `json:"waited_s,omitempty"`
 }
 
-// NewSession is the body of POST /sessions. An empty ID is chosen by the
+// NewSession is the body of POST /sessions. RoomID names the room the
+// session runs in; its approved targets become the devices of the session
+// (D-067). An empty ID is chosen by the
 // server.
 type NewSession struct {
 	ID       string `json:"id"`
 	Scenario string `json:"scenario"`
 	Room     string `json:"room"`
+	RoomID   string `json:"room_id"`
 }
 
 // SessionDevice is the body of POST /sessions/{id}/devices.
@@ -94,7 +98,8 @@ func sessionJSON(s store.Session) Session {
 		devices = []string{}
 	}
 	return Session{
-		ID: s.ID, Scenario: s.Scenario, ScenarioVersion: s.ScenarioVersion, Room: s.Room, State: s.State,
+		ID: s.ID, Scenario: s.Scenario, ScenarioVersion: s.ScenarioVersion,
+		Room: s.Room, RoomID: s.RoomID, State: s.State,
 		StartedAt: s.StartedAt, EndedAt: s.EndedAt, CreatedAt: s.CreatedAt, UpdatedAt: s.UpdatedAt,
 		Devices: devices, Readiness: []Readiness{},
 	}
@@ -210,6 +215,12 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	if body.RoomID != "" {
+		if _, err := s.opts.Store.GetRoom(ctx, body.RoomID); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
 	if _, err := s.opts.Store.GetSession(ctx, body.ID); err == nil {
 		s.fail(w, r, fmt.Errorf("%w: session %s exists", errConflict, body.ID))
 		return
@@ -217,7 +228,9 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	err := s.opts.Store.CreateSession(ctx, store.Session{ID: body.ID, Scenario: body.Scenario, Room: body.Room})
+	err := s.opts.Store.CreateSession(ctx, store.Session{
+		ID: body.ID, Scenario: body.Scenario, Room: body.Room, RoomID: body.RoomID,
+	})
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -269,6 +282,18 @@ func (s *Server) stopSession(w http.ResponseWriter, r *http.Request) {
 			s.log.Error("could not tell the devices that the session is over", "session", id, "error", err)
 		}
 	}
+	s.writeSession(w, r, id, http.StatusOK)
+}
+
+// removeSessionDevice leaves a target out of a session that has not
+// started, which is how a room is taken with one target excluded (D-067).
+func (s *Server) removeSessionDevice(w http.ResponseWriter, r *http.Request) {
+	id, deviceID := r.PathValue("id"), r.PathValue("device")
+	if err := s.opts.Store.RemoveSessionDevice(r.Context(), id, deviceID); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.audit(r, "session device removed", "session", id, "device", deviceID)
 	s.writeSession(w, r, id, http.StatusOK)
 }
 

@@ -176,6 +176,224 @@ paths:
         "401": {$ref: "#/components/responses/Unauthorized"}
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
+  /devices/{id}/place:
+    post:
+      summary: Say where a device stands and tell it what follows (D-066, D-068).
+      description: |
+        An empty room_id takes the device out of its room; site_id is read
+        only when no room is given, which is how a controller belongs to a
+        site without belonging to a room. A beacon slot another target of
+        the room holds, and one outside the plan of the room, are refused
+        with slot_taken. The device is told the plan of its new room and its
+        own slot at once.
+      operationId: placeDevice
+      parameters: [{$ref: "#/components/parameters/DeviceID"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/DevicePlace"}
+      responses:
+        "200":
+          description: The device after the change, with what it was told.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/DeviceCalibrated"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/VenueConflict"}
+  /sites:
+    get:
+      summary: List every site, by name (D-066).
+      operationId: listSites
+      responses:
+        "200":
+          description: The sites, each with its rooms and its controllers.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sites]
+                properties:
+                  sites:
+                    type: array
+                    items: {$ref: "#/components/schemas/Site"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      summary: Describe a new site.
+      operationId: createSite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Site"}
+      responses:
+        "201":
+          description: The new site.
+          headers:
+            Location:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Site"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /sites/{id}:
+    get:
+      summary: One site with its rooms and its controllers.
+      operationId: getSite
+      parameters: [{$ref: "#/components/parameters/SiteID"}]
+      responses:
+        "200":
+          description: The site.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Site"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    put:
+      summary: Write the values of a site.
+      description: The id in the path decides; one in the body is ignored.
+      operationId: updateSite
+      parameters: [{$ref: "#/components/parameters/SiteID"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Site"}
+      responses:
+        "200":
+          description: The site after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Site"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      summary: Remove a site that holds neither rooms nor devices.
+      operationId: deleteSite
+      parameters: [{$ref: "#/components/parameters/SiteID"}]
+      responses:
+        "204": {description: The site is gone.}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/VenueConflict"}
+  /rooms:
+    get:
+      summary: List every room, by site and name (D-066).
+      operationId: listRooms
+      parameters:
+        - name: site
+          in: query
+          required: false
+          schema: {type: string}
+          description: Only the rooms of this site.
+      responses:
+        "200":
+          description: The rooms, each with its targets.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rooms]
+                properties:
+                  rooms:
+                    type: array
+                    items: {$ref: "#/components/schemas/Room"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+    post:
+      summary: Describe a new room of a site.
+      operationId: createRoom
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Room"}
+      responses:
+        "201":
+          description: The new room.
+          headers:
+            Location:
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Room"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
+  /rooms/{id}:
+    get:
+      summary: One room with its targets.
+      operationId: getRoom
+      parameters: [{$ref: "#/components/parameters/RoomID"}]
+      responses:
+        "200":
+          description: The room.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Room"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    put:
+      summary: Write the values of a room.
+      description: |
+        The id in the path decides, and the site of a room does not change:
+        a room that moves is a new room. A plan that changed reaches every
+        target of the room at once (D-068).
+      operationId: updateRoom
+      parameters: [{$ref: "#/components/parameters/RoomID"}]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Room"}
+      responses:
+        "200":
+          description: The room after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Room"}
+        "400": {$ref: "#/components/responses/BadRequest"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+    delete:
+      summary: Remove a room that holds no devices and that no session names.
+      operationId: deleteRoom
+      parameters: [{$ref: "#/components/parameters/RoomID"}]
+      responses:
+        "204": {description: The room is gone.}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/VenueConflict"}
+  /rooms/{id}/plan:
+    get:
+      summary: The beacon multiplex plan of a room and the slots in use (D-068).
+      operationId: roomPlan
+      parameters: [{$ref: "#/components/parameters/RoomID"}]
+      responses:
+        "200":
+          description: The plan, the slots that targets hold and the slots that are free.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/RoomPlan"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
   /target-types:
     get:
       summary: List every target type, by id (D-061).
@@ -405,6 +623,29 @@ paths:
         "403": {$ref: "#/components/responses/Forbidden"}
         "404": {$ref: "#/components/responses/NotFound"}
         "409": {$ref: "#/components/responses/ContentConflict"}
+  /sessions/{id}/devices/{device}:
+    delete:
+      summary: Leave a target out of a session that has not started (D-067).
+      description: |
+        A device that is not in the session is not an error; a session that
+        is stopped is refused with bad_transition.
+      operationId: removeSessionDevice
+      parameters:
+        - {$ref: "#/components/parameters/SessionID"}
+        - name: device
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        "200":
+          description: The session after the change.
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Session"}
+        "401": {$ref: "#/components/responses/Unauthorized"}
+        "403": {$ref: "#/components/responses/Forbidden"}
+        "404": {$ref: "#/components/responses/NotFound"}
+        "409": {$ref: "#/components/responses/Conflict"}
   /sessions/{id}/scenario:
     post:
       summary: Assign a published scenario version to a session and announce it (D-038, D-039).
@@ -1183,6 +1424,16 @@ components:
       in: path
       required: true
       schema: {type: string}
+    SiteID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string}
+    RoomID:
+      name: id
+      in: path
+      required: true
+      schema: {type: string}
     TargetTypeID:
       name: id
       in: path
@@ -1252,6 +1503,15 @@ components:
         a draft cannot be assigned; age_rating, the scenario is rated above
         the age a device is set for; bad_transition, the session is no longer
         created.
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/Error"}
+    VenueConflict:
+      description: |
+        The change conflicts with the venue: in_use, the site or the room
+        still holds rooms, devices or sessions; slot_taken, another target
+        of the room holds that beacon slot or the slot is outside the plan
+        of the room.
       content:
         application/json:
           schema: {$ref: "#/components/schemas/Error"}
@@ -1513,6 +1773,92 @@ components:
         last_ack: {type: integer, description: 0 while offline.}
         min_age: {type: integer, enum: [0, 6, 12, 16, 18], description: The age the device is set for (D-039).}
         target_type: {type: string, description: "The id of the target type the device is, empty while none is assigned."}
+        site_id: {type: string, description: The site the device belongs to (D-066).}
+        room_id: {type: string, description: "The room it stands in, empty for a controller that is free for the site."}
+        beacon_slot: {type: integer, description: "The slot it holds in the plan of its room, 0 for none."}
+        position: {type: string, description: A free note about where it stands.}
+    Site:
+      type: object
+      description: A venue (D-066).
+      required: [id, name]
+      properties:
+        id: {type: string, description: "Lower case, letters, digits, dot, dash and underscore."}
+        name: {type: string}
+        address: {type: string}
+        timezone: {type: string, description: "An IANA name such as Europe/Berlin."}
+        contact: {type: string}
+        notes:
+          type: object
+          additionalProperties: {type: string}
+        licence_id: {type: string, description: Set by the manufacturer (D-070).}
+        franchise_rate: {type: number, description: "A percentage of the system revenue, set by the manufacturer."}
+        monthly_threshold: {type: integer, description: "In the smallest unit of the currency, set by the manufacturer."}
+        currency: {type: string, description: A three letter code.}
+        valid_from: {type: integer, description: "Unix milliseconds, 0 while it is not set."}
+        created_at: {type: integer, readOnly: true}
+        updated_at: {type: integer, readOnly: true}
+        rooms:
+          type: array
+          readOnly: true
+          items: {type: string}
+        controllers:
+          type: array
+          readOnly: true
+          description: The devices of kind controller that belong to the site.
+          items: {type: string}
+    Room:
+      type: object
+      description: One room of a site (D-066).
+      required: [id, site_id, name]
+      properties:
+        id: {type: string}
+        site_id: {type: string, description: "The site the room belongs to; it does not change."}
+        name: {type: string}
+        age_rating:
+          type: string
+          enum: ["0", "6", "12", "16", "18"]
+          description: "The age of the players in the room: a scenario rated higher is refused (D-067)."
+        wifi_channel: {type: integer, description: "The channel of the access point, 0 while it is not set."}
+        beacon_period_ms: {type: integer, minimum: 20, description: The length of one beacon round (D-068).}
+        beacon_slots: {type: integer, minimum: 1, description: How many slots that round has.}
+        capacity: {type: integer, description: "How many players fit, 0 while it is not set."}
+        notes:
+          type: object
+          additionalProperties: {type: string}
+        created_at: {type: integer, readOnly: true}
+        updated_at: {type: integer, readOnly: true}
+        targets:
+          type: array
+          readOnly: true
+          items: {type: string}
+    RoomPlan:
+      type: object
+      description: The beacon plan of a room with the slots in use (D-068).
+      properties:
+        room_id: {type: string}
+        beacon_period_ms: {type: integer}
+        beacon_slots: {type: integer}
+        taken:
+          type: array
+          items: {$ref: "#/components/schemas/SlotUse"}
+        free:
+          type: array
+          description: The slots no target holds.
+          items: {type: integer}
+    SlotUse:
+      type: object
+      properties:
+        slot: {type: integer}
+        device_id: {type: string}
+        target_type: {type: string}
+    DevicePlace:
+      type: object
+      additionalProperties: false
+      properties:
+        room_id: {type: string, description: "The room the device stands in, empty to take it out."}
+        site_id: {type: string, description: "The site of a device without a room, such as a free controller."}
+        beacon_slot: {type: integer, description: "The slot of a target in the plan of its room, 0 for none."}
+        position: {type: string, description: "A free note such as left of the door."}
     TargetType:
       type: object
       description: A kind of target, described once (D-061).
@@ -1596,6 +1942,7 @@ components:
         scenario: {type: string, description: "The id of the assigned scenario, or the label given at creation."}
         scenario_version: {type: integer, description: The assigned version; 0 while none is assigned.}
         room: {type: string}
+        room_id: {type: string, description: The room the session runs in (D-067).}
         state: {type: string, enum: [created, running, stopped]}
         started_at: {type: integer}
         ended_at: {type: integer}
@@ -1640,6 +1987,12 @@ components:
           description: Letters, digits, dot, dash and underscore, up to 64. Empty lets the server choose.
         scenario: {type: string, description: A label until a scenario version is assigned.}
         room: {type: string}
+        room_id:
+          type: string
+          description: |
+            The room the session runs in (D-067). Its approved targets
+            become the devices of the session, and its age rating is the age
+            rating of the session.
     SessionDevice:
       type: object
       additionalProperties: false
