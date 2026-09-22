@@ -56,7 +56,7 @@ func TestOpenCreatesDirectoryAndSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"admin_tokens", "device_scenarios", "devices", "events", "scenario_draft_history", "scenario_drafts", "scenarios", "schema_migrations", "session_devices", "sessions", "target_types"}
+	want := []string{"admin_tokens", "device_scenarios", "devices", "events", "rooms", "scenario_draft_history", "scenario_drafts", "scenarios", "schema_migrations", "session_devices", "sessions", "sites", "target_types"}
 	if !slices.Equal(names, want) {
 		t.Errorf("tables are %v, want %v", names, want)
 	}
@@ -165,8 +165,9 @@ func TestInfoReportsEmptyDatabase(t *testing.T) {
 	if info.BusyTimeoutMs != int(DefaultBusyTimeout.Milliseconds()) {
 		t.Errorf("busy timeout is %d, want %d", info.BusyTimeoutMs, DefaultBusyTimeout.Milliseconds())
 	}
-	// target_types holds the three types the migration seeds (D-064).
-	want := map[string]int64{"admin_tokens": 0, "device_scenarios": 0, "devices": 0, "events": 0, "scenario_draft_history": 0, "scenario_drafts": 0, "scenarios": 0, "schema_migrations": int64(count), "session_devices": 0, "sessions": 0, "target_types": 3}
+	// target_types holds the three types the migration seeds (D-064); a
+	// database without devices needs no site and no room (D-069).
+	want := map[string]int64{"admin_tokens": 0, "device_scenarios": 0, "devices": 0, "events": 0, "rooms": 0, "scenario_draft_history": 0, "scenario_drafts": 0, "scenarios": 0, "schema_migrations": int64(count), "session_devices": 0, "sessions": 0, "sites": 0, "target_types": 3}
 	if len(info.Tables) != len(want) {
 		t.Fatalf("Info lists %d tables, want %d", len(info.Tables), len(want))
 	}

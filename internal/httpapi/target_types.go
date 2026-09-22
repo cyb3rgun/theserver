@@ -39,15 +39,26 @@ type Beacon struct {
 	Y float64 `json:"y"`
 }
 
-// Calibration is the beacon rectangle of a type in canvas coordinates
-// (D-063): the four corners in the order top left, top right, bottom right,
-// bottom left, and the same rectangle as the value calib.rect carries.
+// Calibration is the beacon layout of a type in canvas coordinates (D-068):
+// one point per cluster with the channel that drives it, and the bounding
+// box of those points as the rectangle of B12, which is empty for a layout
+// that spans no area.
 type Calibration struct {
-	TargetType string   `json:"target_type"`
-	Rect       [][2]int `json:"rect"`
-	Value      string   `json:"value"`
-	CanvasW    int      `json:"canvas_w"`
-	CanvasH    int      `json:"canvas_h"`
+	TargetType  string       `json:"target_type"`
+	Points      []CalibPoint `json:"points"`
+	PointsValue string       `json:"points_value"`
+	Rect        [][2]int     `json:"rect"`
+	Value       string       `json:"value"`
+	CanvasW     int          `json:"canvas_w"`
+	CanvasH     int          `json:"canvas_h"`
+}
+
+// CalibPoint is one beacon cluster in canvas coordinates: id is the output
+// channel that drives it.
+type CalibPoint struct {
+	ID int `json:"id"`
+	X  int `json:"x"`
+	Y  int `json:"y"`
 }
 
 // DeviceTargetType is the body of POST /devices/{id}/target-type. An empty
@@ -95,11 +106,20 @@ func targetTypeStore(body TargetType) store.TargetType {
 }
 
 func calibrationJSON(c store.Calibration) Calibration {
-	rect := make([][2]int, 0, len(c.Rect))
-	for _, p := range c.Rect {
-		rect = append(rect, p)
+	points := make([]CalibPoint, 0, len(c.Points))
+	for _, p := range c.Points {
+		points = append(points, CalibPoint{ID: p.ID, X: p.X, Y: p.Y})
 	}
-	return Calibration{TargetType: c.TargetType, Rect: rect, Value: c.Value(), CanvasW: c.CanvasW, CanvasH: c.CanvasH}
+	rect := make([][2]int, 0, len(c.Rect))
+	if c.HasRect {
+		for _, p := range c.Rect {
+			rect = append(rect, p)
+		}
+	}
+	return Calibration{
+		TargetType: c.TargetType, Points: points, PointsValue: c.PointsValue(),
+		Rect: rect, Value: c.Value(), CanvasW: c.CanvasW, CanvasH: c.CanvasH,
+	}
 }
 
 func (s *Server) listTargetTypes(w http.ResponseWriter, r *http.Request) {
@@ -217,12 +237,12 @@ func errNoCalibrationOf(id string) error {
 	return &noCalibrationError{id: id}
 }
 
-// noCalibrationError is a type whose beacon layout spans no rectangle, so
-// nothing can be derived from it.
+// noCalibrationError is a type without beacon clusters, so nothing can be
+// derived from it.
 type noCalibrationError struct{ id string }
 
 func (e *noCalibrationError) Error() string {
-	return "target type " + e.id + " has no beacon rectangle: it needs at least two clusters that span an area"
+	return "target type " + e.id + " has no beacon clusters, so there is nothing to send"
 }
 
 // setDeviceTargetType says which type a device is and tells the device the

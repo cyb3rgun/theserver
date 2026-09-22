@@ -66,11 +66,21 @@ func TestTargetTypeCalibrationEndpoint(t *testing.T) {
 		t.Errorf("the canvas of bar-12 is %d x %d", got.CanvasW, got.CanvasH)
 	}
 
-	// A type whose layout spans no area has no rectangle to send.
+	// A type whose clusters sit on one line has its points and no
+	// rectangle (D-068).
 	flat := `{"id":"flat-1","name":{"en":"Flat"},"class":"pi","display_w_mm":100,"display_h_mm":50,
 	  "res_w":800,"res_h":400,"orientation":"landscape","sound":"none","beacons":[{"x":0,"y":0},{"x":0,"y":50}]}`
 	decode[TargetType](t, h.call("POST", Prefix+"/target-types", flat), http.StatusCreated)
-	expectError(t, h.call("GET", Prefix+"/target-types/flat-1/calibration", ""), http.StatusConflict, codeNoCalibration)
+	line := decode[Calibration](t, h.call("GET", Prefix+"/target-types/flat-1/calibration", ""), 200)
+	if line.PointsValue != "0,0,0 1,0,400" || line.Value != "" || len(line.Rect) != 0 {
+		t.Errorf("a line gives %+v", line)
+	}
+
+	// A type without clusters has nothing to send.
+	bare := `{"id":"bare-1","name":{"en":"Bare"},"class":"pi","display_w_mm":100,"display_h_mm":50,
+	  "res_w":800,"res_h":400,"orientation":"landscape","sound":"none"}`
+	decode[TargetType](t, h.call("POST", Prefix+"/target-types", bare), http.StatusCreated)
+	expectError(t, h.call("GET", Prefix+"/target-types/bare-1/calibration", ""), http.StatusConflict, codeNoCalibration)
 	expectError(t, h.call("GET", Prefix+"/target-types/nothing/calibration", ""), 404, codeNotFound)
 }
 
@@ -135,7 +145,13 @@ func TestDeviceTargetTypeCalibrates(t *testing.T) {
 	h := newAPI(t)
 	h.device("tgt-01", store.StatusPending, nil)
 	h.link.calibration = map[string]store.Calibration{
-		"tgt-01": {TargetType: "bar-12", Rect: [4][2]int{{-138, -340}, {1618, -340}, {1618, 660}, {-138, 660}}, CanvasW: 1480, CanvasH: 320},
+		"tgt-01": {
+			TargetType: "bar-12",
+			Points: []store.CalibPoint{{ID: 0, X: -138, Y: -340}, {ID: 1, X: 1618, Y: -340},
+				{ID: 2, X: 1618, Y: 660}, {ID: 3, X: -138, Y: 660}},
+			Rect:    [4][2]int{{-138, -340}, {1618, -340}, {1618, 660}, {-138, 660}},
+			HasRect: true, CanvasW: 1480, CanvasH: 320,
+		},
 	}
 
 	answer := decode[DeviceCalibrated](t, h.call("POST", Prefix+"/devices/tgt-01/target-type", `{"target_type":"bar-12"}`), 200)
@@ -144,6 +160,8 @@ func TestDeviceTargetTypeCalibrates(t *testing.T) {
 		t.Errorf("the device is %+v", answer.Device)
 	case answer.Calibration == nil || answer.Calibration.Value != "-138,-340 1618,-340 1618,660 -138,660":
 		t.Errorf("the answer carries the calibration %+v", answer.Calibration)
+	case answer.Calibration.PointsValue != "0,-138,-340 1,1618,-340 2,1618,660 3,-138,660":
+		t.Errorf("the answer carries the points %q", answer.Calibration.PointsValue)
 	case !answer.Sent:
 		t.Error("the answer says the device was not told")
 	}

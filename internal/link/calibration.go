@@ -22,7 +22,7 @@ import (
 // ErrDeviceOffline; it is told again when it connects.
 func (s *Server) SendCalibration(ctx context.Context, deviceID string) (store.Calibration, bool, error) {
 	calib, ok, err := s.store.DeviceCalibration(ctx, deviceID)
-	if err != nil || !ok {
+	if err != nil || !ok || !calib.HasRect {
 		return store.Calibration{}, false, err
 	}
 	args := protocol.SetConfig{K: protocol.ConfigCalibRect, V: calib.Value()}

@@ -62,6 +62,15 @@ type Device struct {
 	// TargetType is the kind of target the device is (D-061), empty until
 	// an operator assigns one; only SetDeviceTargetType changes it.
 	TargetType string
+	// SiteID and RoomID are where the device stands (D-066), RoomID empty
+	// for a controller that is free for the whole site. BeaconSlot is the
+	// slot of a target in the plan of its room, 0 while it has none, and
+	// Position is a free note such as "left of the door". Only PlaceDevice
+	// changes the four.
+	SiteID     string
+	RoomID     string
+	BeaconSlot int
+	Position   string
 }
 
 // UpsertDevice inserts a device or updates the one with the same id.
@@ -116,7 +125,7 @@ ON CONFLICT(id) DO UPDATE SET
 
 const deviceColumns = `id, kind, class, name, room, zone, status, token_hash,
   firmware_version, config_json, seq_epoch, first_seen, last_seen, created_at, updated_at, min_age,
-  target_type`
+  target_type, site_id, room_id, beacon_slot, position`
 
 // GetDevice reads one device. It returns ErrDeviceNotFound for an unknown id.
 func (s *Store) GetDevice(ctx context.Context, id string) (Device, error) {
@@ -330,16 +339,18 @@ func scanDevice(row rowScanner) (Device, error) {
 		epoch               int64
 		firstSeen, lastSeen sql.NullInt64
 		targetType          sql.NullString
+		siteID, roomID      sql.NullString
 	)
 	err := row.Scan(
 		&d.ID, &d.Kind, &d.Class, &d.Name, &d.Room, &d.Zone, &d.Status, &tokenHash,
 		&d.FirmwareVersion, &d.ConfigJSON, &epoch, &firstSeen, &lastSeen, &d.CreatedAt, &d.UpdatedAt, &d.MinAge,
-		&targetType,
+		&targetType, &siteID, &roomID, &d.BeaconSlot, &d.Position,
 	)
 	if err != nil {
 		return Device{}, err
 	}
 	d.TargetType = targetType.String
+	d.SiteID, d.RoomID = siteID.String, roomID.String
 	d.TokenHash = tokenHash
 	d.SeqEpoch = uint64(epoch)
 	d.FirstSeen = firstSeen.Int64

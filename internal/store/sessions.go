@@ -37,27 +37,85 @@ type Session struct {
 	Scenario        string
 	ScenarioVersion int
 	Room            string
-	State           string
-	StartedAt       int64
-	EndedAt         int64
-	CreatedAt       int64
-	UpdatedAt       int64
-	Devices         []string
+	// RoomID is the room the session runs in (D-067), empty for a session
+	// that names no room. The targets of that room are its devices, and the
+	// age rating of the room is the age rating of the session.
+	RoomID    string
+	State     string
+	StartedAt int64
+	EndedAt   int64
+	CreatedAt int64
+	UpdatedAt int64
+	Devices   []string
 }
 
 // CreateSession stores a new session in state created. The id must be new.
+// A session that names a room takes the approved targets of that room at
+// once, so an operator sees the room and can leave a single target out
+// before the session starts (D-067).
 func (s *Store) CreateSession(ctx context.Context, session Session) error {
 	if session.ID == "" {
 		return errors.New("session id must not be empty")
 	}
+	var targets []Device
+	if session.RoomID != "" {
+		room, err := s.GetRoom(ctx, session.RoomID)
+		if err != nil {
+			return err
+		}
+		if session.Room == "" {
+			session.Room = room.Name
+		}
+		if targets, err = s.TargetsOfRoom(ctx, room.ID); err != nil {
+			return err
+		}
+	}
 	defer s.writing()()
 	now := s.nowMilli()
-	_, err := s.db.ExecContext(ctx, `
-INSERT INTO sessions (id, scenario, room, state, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)`,
-		session.ID, session.Scenario, session.Room, SessionCreated, now, now)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	_, err = tx.ExecContext(ctx, `
+INSERT INTO sessions (id, scenario, room, room_id, state, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		session.ID, session.Scenario, session.Room, nullString(session.RoomID), SessionCreated, now, now)
 	if err != nil {
 		return fmt.Errorf("create session %s: %w", session.ID, err)
+	}
+	for _, target := range targets {
+		if target.Status != StatusApproved {
+			continue
+		}
+		_, err = tx.ExecContext(ctx, `
+INSERT INTO session_devices (session_id, device_id) VALUES (?, ?)
+ON CONFLICT(session_id, device_id) DO NOTHING`, session.ID, target.ID)
+		if err != nil {
+			return fmt.Errorf("create session %s with the targets of room %s: %w", session.ID, session.RoomID, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// RemoveSessionDevice leaves a target out of a session that has not started
+// (D-067). A device that is not in the session is not an error.
+func (s *Store) RemoveSessionDevice(ctx context.Context, sessionID, deviceID string) error {
+	session, err := s.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if session.State == SessionStopped {
+		return fmt.Errorf("session %s is stopped: %w", sessionID, ErrBadTransition)
+	}
+	defer s.writing()()
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM session_devices WHERE session_id = ? AND device_id = ?`, sessionID, deviceID); err != nil {
+		return fmt.Errorf("remove device %s from session %s: %w", deviceID, sessionID, err)
+	}
+	if _, err := s.db.ExecContext(ctx,
+		`UPDATE sessions SET updated_at = ? WHERE id = ?`, s.nowMilli(), sessionID); err != nil {
+		return fmt.Errorf("remove device %s from session %s: %w", deviceID, sessionID, err)
 	}
 	return nil
 }
@@ -149,7 +207,8 @@ ON CONFLICT(session_id, device_id) DO NOTHING`, sessionID, deviceID)
 	return nil
 }
 
-const sessionColumns = `id, scenario, room, state, started_at, ended_at, created_at, updated_at, scenario_version`
+const sessionColumns = `id, scenario, room, state, started_at, ended_at, created_at, updated_at,
+  scenario_version, room_id`
 
 // GetSession reads one session with its devices, ordered by id.
 func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {
@@ -253,13 +312,15 @@ func scanSession(row rowScanner) (Session, error) {
 	var (
 		session          Session
 		started, stopped sql.NullInt64
+		roomID           sql.NullString
 	)
 	err := row.Scan(&session.ID, &session.Scenario, &session.Room, &session.State,
-		&started, &stopped, &session.CreatedAt, &session.UpdatedAt, &session.ScenarioVersion)
+		&started, &stopped, &session.CreatedAt, &session.UpdatedAt, &session.ScenarioVersion, &roomID)
 	if err != nil {
 		return Session{}, err
 	}
 	session.StartedAt = started.Int64
 	session.EndedAt = stopped.Int64
+	session.RoomID = roomID.String
 	return session, nil
 }

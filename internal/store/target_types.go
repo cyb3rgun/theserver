@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -29,9 +30,13 @@ const (
 	SoundUSB     = "usb"
 )
 
-// MaxBeacons is how many clusters a layout may hold. A real target has four;
-// the bound keeps a typed layout from growing without end.
-const MaxBeacons = 16
+// The number of clusters a layout may hold (D-068): none while a type is
+// not measured yet, otherwise two to sixteen. A target with six or eight
+// clusters is described as easily as one with four.
+const (
+	MinBeacons = 2
+	MaxBeacons = 16
+)
 
 var (
 	// ErrTargetTypeNotFound is returned for a target type id the table does
@@ -55,12 +60,19 @@ func Orientations() []string { return []string{Landscape, Portrait} }
 func Sounds() []string { return []string{SoundNone, SoundBuiltin, SoundHDMI, SoundUSB} }
 
 // A Beacon is one cluster of the beacon layout: its position in millimetres
-// from the top left corner of the picture. A cluster may sit outside the
-// picture, so both values may be negative (D-061).
+// from the top left corner of the picture, and the output channel of the
+// target module that drives it (D-061, D-068). A cluster may sit outside the
+// picture, so both positions may be negative. A cluster of a type described
+// before the channels existed reads as channel 0.
 type Beacon struct {
-	X float64 `json:"x"`
-	Y float64 `json:"y"`
+	X  float64 `json:"x"`
+	Y  float64 `json:"y"`
+	Ch int     `json:"ch"`
 }
+
+// MaxChannel is the highest output channel a cluster can be driven by: the
+// mask of the target module has room for eight.
+const MaxChannel = 7
 
 // A TargetType describes a kind of target once (D-061): the display and its
 // resolution, how it is mounted, where the beacon clusters sit, the class of
@@ -85,21 +97,37 @@ type TargetType struct {
 	UpdatedAt   int64
 }
 
-// A Calibration is the beacon rectangle of a target type in canvas
-// coordinates (D-063): the four corners in the order top left, top right,
-// bottom right, bottom left, which is the order theclient reads its
-// calib.rect setting in.
+// A CalibPoint is one beacon cluster in canvas coordinates: the channel
+// that drives it and where it sits (D-068).
+type CalibPoint struct {
+	ID int
+	X  int
+	Y  int
+}
+
+// A Calibration is what a device of a target type is told about its beacons
+// (D-068). Points holds one point per cluster, in canvas coordinates, so a
+// target with six or eight clusters is described as well as one with four.
+// Rect is the bounding box of those points, the four corners in the order
+// top left, top right, bottom right, bottom left, which is the order
+// theclient reads its calib.rect setting in; a layout that spans no area has
+// none and HasRect is false.
 type Calibration struct {
 	TargetType string
+	Points     []CalibPoint
 	Rect       [4][2]int
-	// CanvasW and CanvasH are the canvas the rectangle is in.
+	HasRect    bool
+	// CanvasW and CanvasH are the canvas the points are in.
 	CanvasW int
 	CanvasH int
 }
 
 // Value is the rectangle as calib.rect carries it: four points, whole
-// numbers, "x,y x,y x,y x,y".
+// numbers, "x,y x,y x,y x,y". It is empty when the layout spans no area.
 func (c Calibration) Value() string {
+	if !c.HasRect {
+		return ""
+	}
 	parts := make([]string, len(c.Rect))
 	for i, p := range c.Rect {
 		parts[i] = strconv.Itoa(p[0]) + "," + strconv.Itoa(p[1])
@@ -107,36 +135,47 @@ func (c Calibration) Value() string {
 	return strings.Join(parts, " ")
 }
 
-// Calibration derives the beacon rectangle of the type in canvas
-// coordinates (D-063). The clusters are in millimetres from the top left
-// corner of the picture, the picture is DisplayW by DisplayH millimetres and
-// ResW by ResH pixels, so a millimetre is ResW/DisplayW pixels across and
-// ResH/DisplayH pixels down. The rectangle is the bounding box of every
-// cluster, which is the frame the shot is mapped into; a layout that spans
-// no area, or a type without a size, has no calibration and the second
-// return value is false.
-func (t TargetType) Calibration() (Calibration, bool) {
-	if len(t.Beacons) < 2 || t.DisplayW <= 0 || t.DisplayH <= 0 || t.ResW < 1 || t.ResH < 1 {
-		return Calibration{}, false
+// PointsValue is the layout as calib.pts carries it: one cluster per part,
+// "id,x,y id,x,y ...", ordered by channel.
+func (c Calibration) PointsValue() string {
+	parts := make([]string, len(c.Points))
+	for i, p := range c.Points {
+		parts[i] = strconv.Itoa(p.ID) + "," + strconv.Itoa(p.X) + "," + strconv.Itoa(p.Y)
 	}
-	minX, maxX := t.Beacons[0].X, t.Beacons[0].X
-	minY, maxY := t.Beacons[0].Y, t.Beacons[0].Y
-	for _, b := range t.Beacons[1:] {
-		minX, maxX = math.Min(minX, b.X), math.Max(maxX, b.X)
-		minY, maxY = math.Min(minY, b.Y), math.Max(maxY, b.Y)
+	return strings.Join(parts, " ")
+}
+
+// Calibration turns the beacon layout of the type into canvas coordinates
+// (D-063, D-068). The clusters are in millimetres from the top left corner
+// of the picture, the picture is DisplayW by DisplayH millimetres and ResW
+// by ResH pixels, so a millimetre is ResW/DisplayW pixels across and
+// ResH/DisplayH pixels down. Every cluster becomes one point, ordered by
+// channel, and the bounding box of those points is the rectangle of B12; a
+// layout that spans no area has points and no rectangle. A type without
+// clusters or without a size has no calibration and the second return value
+// is false.
+func (t TargetType) Calibration() (Calibration, bool) {
+	if len(t.Beacons) == 0 || t.DisplayW <= 0 || t.DisplayH <= 0 || t.ResW < 1 || t.ResH < 1 {
+		return Calibration{}, false
 	}
 	scaleX, scaleY := float64(t.ResW)/t.DisplayW, float64(t.ResH)/t.DisplayH
-	left, right := roundPx(minX*scaleX), roundPx(maxX*scaleX)
-	top, bottom := roundPx(minY*scaleY), roundPx(maxY*scaleY)
-	if left == right || top == bottom {
-		return Calibration{}, false
+	calib := Calibration{TargetType: t.ID, CanvasW: t.ResW, CanvasH: t.ResH}
+	for _, b := range t.Beacons {
+		calib.Points = append(calib.Points, CalibPoint{ID: b.Ch, X: roundPx(b.X * scaleX), Y: roundPx(b.Y * scaleY)})
 	}
-	return Calibration{
-		TargetType: t.ID,
-		Rect:       [4][2]int{{left, top}, {right, top}, {right, bottom}, {left, bottom}},
-		CanvasW:    t.ResW,
-		CanvasH:    t.ResH,
-	}, true
+	slices.SortStableFunc(calib.Points, func(a, b CalibPoint) int { return a.ID - b.ID })
+
+	minX, maxX := calib.Points[0].X, calib.Points[0].X
+	minY, maxY := calib.Points[0].Y, calib.Points[0].Y
+	for _, p := range calib.Points[1:] {
+		minX, maxX = min(minX, p.X), max(maxX, p.X)
+		minY, maxY = min(minY, p.Y), max(maxY, p.Y)
+	}
+	if minX != maxX && minY != maxY {
+		calib.Rect = [4][2]int{{minX, minY}, {maxX, minY}, {maxX, maxY}, {minX, maxY}}
+		calib.HasRect = true
+	}
+	return calib, true
 }
 
 func roundPx(v float64) int {
@@ -166,13 +205,22 @@ func (t TargetType) Validate() error {
 		return fmt.Errorf("%w: orientation %q is neither landscape nor portrait", ErrBadTargetType, t.Orientation)
 	case t.Sound != SoundNone && t.Sound != SoundBuiltin && t.Sound != SoundHDMI && t.Sound != SoundUSB:
 		return fmt.Errorf("%w: sound %q is not one of none, builtin, hdmi, usb", ErrBadTargetType, t.Sound)
-	case len(t.Beacons) > MaxBeacons:
-		return fmt.Errorf("%w: %d beacon clusters, at most %d", ErrBadTargetType, len(t.Beacons), MaxBeacons)
+	case len(t.Beacons) == 1 || len(t.Beacons) > MaxBeacons:
+		return fmt.Errorf("%w: %d beacon clusters, allowed are none or %d to %d",
+			ErrBadTargetType, len(t.Beacons), MinBeacons, MaxBeacons)
 	}
+	seen := map[int]bool{}
 	for i, b := range t.Beacons {
-		if math.IsNaN(b.X) || math.IsNaN(b.Y) || math.IsInf(b.X, 0) || math.IsInf(b.Y, 0) {
+		switch {
+		case math.IsNaN(b.X) || math.IsNaN(b.Y) || math.IsInf(b.X, 0) || math.IsInf(b.Y, 0):
 			return fmt.Errorf("%w: beacon %d has no usable position", ErrBadTargetType, i+1)
+		case b.Ch < 0 || b.Ch > MaxChannel:
+			return fmt.Errorf("%w: beacon %d is on channel %d, allowed are 0 to %d",
+				ErrBadTargetType, i+1, b.Ch, MaxChannel)
+		case seen[b.Ch]:
+			return fmt.Errorf("%w: channel %d drives two clusters", ErrBadTargetType, b.Ch)
 		}
+		seen[b.Ch] = true
 	}
 	return nil
 }
@@ -212,9 +260,32 @@ func (s *Store) GetTargetType(ctx context.Context, id string) (TargetType, error
 	return t, nil
 }
 
+// numbered gives a layout that names no channels the channels 0, 1, 2 and
+// so on, in the order the clusters were written. An operator who does not
+// care which output drives which cluster does not have to say, and one who
+// does keeps what was typed (D-068).
+func (t TargetType) numbered() TargetType {
+	if len(t.Beacons) < 2 {
+		return t
+	}
+	for _, b := range t.Beacons {
+		if b.Ch != 0 {
+			return t
+		}
+	}
+	beacons := make([]Beacon, len(t.Beacons))
+	for i, b := range t.Beacons {
+		b.Ch = i
+		beacons[i] = b
+	}
+	t.Beacons = beacons
+	return t
+}
+
 // CreateTargetType stores a new type. The id has to be free, and Builtin is
 // never set from outside: only the migration writes it (D-064).
 func (s *Store) CreateTargetType(ctx context.Context, t TargetType) (TargetType, error) {
+	t = t.numbered()
 	t.Builtin = false
 	if err := t.Validate(); err != nil {
 		return TargetType{}, err
@@ -246,6 +317,7 @@ INSERT INTO target_types (
 // UpdateTargetType writes the values of a type that exists. A builtin type
 // can be edited like any other; what it stays is undeletable.
 func (s *Store) UpdateTargetType(ctx context.Context, t TargetType) (TargetType, error) {
+	t = t.numbered()
 	if err := t.Validate(); err != nil {
 		return TargetType{}, err
 	}
@@ -345,13 +417,17 @@ func (s *Store) SetDeviceTargetType(ctx context.Context, deviceID, typeID string
 }
 
 // DeviceCalibration is the calibration of the type a device is set to. A
-// device without a type, or a type whose layout gives no rectangle, has
-// none and the second return value is false.
+// device without a type, or a type without clusters, has none and the
+// second return value is false.
 func (s *Store) DeviceCalibration(ctx context.Context, deviceID string) (Calibration, bool, error) {
 	device, err := s.GetDevice(ctx, deviceID)
 	if err != nil {
 		return Calibration{}, false, err
 	}
+	return s.calibrationOf(ctx, device)
+}
+
+func (s *Store) calibrationOf(ctx context.Context, device Device) (Calibration, bool, error) {
 	if device.TargetType == "" {
 		return Calibration{}, false, nil
 	}
@@ -364,6 +440,81 @@ func (s *Store) DeviceCalibration(ctx context.Context, deviceID string) (Calibra
 	}
 	calib, ok := t.Calibration()
 	return calib, ok, nil
+}
+
+// A Setting is one key and its value as a device is told it with set_config.
+type Setting struct {
+	Key   string
+	Value string
+}
+
+// The setting keys a device is told about itself (D-063, D-068).
+const (
+	KeyCalibPoints  = "calib.pts"
+	KeyCalibRect    = "calib.rect"
+	KeyBeaconPeriod = "beacon.period_ms"
+	KeyBeaconSlots  = "beacon.slots"
+	KeyBeaconSlot   = "beacon.slot"
+)
+
+// A Setup is what the server knows about one device without asking it: the
+// calibration of its target type and the beacon plan of its room with the
+// slot the device holds in it (D-068).
+type Setup struct {
+	DeviceID string
+	Calib    Calibration
+	HasCalib bool
+	Room     Room
+	HasRoom  bool
+	Slot     int
+}
+
+// Settings are the keys of the setup in the order they are sent. A device
+// without a type hears nothing about its beacons, one without a room
+// nothing about the plan, and a target without a slot nothing about its
+// own.
+func (s Setup) Settings() []Setting {
+	var out []Setting
+	if s.HasCalib {
+		out = append(out, Setting{KeyCalibPoints, s.Calib.PointsValue()})
+		if s.Calib.HasRect {
+			out = append(out, Setting{KeyCalibRect, s.Calib.Value()})
+		}
+	}
+	if s.HasRoom {
+		out = append(out,
+			Setting{KeyBeaconPeriod, strconv.Itoa(s.Room.PeriodMS)},
+			Setting{KeyBeaconSlots, strconv.Itoa(s.Room.Slots)})
+		if s.Slot > 0 {
+			out = append(out, Setting{KeyBeaconSlot, strconv.Itoa(s.Slot)})
+		}
+	}
+	return out
+}
+
+// DeviceSetup reads everything a device is told about itself: the
+// calibration of its target type and the plan of its room.
+func (s *Store) DeviceSetup(ctx context.Context, deviceID string) (Setup, error) {
+	device, err := s.GetDevice(ctx, deviceID)
+	if err != nil {
+		return Setup{}, err
+	}
+	setup := Setup{DeviceID: deviceID, Slot: device.BeaconSlot}
+	setup.Calib, setup.HasCalib, err = s.calibrationOf(ctx, device)
+	if err != nil {
+		return Setup{}, err
+	}
+	if device.RoomID != "" {
+		room, err := s.GetRoom(ctx, device.RoomID)
+		switch {
+		case errors.Is(err, ErrRoomNotFound):
+		case err != nil:
+			return Setup{}, err
+		default:
+			setup.Room, setup.HasRoom = room, true
+		}
+	}
+	return setup, nil
 }
 
 func targetTypeJSON(t TargetType) (name, notes, beacons []byte, err error) {

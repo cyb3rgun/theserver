@@ -153,6 +153,9 @@ func (s *Store) AssignScenario(ctx context.Context, sessionID, scenarioID string
 	if err != nil {
 		return err
 	}
+	if err := checkRoomAge(ctx, tx, sessionID, sc, rating); err != nil {
+		return err
+	}
 	rows, err := tx.QueryContext(ctx, `
 SELECT d.id, d.min_age
   FROM session_devices sd
@@ -184,6 +187,56 @@ SELECT d.id, d.min_age
 		return fmt.Errorf("assign to session %s: %w", sessionID, err)
 	}
 	return tx.Commit()
+}
+
+// RoomAgeError is a scenario version rated above the age rating of the room
+// the session runs in (D-067).
+type RoomAgeError struct {
+	ScenarioID string
+	Version    int
+	Rating     int
+	RoomID     string
+	RoomName   string
+	RoomRating int
+}
+
+func (e *RoomAgeError) Error() string {
+	return fmt.Sprintf("%s version %d is rated %d, but room %s is rated %d",
+		e.ScenarioID, e.Version, e.Rating, e.RoomName, e.RoomRating)
+}
+
+func (e *RoomAgeError) Unwrap() error {
+	return ErrAgeRating
+}
+
+// checkRoomAge refuses a scenario rated above the age rating of the room the
+// session runs in. A session without a room is not checked (D-067).
+func checkRoomAge(ctx context.Context, q querier, sessionID string, sc Scenario, rating int) error {
+	var (
+		roomID, name, roomRating string
+	)
+	err := q.QueryRowContext(ctx, `
+SELECT r.id, r.name, r.age_rating
+  FROM sessions s
+  JOIN rooms r ON r.id = s.room_id
+ WHERE s.id = ?`, sessionID).Scan(&roomID, &name, &roomRating)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil
+	case err != nil:
+		return fmt.Errorf("room of session %s: %w", sessionID, err)
+	}
+	allowed, err := strconv.Atoi(roomRating)
+	if err != nil {
+		return fmt.Errorf("age rating of room %s: %w", roomID, err)
+	}
+	if rating > allowed {
+		return &RoomAgeError{
+			ScenarioID: sc.ID, Version: sc.Version, Rating: rating,
+			RoomID: roomID, RoomName: name, RoomRating: allowed,
+		}
+	}
+	return nil
 }
 
 // checkSessionAge refuses a device for a session whose scenario is rated

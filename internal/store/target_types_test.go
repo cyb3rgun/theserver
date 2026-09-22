@@ -94,25 +94,50 @@ func TestCalibrationOfTheSeeds(t *testing.T) {
 	}
 }
 
-// A layout that spans no area, and a type without a size, have no
-// calibration; the caller sends nothing then.
-func TestCalibrationNeedsARectangle(t *testing.T) {
+// Every cluster becomes a point; the rectangle is the box around them and
+// is left out when they span no area (D-068).
+func TestCalibrationIsAListOfPoints(t *testing.T) {
 	base := TargetType{ID: "x", ResW: 100, ResH: 100, DisplayW: 100, DisplayH: 100}
-	cases := map[string][]Beacon{
-		"one cluster":       {{X: 1, Y: 1}},
-		"none":              nil,
-		"a vertical line":   {{X: 5, Y: 0}, {X: 5, Y: 90}},
-		"a horizontal line": {{X: 0, Y: 5}, {X: 90, Y: 5}},
+
+	// Six clusters, given out of order, come back ordered by channel.
+	six := base
+	six.Beacons = []Beacon{
+		{X: 50, Y: 0, Ch: 1}, {X: 100, Y: 0, Ch: 2}, {X: 100, Y: 100, Ch: 3},
+		{X: 50, Y: 100, Ch: 4}, {X: 0, Y: 100, Ch: 5}, {X: 0, Y: 0, Ch: 0},
 	}
-	for name, beacons := range cases {
-		tt := base
-		tt.Beacons = beacons
-		if _, ok := tt.Calibration(); ok {
-			t.Errorf("%s gave a calibration", name)
-		}
+	calib, ok := six.Calibration()
+	if !ok || len(calib.Points) != 6 {
+		t.Fatalf("six clusters gave %v, %+v", ok, calib.Points)
+	}
+	if got := calib.PointsValue(); got != "0,0,0 1,50,0 2,100,0 3,100,100 4,50,100 5,0,100" {
+		t.Errorf("the points are %q", got)
+	}
+	if !calib.HasRect || calib.Value() != "0,0 100,0 100,100 0,100" {
+		t.Errorf("the rectangle around six clusters is %q", calib.Value())
+	}
+
+	// A layout that spans no area still has its points, and no rectangle.
+	line := base
+	line.Beacons = []Beacon{{X: 5, Y: 0, Ch: 0}, {X: 5, Y: 90, Ch: 1}}
+	calib, ok = line.Calibration()
+	switch {
+	case !ok || len(calib.Points) != 2:
+		t.Fatalf("a line gave %v, %+v", ok, calib.Points)
+	case calib.HasRect:
+		t.Errorf("a line gave the rectangle %q", calib.Value())
+	case calib.Value() != "":
+		t.Errorf("a layout without a rectangle wrote %q", calib.Value())
+	case calib.PointsValue() != "0,5,0 1,5,90":
+		t.Errorf("the points of a line are %q", calib.PointsValue())
+	}
+
+	// Without clusters or without a size there is nothing to send.
+	empty := base
+	if _, ok := empty.Calibration(); ok {
+		t.Error("a type without clusters gave a calibration")
 	}
 	sized := base
-	sized.Beacons = []Beacon{{X: 0, Y: 0}, {X: 100, Y: 100}}
+	sized.Beacons = []Beacon{{X: 0, Y: 0, Ch: 0}, {X: 100, Y: 100, Ch: 1}}
 	sized.DisplayW = 0
 	if _, ok := sized.Calibration(); ok {
 		t.Error("a type without a display size gave a calibration")
@@ -128,7 +153,7 @@ func TestTargetTypeLifecycle(t *testing.T) {
 		ID: "stand-7", Name: scenario.Text{"en": "Phone stand", "de": "Handyhalter"},
 		Class: ClassPi, DisplayW: 150, DisplayH: 70, ResW: 1920, ResH: 1080,
 		Orientation: Portrait, Sound: SoundUSB,
-		Beacons: []Beacon{{X: 0, Y: 0}, {X: 150, Y: 0}, {X: 150, Y: 70}, {X: 0, Y: 70}},
+		Beacons: []Beacon{{X: 0, Y: 0, Ch: 0}, {X: 150, Y: 0, Ch: 1}, {X: 150, Y: 70, Ch: 2}, {X: 0, Y: 70, Ch: 3}},
 		Notes:   scenario.Text{"en": "A phone in a stand.", "de": "Ein Telefon im Halter."},
 		Builtin: true, // ignored: only the migration writes builtin types
 	}
@@ -214,6 +239,9 @@ func TestTargetTypeIsChecked(t *testing.T) {
 		"bad orientation":  func(tt *TargetType) { tt.Orientation = "sideways" },
 		"bad sound":        func(tt *TargetType) { tt.Sound = "gramophone" },
 		"too many beacons": func(tt *TargetType) { tt.Beacons = make([]Beacon, MaxBeacons+1) },
+		"one beacon":       func(tt *TargetType) { tt.Beacons = []Beacon{{X: 1, Y: 1}} },
+		"a channel twice":  func(tt *TargetType) { tt.Beacons = []Beacon{{X: 0, Y: 0, Ch: 2}, {X: 9, Y: 9, Ch: 2}} },
+		"no such channel":  func(tt *TargetType) { tt.Beacons = []Beacon{{X: 0, Y: 0, Ch: 0}, {X: 9, Y: 9, Ch: MaxChannel + 1}} },
 	}
 	for name, breakIt := range bad {
 		tt := good
