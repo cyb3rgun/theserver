@@ -67,14 +67,22 @@ type DeviceTargetType struct {
 	TargetType string `json:"target_type"`
 }
 
-// DeviceCalibrated answers a type change: the device as it is now, and the
-// calibration that was sent, if any.
+// DeviceCalibrated answers a change of what a device is or where it stands:
+// the device as it is now, the calibration of its type and every setting it
+// was told (D-068).
 type DeviceCalibrated struct {
 	Device      Device       `json:"device"`
 	Calibration *Calibration `json:"calibration"`
-	// Sent says whether the device took the calibration; a device that is
-	// offline gets it when it connects.
+	Settings    []Setting    `json:"settings"`
+	// Sent says whether the device took the settings; a device that is
+	// offline gets them when it connects.
 	Sent bool `json:"sent"`
+}
+
+// A Setting is one key a device is told with set_config.
+type Setting struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 func targetTypeJSON(t store.TargetType, devices []string) TargetType {
@@ -201,8 +209,8 @@ func (s *Server) updateTargetType(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "target type changed", "target_type", updated.ID)
-	// Every device of the type gets the rectangle of the new layout.
-	s.pushCalibration(r, updated.ID)
+	// Every device of the type gets the points of the new layout.
+	s.pushSetup(r, updated.ID)
 	s.writeTargetType(w, r, id, http.StatusOK)
 }
 
@@ -262,15 +270,13 @@ func (s *Server) setDeviceTargetType(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "device target type set", "device", id, "target_type", body.TargetType)
 
 	answer := DeviceCalibrated{}
-	if s.opts.Link != nil {
-		calib, sent, err := s.opts.Link.SendCalibration(ctx, id)
-		if err != nil && !errors.Is(err, link.ErrDeviceOffline) {
-			s.log.Warn("could not calibrate the device", "device", id, "error", err)
+	if setup, sent, ok := s.sendSetup(r, id); ok {
+		if setup.HasCalib {
+			out := calibrationJSON(setup.Calib)
+			answer.Calibration = &out
 		}
-		if calib.TargetType != "" {
-			out := calibrationJSON(calib)
-			answer.Calibration, answer.Sent = &out, sent
-		}
+		answer.Sent = sent
+		answer.Settings = settingsJSON(setup)
 	}
 	device, err := s.opts.Store.GetDevice(ctx, id)
 	if err != nil {
@@ -281,21 +287,41 @@ func (s *Server) setDeviceTargetType(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, answer)
 }
 
-// pushCalibration tells every device of a type its rectangle again, after
-// the type changed. A device that is offline gets it when it connects.
-func (s *Server) pushCalibration(r *http.Request, typeID string) {
+// sendSetup tells one device what it is and where it stands (D-063,
+// D-068). It reports the setup, whether the device took it, and whether the
+// link was there to ask at all.
+func (s *Server) sendSetup(r *http.Request, deviceID string) (store.Setup, bool, bool) {
+	if s.opts.Link == nil {
+		return store.Setup{}, false, false
+	}
+	setup, sent, err := s.opts.Link.SendSetup(r.Context(), deviceID)
+	if err != nil && !errors.Is(err, link.ErrDeviceOffline) {
+		s.log.Warn("could not set up the device", "device", deviceID, "error", err)
+	}
+	return setup, sent, true
+}
+
+// settingsJSON is what a device was told, key by key.
+func settingsJSON(setup store.Setup) []Setting {
+	out := make([]Setting, 0, 5)
+	for _, setting := range setup.Settings() {
+		out = append(out, Setting{Key: setting.Key, Value: setting.Value})
+	}
+	return out
+}
+
+// pushSetup tells every device of a target type its settings again, after
+// the type changed. A device that is offline gets them when it connects.
+func (s *Server) pushSetup(r *http.Request, typeID string) {
 	if s.opts.Link == nil {
 		return
 	}
-	ctx := r.Context()
-	devices, err := s.opts.Store.DevicesOfTargetType(ctx, typeID)
+	devices, err := s.opts.Store.DevicesOfTargetType(r.Context(), typeID)
 	if err != nil {
 		s.log.Warn("could not read the devices of a target type", "target_type", typeID, "error", err)
 		return
 	}
 	for _, deviceID := range devices {
-		if _, _, err := s.opts.Link.SendCalibration(ctx, deviceID); err != nil && !errors.Is(err, link.ErrDeviceOffline) {
-			s.log.Warn("could not calibrate the device", "device", deviceID, "error", err)
-		}
+		s.sendSetup(r, deviceID)
 	}
 }

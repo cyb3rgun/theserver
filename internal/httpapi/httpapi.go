@@ -49,10 +49,11 @@ type DeviceLink interface {
 	StopSession(ctx context.Context, session store.Session) error
 	// SessionStates is what the link is doing for the devices of a session.
 	SessionStates(sessionID string) []link.SessionState
-	// SendCalibration tells a device where the beacons of its target type
-	// sit (D-063). The second value says whether anything was sent: a
-	// device without a type is told nothing.
-	SendCalibration(ctx context.Context, deviceID string) (store.Calibration, bool, error)
+	// SendSetup tells a device what it is and where it stands (D-063,
+	// D-068): the points of its target type and the beacon plan of its
+	// room. The second value says whether anything was sent; a device with
+	// nothing to be told gives false without an error.
+	SendSetup(ctx context.Context, deviceID string) (store.Setup, bool, error)
 }
 
 var _ DeviceLink = (*link.Server)(nil)

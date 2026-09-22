@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/cyb3rgun/theserver/internal/link"
@@ -102,13 +101,10 @@ func (s *Server) approveDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "device approved", "device", id)
-	// A device that is allowed in learns where the beacons of its type sit
-	// (D-063); one without a type is told nothing.
-	if s.opts.Link != nil {
-		if _, _, err := s.opts.Link.SendCalibration(r.Context(), id); err != nil && !errors.Is(err, link.ErrDeviceOffline) {
-			s.log.Warn("could not calibrate the device", "device", id, "error", err)
-		}
-	}
+	// A device that is allowed in learns what it is and where it stands
+	// (D-063, D-068); one without a type and without a room is told
+	// nothing.
+	s.sendSetup(r, id)
 	s.writeDevice(w, r, id, http.StatusOK)
 }
 

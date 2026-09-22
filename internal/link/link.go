@@ -582,13 +582,13 @@ func (c *deviceConn) serve() {
 		return
 	}
 	go c.pingLoop()
-	// A device that connects learns where the beacons of its type sit
-	// (D-063) and, in a running session, what it plays (D-057), once its
-	// read loop can answer the commands.
+	// A device that connects learns what it is and where it stands
+	// (D-063, D-068) and, in a running session, what it plays (D-057),
+	// once its read loop can answer the commands.
 	c.srv.active.Add(1)
 	go func() {
 		defer c.srv.active.Done()
-		c.calibrationOnConnect()
+		c.setupOnConnect()
 		c.sessionOnConnect(session)
 	}()
 	c.readLoop()
