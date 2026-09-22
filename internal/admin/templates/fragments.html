@@ -35,12 +35,13 @@
     <input type="number" id="{{.ID}}" name="{{.Key}}" value="{{.Value}}" step="{{.Step}}"{{with .Min}} min="{{.}}"{{end}}{{with .Max}} max="{{.}}"{{end}}>
     {{else if eq .Control "beacons"}}
     <table class="beacons" id="{{.ID}}">
-      <thead><tr><th class="number">{{t "admin.target_types.beacon_no"}}</th><th class="number">{{t "admin.target_types.beacon_x"}}</th><th class="number">{{t "admin.target_types.beacon_y"}}</th></tr></thead>
+      <thead><tr><th class="number">{{t "admin.target_types.beacon_no"}}</th><th class="number">{{t "admin.target_types.beacon_x"}}</th><th class="number">{{t "admin.target_types.beacon_y"}}</th><th class="number">{{t "admin.target_types.beacon_ch"}}</th></tr></thead>
       <tbody>
       {{range .Beacons}}
         <tr><td class="number">{{.Index}}</td>
           <td><input type="number" step="any" name="beacon.x" value="{{.X}}" aria-label="{{t "admin.target_types.beacon_x_of" .Index}}"></td>
           <td><input type="number" step="any" name="beacon.y" value="{{.Y}}" aria-label="{{t "admin.target_types.beacon_y_of" .Index}}"></td>
+          <td><input type="number" step="1" min="0" max="7" name="beacon.ch" value="{{.Ch}}" aria-label="{{t "admin.target_types.beacon_ch_of" .Index}}"></td>
         </tr>
       {{end}}
       </tbody>

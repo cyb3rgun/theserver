@@ -88,6 +88,7 @@ type beaconRow struct {
 	Index int
 	X     string
 	Y     string
+	Ch    string
 }
 
 // outline is the drawing of a beacon layout, in millimetres. Every value is
@@ -337,14 +338,17 @@ func targetTypeForm(r *http.Request) (httpapi.TargetType, error) {
 	height, err := number(r, "res_h", err)
 	out.ResW, out.ResH = int(width), int(height)
 
-	xs, ys := r.PostForm["beacon.x"], r.PostForm["beacon.y"]
+	xs, ys, chs := r.PostForm["beacon.x"], r.PostForm["beacon.y"], r.PostForm["beacon.ch"]
 	for i := range max(len(xs), len(ys)) {
-		x, y := "", ""
+		x, y, ch := "", "", ""
 		if i < len(xs) {
 			x = strings.TrimSpace(xs[i])
 		}
 		if i < len(ys) {
 			y = strings.TrimSpace(ys[i])
+		}
+		if i < len(chs) {
+			ch = strings.TrimSpace(chs[i])
 		}
 		if x == "" && y == "" {
 			// An empty row is a cluster that was removed, or the row that
@@ -353,10 +357,11 @@ func targetTypeForm(r *http.Request) (httpapi.TargetType, error) {
 		}
 		bx, bErr := strconv.ParseFloat(orZero(x), 64)
 		by, bErr2 := strconv.ParseFloat(orZero(y), 64)
+		channel, bErr3 := strconv.Atoi(orZero(ch))
 		if err == nil {
-			err = errors.Join(bErr, bErr2)
+			err = errors.Join(bErr, bErr2, bErr3)
 		}
-		out.Beacons = append(out.Beacons, httpapi.Beacon{X: bx, Y: by})
+		out.Beacons = append(out.Beacons, httpapi.Beacon{X: bx, Y: by, Ch: channel})
 	}
 	return out, err
 }
@@ -453,9 +458,12 @@ func textRows(key string, texts map[string]string, lang string) []langValue {
 func beaconRows(beacons []httpapi.Beacon) []beaconRow {
 	out := make([]beaconRow, 0, len(beacons)+1)
 	for i, b := range beacons {
-		out = append(out, beaconRow{Index: i + 1, X: trimNumber(b.X), Y: trimNumber(b.Y)})
+		out = append(out, beaconRow{
+			Index: i + 1, X: trimNumber(b.X), Y: trimNumber(b.Y), Ch: strconv.Itoa(b.Ch),
+		})
 	}
-	return append(out, beaconRow{Index: len(beacons) + 1})
+	// The empty row adds a cluster; its channel is the next free number.
+	return append(out, beaconRow{Index: len(beacons) + 1, Ch: strconv.Itoa(len(beacons))})
 }
 
 // trimNumber writes a number the way a form takes it back: no exponent, no

@@ -20,8 +20,10 @@
   <dl class="facts">
     <dt>{{t "admin.target_types.picture"}}</dt><dd>{{t "admin.target_types.millimetres" .Type.DisplayWMM .Type.DisplayHMM}}</dd>
     <dt>{{t "admin.target_types.canvas"}}</dt><dd>{{t "admin.target_types.pixels" .Type.ResW .Type.ResH}}</dd>
+    <dt>{{t "admin.target_types.points"}}</dt>
+    <dd>{{if .HasCalib}}<code>{{.Calib.PointsValue}}</code>{{else}}<span class="muted">{{t "admin.target_types.no_calibration"}}</span>{{end}}</dd>
     <dt>{{t "admin.target_types.calibration"}}</dt>
-    <dd>{{if .HasCalib}}<code>{{.Calib.Value}}</code>{{else}}<span class="muted">{{t "admin.target_types.no_calibration"}}</span>{{end}}</dd>
+    <dd>{{if .Calib.Value}}<code>{{.Calib.Value}}</code>{{else}}<span class="muted">{{t "admin.target_types.no_rectangle"}}</span>{{end}}</dd>
     <dt>{{t "admin.target_types.col_devices"}}</dt>
     <dd>{{range $i, $d := .Type.Devices}}{{if $i}}, {{end}}<a href="/admin/devices/{{path $d}}/view">{{$d}}</a>{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</dd>
   </dl>

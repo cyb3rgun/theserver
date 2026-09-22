@@ -11,6 +11,8 @@
     <dt>{{t "admin.devices.col_status"}}</dt><dd><span class="badge {{.Device.Status}}">{{word "admin.status" .Device.Status}}</span></dd>
     <dt>{{t "admin.devices.col_online"}}</dt><dd>{{if .Device.Online}}<span class="badge online">{{t "admin.devices.online"}}</span>{{else}}<span class="badge offline">{{t "admin.devices.offline"}}</span>{{end}}</dd>
     <dt>{{t "admin.devices.col_firmware"}}</dt><dd>{{.Device.FirmwareVersion}}</dd>
+    <dt>{{t "admin.device.room"}}</dt>
+    <dd>{{if .Device.RoomID}}<a href="/admin/rooms/{{path .Device.RoomID}}">{{or (index $.RoomNames .Device.RoomID) .Device.RoomID}}</a>{{if .Device.BeaconSlot}} <span class="muted">{{t "admin.device.slot_is" .Device.BeaconSlot}}</span>{{end}}{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</dd>
     <dt>{{t "admin.devices.col_target_type"}}</dt>
     <dd>{{if .Device.TargetType}}<a href="/admin/target-types/{{path .Device.TargetType}}">{{or (index $.TypeNames .Device.TargetType) .Device.TargetType}}</a>{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</dd>
   </dl>
@@ -24,6 +26,24 @@
     <button class="button" type="submit">{{t "admin.device.set_target_type"}}</button>
   </form>
   <p class="muted">{{t "admin.device.target_type_help"}}</p>
+  <form class="inline" id="place-form" method="post" action="/admin/devices/{{path .Device.ID}}/place">
+    <label for="room">{{t "admin.device.room"}}</label>
+    <select id="room" name="room_id">
+      <option value="">{{t "admin.device.room_none"}}</option>
+      {{$room := .Device.RoomID}}
+      {{range .Rooms}}<option value="{{.ID}}"{{if eq .ID $room}} selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+    <label for="slot">{{t "admin.device.slot"}}</label>
+    <select id="slot" name="beacon_slot">
+      <option value="0">{{t "admin.device.slot_none"}}</option>
+      {{$slot := .Device.BeaconSlot}}
+      {{range .Slots}}<option value="{{.}}"{{if eq . $slot}} selected{{end}}>{{.}}</option>{{end}}
+    </select>
+    <label for="position">{{t "admin.device.position"}}</label>
+    <input type="text" id="position" name="position" value="{{.Device.Position}}">
+    <button class="button" type="submit">{{t "admin.device.place"}}</button>
+  </form>
+  <p class="muted">{{t "admin.device.place_help"}}</p>
   <form class="inline" id="age-form" method="post" action="/admin/devices/{{path .Device.ID}}/age">
     <label for="min-age">{{t "admin.device.min_age"}}</label>
     <select id="min-age" name="min_age">

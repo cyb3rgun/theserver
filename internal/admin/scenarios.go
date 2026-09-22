@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -424,6 +425,20 @@ type deviceData struct {
 	// the language of the page (D-065).
 	Types     []typeChoice
 	TypeNames map[string]string
+	// Rooms are the rooms the device can stand in and RoomNames their
+	// names, by id; Slots are the free slots of the room it stands in,
+	// with its own slot among them (D-066).
+	Rooms     []roomChoice
+	RoomNames map[string]string
+	Slots     []int
+}
+
+// roomChoice is one room in a select, with the site it belongs to.
+type roomChoice struct {
+	ID    string
+	Name  string
+	Site  string
+	Label string
 }
 
 // typeChoice is one target type in a select.
@@ -475,7 +490,32 @@ func (a *Admin) loadDevice(w http.ResponseWriter, r *http.Request, s session, id
 		return data, false
 	}
 	data.Types, data.TypeNames = types, names
+	if !a.loadRoomChoices(w, r, s, &data) {
+		return data, false
+	}
 	return data, true
+}
+
+// loadRoomChoices reads the rooms a device can stand in and the slots that
+// are free in the room it stands in now (D-066, D-068).
+func (a *Admin) loadRoomChoices(w http.ResponseWriter, r *http.Request, s session, data *deviceData) bool {
+	rooms, names, ok := a.roomChoices(w, r, s, &data.alert)
+	if !ok {
+		return false
+	}
+	data.Rooms, data.RoomNames = rooms, names
+	if data.Device.RoomID != "" {
+		var plan httpapi.RoomPlan
+		if a.failed(w, r, a.call(r, s, http.MethodGet, "/rooms/"+url.PathEscape(data.Device.RoomID)+"/plan", nil, &plan), &data.alert) {
+			return false
+		}
+		data.Slots = append(data.Slots, plan.Free...)
+		if data.Device.BeaconSlot > 0 {
+			data.Slots = append(data.Slots, data.Device.BeaconSlot)
+			slices.Sort(data.Slots)
+		}
+	}
+	return true
 }
 
 // targetTypeChoices reads the target types for a select, with their names

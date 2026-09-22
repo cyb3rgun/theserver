@@ -70,13 +70,25 @@ func TestEveryPageInEveryLanguage(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if _, err := h.st.CreateSite(ctx, store.Site{ID: "hall-1", Name: "Cinema One", Timezone: "Europe/Berlin"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.st.CreateRoom(ctx, store.Room{ID: "arena", SiteID: "hall-1", Name: "Arena", Slots: 4}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.PlaceDevice(ctx, "tgt-01", store.Placement{RoomID: "arena", Slot: 1}); err != nil {
+		t.Fatal(err)
+	}
+
 	titles := map[string]map[string]string{
 		"en": {"/admin/devices": "Devices", "/admin/sessions": "Sessions", "/admin/ranking": "Ranking", "/admin/settings": "Settings",
 			"/admin/scenarios": "Scenarios", "/admin/scenarios/zombie-alley": "Zombie Alley", "/admin/devices/tgt-01/view": "Device tgt-01",
-			"/admin/target-types": "Target types", "/admin/target-types/bar-12": "Bar display 11.9 inch"},
+			"/admin/target-types": "Target types", "/admin/target-types/bar-12": "Bar display 11.9 inch",
+			"/admin/sites": "Sites", "/admin/sites/hall-1": "Cinema One", "/admin/rooms/arena": "Arena"},
 		"de": {"/admin/devices": "Geräte", "/admin/sessions": "Sitzungen", "/admin/ranking": "Rangliste", "/admin/settings": "Einstellungen",
 			"/admin/scenarios": "Szenarien", "/admin/scenarios/zombie-alley": "Zombie-Gasse", "/admin/devices/tgt-01/view": "Gerät tgt-01",
-			"/admin/target-types": "Zieltypen", "/admin/target-types/bar-12": "Leistendisplay 11,9 Zoll"},
+			"/admin/target-types": "Zieltypen", "/admin/target-types/bar-12": "Leistendisplay 11,9 Zoll",
+			"/admin/sites": "Standorte", "/admin/sites/hall-1": "Cinema One", "/admin/rooms/arena": "Arena"},
 	}
 	for _, lang := range i18n.Languages() {
 		h.lang = lang
@@ -108,6 +120,30 @@ func TestEveryPageInEveryLanguage(t *testing.T) {
 		h.do("POST", "/admin/target-types/stand-"+lang+"/delete", url.Values{}, true)
 		h.do("POST", "/admin/target-types/bar-12/delete", url.Values{}, true)
 		h.do("GET", "/admin/target-types/nothing", nil, true)
+		// The venue pages in this language: a site and a room described,
+		// changed, refused and deleted, and a device placed (D-066).
+		h.do("POST", "/admin/sites", url.Values{
+			"id": {"site-" + lang}, "name": {"Second"}, "timezone": {"Europe/Berlin"},
+			"currency": {"EUR"}, "franchise_rate": {"7"}, "monthly_threshold": {"500000"},
+		}, true)
+		h.html("GET", "/admin/sites/site-"+lang+"?created=1", nil)
+		h.html("GET", "/admin/sites/site-"+lang+"?saved=1", nil)
+		h.do("POST", "/admin/sites/site-"+lang, url.Values{"name": {"Second"}, "franchise_rate": {"much"}}, true)
+		h.do("POST", "/admin/sites/site-"+lang+"/rooms", url.Values{
+			"id": {"room-" + lang}, "name": {"Lounge"}, "age_rating": {"12"},
+			"beacon_period_ms": {"100"}, "beacon_slots": {"4"},
+		}, true)
+		h.html("GET", "/admin/rooms/room-"+lang+"?created=1", nil)
+		h.html("GET", "/admin/rooms/room-"+lang+"?saved=1", nil)
+		h.html("POST", "/admin/devices/tgt-02/place", url.Values{"room_id": {"room-" + lang}, "beacon_slot": {"1"}})
+		h.html("POST", "/admin/devices/tgt-02/place", url.Values{"room_id": {""}})
+		h.do("POST", "/admin/sites/site-"+lang+"/delete", url.Values{}, true)
+		h.do("POST", "/admin/rooms/room-"+lang+"/delete", url.Values{}, true)
+		h.do("POST", "/admin/sites/site-"+lang+"/delete", url.Values{}, true)
+		h.html("GET", "/admin/sites?deleted=site-"+lang, nil)
+		h.do("GET", "/admin/sites/nothing", nil, true)
+		h.do("GET", "/admin/rooms/nothing", nil, true)
+		h.html("POST", "/admin/sessions", url.Values{"id": {"room-session-" + lang}, "room_id": {"arena"}})
 		h.html("POST", "/admin/sessions/s-1/scenario", url.Values{"scenario": {""}})
 		h.html("POST", "/admin/sessions/s-1/scenario", url.Values{"scenario": {"night-range@1"}})
 		for _, page := range []string{"/admin/scenarios/night-range?uploaded=1", "/admin/scenarios/night-range?uploaded=1&replaced=1",

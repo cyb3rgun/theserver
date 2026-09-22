@@ -1,0 +1,79 @@
+{{define "content"}}
+<p><a href="/admin/sites">{{t "admin.sites.back"}}</a></p>
+<h1>{{.Site.Name}}</h1>
+{{template "messages" .}}
+{{if .Site.ID}}
+<p class="muted"><code>{{.Site.ID}}</code> {{.Site.Address}}</p>
+{{with .Note}}<p>{{.}}</p>{{end}}
+
+<section class="card licence">
+  <h2>{{t "admin.sites.licence_title"}}</h2>
+  <p class="muted">{{t "admin.sites.licence_help"}}</p>
+  <dl class="facts">
+    <dt>{{t "admin.sites.licence_id"}}</dt><dd>{{or .Site.LicenceID (t "admin.none")}}</dd>
+    <dt>{{t "admin.sites.franchise_rate"}}</dt><dd>{{t "admin.sites.percent" .Site.FranchiseRate}}</dd>
+    <dt>{{t "admin.sites.monthly_threshold"}}</dt><dd>{{.Site.MonthlyThreshold}} {{.Site.Currency}}</dd>
+    <dt>{{t "admin.sites.valid_from"}}</dt><dd>{{if .Site.ValidFrom}}{{when .Site.ValidFrom}}{{else}}<span class="muted">{{t "admin.not_yet"}}</span>{{end}}</dd>
+  </dl>
+</section>
+
+<h2>{{t "admin.rooms.title"}}</h2>
+<div class="scroll">
+<table id="rooms">
+  <thead>
+    <tr><th>{{t "admin.rooms.col_room"}}</th><th>{{t "admin.rooms.col_age"}}</th>
+    <th class="number">{{t "admin.rooms.col_plan"}}</th><th class="number">{{t "admin.rooms.col_targets"}}</th>
+    <th class="number">{{t "admin.rooms.col_free"}}</th><th class="number">{{t "admin.rooms.col_capacity"}}</th></tr>
+  </thead>
+  <tbody>
+  {{range .Rooms}}
+    <tr id="room-{{.ID}}">
+      <td><a href="/admin/rooms/{{path .ID}}">{{.Name}}</a><br><code>{{.ID}}</code></td>
+      <td>{{age .AgeRating}}</td>
+      <td class="number">{{t "admin.rooms.plan_short" .PeriodMS .Slots}}</td>
+      <td class="number">{{.Targets}}</td>
+      <td class="number">{{.Free}}</td>
+      <td class="number">{{if .Capacity}}{{.Capacity}}{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</td>
+    </tr>
+  {{else}}
+    <tr><td colspan="6">{{t "admin.rooms.empty"}}</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+
+<h2>{{t "admin.sites.controllers_title"}}</h2>
+<ul class="devices" id="controllers">
+{{range .Controllers}}
+  <li><a href="/admin/devices/{{path .ID}}/view">{{.ID}}</a>
+    {{if .RoomID}}<span class="muted">{{.RoomID}}</span>{{else}}<span class="badge">{{t "admin.sites.free_controller"}}</span>{{end}}
+  </li>
+{{else}}
+  <li><span class="muted">{{t "admin.sites.no_controllers"}}</span></li>
+{{end}}
+</ul>
+
+<section class="card new-room">
+  <h2>{{t "admin.rooms.new_title"}}</h2>
+  <p class="muted">{{t "admin.rooms.new_intro"}}</p>
+  <form id="new-room" class="settings" method="post" action="/admin/sites/{{path .Site.ID}}/rooms">
+    {{template "target-type-fields" .RoomFields}}
+    <div class="savebar">
+      <button class="button primary" type="submit">{{t "admin.rooms.create"}}</button>
+    </div>
+  </form>
+</section>
+
+<form id="edit-site" class="settings" method="post" action="/admin/sites/{{path .Site.ID}}">
+  {{template "target-type-fields" .Fields}}
+  <div class="savebar">
+    <button class="button primary" type="submit">{{t "admin.sites.save"}}</button>
+  </div>
+</form>
+<form class="inline" id="delete-site" method="post" action="/admin/sites/{{path .Site.ID}}/delete"
+      data-confirm="{{t "admin.sites.confirm_delete" .Site.Name}}">
+  <button class="button danger" type="submit">{{t "admin.sites.delete"}}</button>
+</form>
+{{end}}
+<script src="/admin/static/scenarios.js" integrity="{{.Script}}" defer></script>
+{{end}}

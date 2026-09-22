@@ -226,6 +226,10 @@ type sessionsData struct {
 	layout
 	Sessions []httpapi.Session
 	Devices  []httpapi.Device
+	// Rooms are the rooms a session can run in and RoomNames their names,
+	// by id (D-067).
+	Rooms     []roomChoice
+	RoomNames map[string]string
 	// Choices are the scenario versions a session can play, Titles the
 	// titles of all scenarios by id.
 	Choices []scenarioChoice
@@ -253,6 +257,11 @@ func (a *Admin) loadSessions(w http.ResponseWriter, r *http.Request, s session, 
 	}
 	data.Sessions, data.Devices = sessions.Sessions, devices.Devices
 	data.Choices, data.Titles = choicesIn(s.Lang, list)
+	rooms, names, ok := a.roomChoices(w, r, s, &data.alert)
+	if !ok {
+		return false
+	}
+	data.Rooms, data.RoomNames = rooms, names
 	return true
 }
 
@@ -266,8 +275,9 @@ func (a *Admin) sessionsPage(w http.ResponseWriter, r *http.Request, s session) 
 func (a *Admin) createSession(w http.ResponseWriter, r *http.Request, s session) {
 	data := sessionsData{layout: a.layout("admin.sessions.title", "sessions", s)}
 	body := httpapi.NewSession{
-		ID:   strings.TrimSpace(r.PostFormValue("id")),
-		Room: strings.TrimSpace(r.PostFormValue("room")),
+		ID:     strings.TrimSpace(r.PostFormValue("id")),
+		Room:   strings.TrimSpace(r.PostFormValue("room")),
+		RoomID: strings.TrimSpace(r.PostFormValue("room_id")),
 	}
 	var created httpapi.Session
 	if a.failed(w, r, a.call(r, s, http.MethodPost, "/sessions", body, &created), &data.alert) {

@@ -24,6 +24,7 @@
   {{if .Admin}}
   <nav aria-label="{{t "admin.nav.label"}}">
     <a href="/admin/devices"{{if eq .Active "devices"}} class="active" aria-current="page"{{end}}>{{t "admin.nav.devices"}}</a>
+    <a href="/admin/sites"{{if eq .Active "sites"}} class="active" aria-current="page"{{end}}>{{t "admin.nav.sites"}}</a>
     <a href="/admin/target-types"{{if eq .Active "target-types"}} class="active" aria-current="page"{{end}}>{{t "admin.nav.target_types"}}</a>
     <a href="/admin/sessions"{{if eq .Active "sessions"}} class="active" aria-current="page"{{end}}>{{t "admin.nav.sessions"}}</a>
     <a href="/admin/scenarios"{{if eq .Active "scenarios"}} class="active" aria-current="page"{{end}}>{{t "admin.nav.scenarios"}}</a>

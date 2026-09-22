@@ -71,7 +71,7 @@ type Admin struct {
 }
 
 var pageNames = []string{"login", "devices", "device", "sessions", "ranking", "scenarios", "scenario",
-	"target-types", "target-type", "editor", "preview", "settings"}
+	"sites", "site", "room", "target-types", "target-type", "editor", "preview", "settings"}
 
 // New returns the admin handler.
 func New(opts Options) (*Admin, error) {
@@ -140,6 +140,16 @@ func New(opts Options) (*Admin, error) {
 	mux.Handle("GET /admin/devices/{id}/view", a.page(a.devicePage))
 	mux.Handle("POST /admin/devices/{id}/age", a.page(a.setDeviceAge))
 	mux.Handle("POST /admin/devices/{id}/target-type", a.page(a.setDeviceTargetType))
+	mux.Handle("POST /admin/devices/{id}/place", a.page(a.placeDevice))
+	mux.Handle("GET /admin/sites", a.page(a.sitesPage))
+	mux.Handle("POST /admin/sites", a.page(a.createSite))
+	mux.Handle("GET /admin/sites/{id}", a.page(a.sitePage))
+	mux.Handle("POST /admin/sites/{id}", a.page(a.saveSite))
+	mux.Handle("POST /admin/sites/{id}/delete", a.page(a.deleteSite))
+	mux.Handle("POST /admin/sites/{id}/rooms", a.page(a.createRoom))
+	mux.Handle("GET /admin/rooms/{id}", a.page(a.roomPage))
+	mux.Handle("POST /admin/rooms/{id}", a.page(a.saveRoom))
+	mux.Handle("POST /admin/rooms/{id}/delete", a.page(a.deleteRoom))
 	mux.Handle("POST /admin/devices/{id}/{action}", a.page(a.deviceAction))
 	mux.Handle("GET /admin/target-types", a.page(a.targetTypesPage))
 	mux.Handle("POST /admin/target-types", a.page(a.createTargetType))

@@ -9,7 +9,12 @@
   {{with .Lines}}<ul class="announcements" id="announcements">{{range .}}<li>{{.}}</li>{{end}}</ul>{{end}}
   <form class="inline card" hx-post="/admin/sessions" hx-target="#sessions" hx-swap="outerHTML">
     <label>{{t "admin.sessions.id"}} <input name="id" placeholder="{{t "admin.sessions.id_placeholder"}}" maxlength="64"></label>
-    <label>{{t "admin.sessions.room"}} <input name="room"></label>
+    <label>{{t "admin.sessions.in_room"}}
+      <select name="room_id">
+        <option value="">{{t "admin.sessions.no_room"}}</option>
+        {{range .Rooms}}<option value="{{.ID}}">{{.Label}}</option>{{end}}
+      </select>
+    </label>
     <button class="button primary" type="submit">{{t "admin.sessions.create"}}</button>
   </form>
 
@@ -23,7 +28,7 @@
       <tr id="session-{{.ID}}">
         <td><strong>{{.ID}}</strong></td>
         <td>{{if .ScenarioVersion}}<a href="/admin/scenarios/{{path .Scenario}}">{{or (index $.Titles .Scenario) .Scenario}}</a> <span class="muted">{{t "admin.scenarios.version" .ScenarioVersion}}</span>{{else if .Scenario}}<span class="muted">{{.Scenario}}</span>{{else}}<span class="muted">{{t "admin.none"}}</span>{{end}}</td>
-        <td>{{.Room}}</td>
+        <td>{{if .RoomID}}<a href="/admin/rooms/{{path .RoomID}}">{{or (index $.RoomNames .RoomID) .Room}}</a>{{else}}{{.Room}}{{end}}</td>
         <td><span class="badge {{.State}}">{{word "admin.state" .State}}</span></td>
         <td>{{if .StartedAt}}{{when .StartedAt}}{{else}}<span class="muted">{{t "admin.not_yet"}}</span>{{end}}</td>
         <td>{{if .EndedAt}}{{when .EndedAt}}{{else}}<span class="muted">{{t "admin.not_yet"}}</span>{{end}}</td>

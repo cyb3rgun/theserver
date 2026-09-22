@@ -33,10 +33,12 @@ type TargetType struct {
 	Devices []string `json:"devices"`
 }
 
-// Beacon is one cluster of a beacon layout, in millimetres.
+// Beacon is one cluster of a beacon layout, in millimetres, with the output
+// channel of the target module that drives it (D-068).
 type Beacon struct {
-	X float64 `json:"x"`
-	Y float64 `json:"y"`
+	X  float64 `json:"x"`
+	Y  float64 `json:"y"`
+	Ch int     `json:"ch"`
 }
 
 // Calibration is the beacon layout of a type in canvas coordinates (D-068):
@@ -88,7 +90,7 @@ type Setting struct {
 func targetTypeJSON(t store.TargetType, devices []string) TargetType {
 	beacons := make([]Beacon, 0, len(t.Beacons))
 	for _, b := range t.Beacons {
-		beacons = append(beacons, Beacon{X: b.X, Y: b.Y})
+		beacons = append(beacons, Beacon{X: b.X, Y: b.Y, Ch: b.Ch})
 	}
 	if devices == nil {
 		devices = []string{}
@@ -104,7 +106,7 @@ func targetTypeJSON(t store.TargetType, devices []string) TargetType {
 func targetTypeStore(body TargetType) store.TargetType {
 	beacons := make([]store.Beacon, 0, len(body.Beacons))
 	for _, b := range body.Beacons {
-		beacons = append(beacons, store.Beacon{X: b.X, Y: b.Y})
+		beacons = append(beacons, store.Beacon{X: b.X, Y: b.Y, Ch: b.Ch})
 	}
 	return store.TargetType{
 		ID: body.ID, Name: scenario.Text(body.Name), Class: body.Class,
