@@ -2,6 +2,55 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-071 The tag v0.5.0
+
+- Date: 23 September 2026 (S01-B13)
+- Decision: The close of S01-B13 is tagged `v0.5.0` on `main` and pushed, and theclient pins it. The minor number is raised because `pkg/protocol` and the settings a device is told grew: `calib.pts` beside `calib.rect`, and `beacon.period_ms`, `beacon.slots` and `beacon.slot` (D-049).
+- Details: Nothing that `v0.4.0` offered changed its meaning. A device that reads only `calib.rect` keeps working, because the rectangle is still sent whenever the clusters span an area.
+- Reason: theclient reads the point list in its own pass and needs a tag to pin.
+- Versions: none.
+
+## D-070 The site carries the licence fields before the money side exists
+
+- Date: 23 September 2026 (S01-B13)
+- Decision: A site stores licence id, franchise rate in percent, monthly threshold in the smallest unit of the currency, currency and valid from. They are set by the manufacturer, shown on the site page and used by nothing.
+- Details: Money is kept as a whole number of minor units, never as a fraction, because a fraction of a cent is a rounding argument waiting to happen. `valid_from` is a day, so a rate that changes does not change the past. Once roles exist they are read only for an operator; today every admin can edit them, which is recorded here as what it is.
+- Reason: The franchise statement is a season away, and the table it hangs from is written now. Adding five columns today is cheaper than migrating a table full of venues later.
+- Versions: none.
+
+## D-069 The move to sites and rooms keeps what exists
+
+- Date: 23 September 2026 (S01-B13)
+- Decision: The migration puts every device into the site `site-default`, named Default, and into a room named after the free text it carried, or into a room Default when it carried none. A session that named a room by text runs in that room. The old text column stays in the table and disappears from the pages.
+- Details: The room ids of the move are `room-` and six hex digits. The text column is kept because it is what the device itself reported, and because dropping a column in SQLite rewrites the table for no gain. A database without devices gets no site and no room at all, so a fresh install starts empty.
+- Reason: An operator who updates must not lose the shape of a room that was only ever a word in a field, and must not have to type it again.
+- Versions: none.
+
+## D-068 Beacons are a list of points, not a rectangle
+
+- Date: 23 September 2026 (S01-B13)
+- Decision: A target type carries none or two to sixteen beacon clusters, each with x and y in millimetres relative to the picture and the output channel of the target module that drives it, 0 to 7. The device is told `calib.pts`, the clusters in canvas coordinates as `"id,x,y id,x,y ..."` ordered by channel, and `calib.rect` as the bounding box of those points, so devices built against B12 keep working. The plan of the room follows as `beacon.period_ms`, `beacon.slots` and the target's own `beacon.slot`. Protocol section 8.13 records the keys.
+- Details: A layout whose clusters span no area has points and no rectangle, and the rectangle key is then not sent. A layout that names no channels is numbered 0, 1, 2 in the order it was written, so an operator who does not care does not have to say. Two targets of one room can never hold the same slot, and a slot outside the plan of the room is refused; the room page lists the free ones. The firmware side follows in its own pass and has room for eight channels in its mask.
+- Reason: Four clusters were an assumption of the first hardware, not a property of the idea. A target with six or eight clusters is a different shape, not a different protocol, and the rectangle a shot is mapped into is the thing that is derived, not the thing that is described.
+- Versions: none.
+
+## D-067 A session runs in a room
+
+- Date: 23 September 2026 (S01-B13)
+- Decision: A session names the room it runs in. The approved targets of that room become its devices, a single target can be left out before it starts, and the age rating of the room is the age rating of the session: a scenario rated higher is refused with the room named in the message. The age a single device is set for stays as it was (D-039), so a target can be stricter than its room.
+- Agreed with the architect during this pass: the targets are taken when the session is created with a room, not when it starts, because an exclusion that a start undoes is not an exclusion. A session without a room behaves exactly as it did before.
+- Details: `DELETE /api/v1/sessions/{id}/devices/{device}` is the exclusion, and it is refused for a session that is stopped. A device that is not approved is not taken into the session by itself.
+- Reason: Nobody starts a session by naming seven targets. A room is the unit an operator thinks in, and the age of the players in that room is the fact the age check needs.
+- Versions: none.
+
+## D-066 The venue has a shape: site, room, target, controller
+
+- Date: 23 September 2026 (S01-B13)
+- Decision: A site is the venue, a room belongs to a site, a target is a device of kind target that stands in a room, and a controller is a device of kind controller that belongs to a site and may belong to a room. The tables are `sites` and `rooms`; a device carries `site_id`, `room_id`, `beacon_slot` and `position`.
+- Details: The briefing names `devices.room_id` and the slot; `site_id` follows from its own words, because a controller that is free for the whole site has to name that site without naming a room. A room keeps its site: a room that moves is a new room. A site that holds rooms or devices, and a room that holds devices or is named by a session, are not deleted.
+- Reason: Everything the admin knew was flat, and sessions, rankings, rights, prices and the franchise statement all hang from the shape of a venue. Every month it is missing is a month of rebuilding later.
+- Versions: none.
+
 ## D-065 The devices page assigns the type, the type page draws the layout
 
 - Date: 21 September 2026 (S01-B12)

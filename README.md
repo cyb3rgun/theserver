@@ -99,7 +99,8 @@ This is enforced by the shape of the data, not by good intentions:
 | **Device link** | WebSocket over TLS at `/link/v1`, CBOR messages, handshake with replay, cumulative acknowledgements, commands from the server with results, keepalive, newest connection wins; devices report the scenario versions they hold and are told when to fetch one |
 | **Journal** | SQLite in WAL mode, embedded versioned migrations, immutable events, contiguous acknowledgement, sequence epochs for device reset |
 | **Devices** | Registry with kind, class, room, zone, status (pending, approved, blocked), hashed device tokens, token rotation, reset, live disconnect on revoke |
-| **Target types** | A kind of target described once as data: display in millimetres, resolution, orientation, beacon clusters, sound; devices belong to a type, scenarios can be made for one, and the beacon rectangle a client needs is derived and sent, never typed |
+| **Venue** | Sites with address, timezone and licence values, rooms with the age of their players and the beacon round their targets share, targets with a slot and a place in a room, controllers that belong to a site; a session runs in a room and takes its targets |
+| **Target types** | A kind of target described once as data: display in millimetres, resolution, orientation, beacon clusters with the channel that drives each one, sound; devices belong to a type, scenarios can be made for one, and the points a client needs are derived and sent, never typed |
 | **Sessions** | Create, start, stop, assign devices; a session plays a published scenario version and tells every device of it what it plays, also a device that connects later; the page says per device whether it is ready; events are attributed to sessions by device time, so late deliveries land in the right session |
 | **Rankings** | Per session or over everything, computed from hit and miss events, verified against an independent computation |
 | **Scenarios** | Packages as `docs/scenario.md` defines them, checked on upload with every problem named in English and German, kept as drafts, published versions never change; targets download them with their own token and report them installed; a session plays one published version, checked against the age its devices are set for |
@@ -192,6 +193,8 @@ A scenario is a package: a `manifest.toml`, its media, a `cover.png`, one direct
 **Build.** The scenario editor builds a scenario in the browser, without touching a file: `/admin/scenarios` opens a draft, empty or as a copy of a published version, and `/admin/editor/<draft id>` is the editor. Upload a video, draw zones on the paused frame, move them through time with keyframes, give them values and classes, put appearances on the timeline, choose the reactions and the rules, play it with the mouse as the pistol, check it and publish. Drafts live on the server with their media; the server writes the manifest, computes the hashes, zips the package and publishes it through the same chain an upload takes. Every field carries a description and a longer why, in English and German. [docs/editor.en.md](https://github.com/cyb3rgun/theserver/blob/main/docs/editor.en.md) is the guide.
 
 **Two people, one draft.** Opening the editor takes the lock of that draft; the page keeps it while it is open and lets it go when it is left. Somebody who comes to a draft another person is holding gets a page that reads only and names the holder, with a button that takes it over after a confirmation; both names go into the log. Every change is saved at once, and there are two ways back: undo and redo in the browser, Ctrl and Z, and the version list beside the media panel, which holds the last twenty changes of the draft on the server and restores any of them.
+
+**The house.** A venue is described on `/admin/sites`: the site with its address and its timezone, and one page per room with the age of its players, the WiFi channel and the beacon round its targets share. A target stands in a room and holds one slot of that round, which the room page lists; a controller belongs to the site and may belong to a room. A session is started on a room and takes its approved targets, and a scenario rated above the age of the room is refused.
 
 **Set up.** A kind of target is described once on `/admin/target-types`: the picture in millimetres, the resolution, how it hangs, where the beacon clusters sit and where the sound comes from. The page draws the layout so the numbers can be checked, and the server derives the beacon rectangle from them and sends it to every device of that type. A device says which type it is on its page; a scenario can be made for a type and then starts with its canvas.
 
@@ -311,6 +314,7 @@ theserver/
 | Sessions with device time attribution | Working |
 | Sessions tell every device what to play, with readiness per device | Working |
 | Target types with derived calibration, editable in the admin | Working |
+| Sites, rooms, targets with beacon slots, controllers of a site | Working |
 | Device link with handshake, replay, commands, keepalive | Working |
 | TLS bootstrap | Working |
 | Simulated target with local journal and forced drops | Working |

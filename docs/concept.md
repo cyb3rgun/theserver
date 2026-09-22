@@ -87,9 +87,18 @@ One HTTPS API, versioned under `/api/v1`, JSON, token authenticated, used by the
 
 ## 7. Data model, foundation
 
-- Device: id, kind (target, controller, bridge), certificate fingerprint, name, room, zone, status, firmware version, config overrides.
+Added 23 September 2026 with S01-B13 (D-066): a venue has a shape, and everything that is counted, billed or directed later hangs from it.
+
+- **Site**: the venue. Name, address, timezone, contact, notes, and the licence values the manufacturer sets: licence id, franchise rate, monthly threshold, currency, valid from (D-070). Those last five are stored and shown and nothing computes with them yet; they are there so the table does not have to be rebuilt when the money side arrives.
+- **Room**: belongs to a site. Name, the age of its players, the WiFi channel of its access point, the beacon multiplex plan as a period in milliseconds and a number of slots, capacity, notes. A scenario rated above the age of the room cannot be played in it (D-067).
+- **Target**: a device of kind target that stands in a room, with its target type (D-061), its slot in the beacon plan of that room and a free note about where it hangs. Two targets of one room never hold the same slot.
+- **Controller**: a device of kind controller. It belongs to a site, and it may belong to one room of that site or be free for the whole site.
+- A **session** runs in a room: the approved targets of the room become its devices when it is created, a single one can be left out before it starts, and the age of the room is the age of the session.
+
+- Device: id, kind (target, controller, bridge), certificate fingerprint, name, site, room, slot, position, status, firmware version, config overrides.
 - Event: event_id, device_id, seq, kind, payload, ts_device, ts_server.
 - Session: id, scenario, room, targets, players, state, timestamps.
+- Site and room as above; a device of an earlier version was moved into a site Default and a room named after the text it carried, so nothing lost its history (D-069).
 - Score entries derived from events, never edited by hand.
 - Player and member management, teams, rankings: later seasons, designed now so that the schema does not have to be rewritten.
 

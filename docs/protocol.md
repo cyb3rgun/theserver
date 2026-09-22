@@ -181,3 +181,15 @@ Added 21 September 2026 with S01-B12 (D-063). It fills in the arguments of `set_
 - **Where the numbers come from.** theserver keeps target types (D-061): the picture of a type in millimetres, its resolution in pixels, and the beacon clusters in millimetres from the top left corner of the picture. A millimetre is `res/display` pixels, and the rectangle is the bounding box of the clusters in those pixels. Nobody types the four points by hand; the setting of the device stays the manual override.
 - **When the server sends it.** When a device is approved, when its target type is set or changed, when the layout of its type changes, and after every handshake, before the device is told what it plays. A device without a target type, and one whose layout spans no rectangle, is told nothing.
 - The reference is simtarget: it takes `set_config`, writes the setting and logs the key and the value it now holds.
+
+### 8.13 Beacons beyond four, and the plan of a room
+
+Added 23 September 2026 with S01-B13 (D-068). It extends 8.12: `calib.rect` keeps its meaning, and the keys below are sent with it, in this order, as separate `set_config` commands.
+
+- **`calib.pts`.** The beacon layout of the target type as a list of points in canvas coordinates: `"id,x,y id,x,y ..."`, whole numbers, ordered by id. The id is the output channel of the target module that drives that cluster, 0 to 7. A target type carries two to sixteen clusters, so a target with six or eight of them is described as fully as one with four; a device that reads only `calib.rect` keeps working.
+- **`calib.rect`.** As in 8.12: the bounding box of the points of `calib.pts`, the four corners in the order top left, top right, bottom right, bottom left. A layout whose clusters span no area has no rectangle, and the key is then not sent at all.
+- **`beacon.period_ms`.** The length of one beacon round in the room the device stands in, a whole number of milliseconds.
+- **`beacon.slots`.** How many slots that round has, a whole number.
+- **`beacon.slot`.** The slot this target sends in, counted from 1. Two targets of one room never hold the same slot, and a target without one is not sent the key.
+- **When the server sends them.** Together with the calibration of 8.12: when a device is approved, when its target type, its room or its slot changes, when the plan of its room changes, and after every handshake, before the device is told what it plays. A device without a room hears nothing about a plan.
+- The reference is simtarget, which logs every key it was told; the firmware side follows in its own pass and has room for eight channels in its mask.
