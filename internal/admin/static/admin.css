@@ -1,16 +1,8 @@
 /* Base stylesheet of the theserver admin pages: readable, plain, nothing
-   decorative. The visual design comes in a later pass. */
+   decorative. Every colour comes from a token of tokens.css (D-072); a
+   colour written here fails the test that greps this file. */
 
 :root {
-  --text: #1c1e21;
-  --muted: #5f6368;
-  --line: #d6d9dd;
-  --ground: #f6f7f9;
-  --panel: #ffffff;
-  --accent: #1a5fb4;
-  --danger: #b3261e;
-  --ok: #1e7a3e;
-  --warn: #8a5a00;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   font-size: 15px;
   line-height: 1.45;
@@ -55,7 +47,7 @@ nav a:hover {
 
 nav a.active {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--accent-text);
 }
 
 form.logout {
@@ -124,7 +116,7 @@ th {
 }
 
 tbody tr:hover {
-  background: #fafbfc;
+  background: var(--panel-raised);
 }
 
 tfoot td {
@@ -169,7 +161,7 @@ td.actions > * {
 .button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--accent-text);
 }
 
 .button.danger {
@@ -360,12 +352,12 @@ ul.devices li {
 }
 
 .notice {
-  background: #e7f3ec;
+  background: var(--ok-soft);
   color: var(--ok);
 }
 
 .error {
-  background: #fbe9e7;
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
@@ -419,7 +411,7 @@ img.cover {
 }
 
 .warning {
-  background: #fff4dc;
+  background: var(--warn-soft);
   color: var(--warn);
 }
 
@@ -447,7 +439,7 @@ dialog.dialog {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 8px 30px var(--shadow);
 }
 
 code.token {
@@ -479,7 +471,7 @@ form.settings {
 }
 
 .banner.restart {
-  background: #fff4e0;
+  background: var(--warn-soft);
   border: 1px solid var(--warn);
   border-radius: 6px;
   padding: 0.75rem 1rem;
@@ -568,7 +560,7 @@ fieldset.settings-section legend {
   padding: 0.4rem 0.6rem;
   border-radius: 6px;
   background: var(--text);
-  color: #ffffff;
+  color: var(--inverse-text);
   font-size: 0.9rem;
   cursor: auto;
 }
@@ -579,7 +571,7 @@ fieldset.settings-section legend {
 }
 
 .badge.restart {
-  background: #fff4e0;
+  background: var(--warn-soft);
   color: var(--warn);
 }
 
@@ -682,7 +674,7 @@ form.settings.dirty .savebar #unsaved-count {
   padding: 0.5rem 0.75rem;
   margin: 0.5rem 0;
   border-radius: 6px;
-  background: #fdf0e2;
+  background: var(--danger-soft);
   color: var(--danger);
   border: 1px solid var(--danger);
 }
@@ -735,7 +727,7 @@ form.settings.dirty .savebar #unsaved-count {
 
 .stage-frame {
   position: relative;
-  background: #000000;
+  background: var(--stage);
   aspect-ratio: 9 / 16;
   max-height: 60vh;
   margin: 0 auto;
@@ -764,7 +756,7 @@ form.settings.dirty .savebar #unsaved-count {
   position: absolute;
   inset: auto 0 1rem;
   text-align: center;
-  color: #e6e8ea;
+  color: var(--stage-text);
 }
 
 .transport {
@@ -789,7 +781,7 @@ form.settings.dirty .savebar #unsaved-count {
 
 .transport .button.active {
   background: var(--accent);
-  color: #ffffff;
+  color: var(--accent-text);
 }
 
 .panel {
@@ -833,7 +825,7 @@ form.settings.dirty .savebar #unsaved-count {
 .chip.current {
   background: var(--accent);
   border-color: var(--accent);
-  color: #ffffff;
+  color: var(--accent-text);
 }
 
 .panel-head h2 {
@@ -846,7 +838,7 @@ form.settings.dirty .savebar #unsaved-count {
 }
 
 .editor-form .field.invalid {
-  background: #fff6f5;
+  background: var(--danger-soft);
 }
 
 .editor-form .texts {
@@ -930,7 +922,7 @@ form.settings.dirty .savebar #unsaved-count {
   position: absolute;
   top: 0.2rem;
   height: 1.3rem;
-  background: #cfe0ff;
+  background: var(--bar);
   border: 1px solid var(--accent);
   border-radius: 4px;
   font-size: 0.8rem;
@@ -941,7 +933,7 @@ form.settings.dirty .savebar #unsaved-count {
 }
 
 .lane .bar.selected {
-  background: #ffe3b0;
+  background: var(--bar-selected);
   border-color: var(--warn);
 }
 
@@ -1139,7 +1131,7 @@ button.link {
 
 .preview-stage {
   position: relative;
-  background: #000000;
+  background: var(--stage);
   width: fit-content;
   max-width: 100%;
   margin: 0 auto;

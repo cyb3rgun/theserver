@@ -1,0 +1,160 @@
+/* The design tokens of the admin pages (D-072). Every colour of the admin
+   lives here and nowhere else: the stylesheets, the canvas scripts and the
+   mark in the header all read these custom properties, and a test refuses a
+   colour written anywhere else.
+
+   Two sets: the light one on :root, the dark one under
+   prefers-color-scheme for the automatic choice and under
+   [data-theme="dark"] for the manual one (D-073). Edit the values here and
+   the whole look changes; docs/look.md says what each token paints.
+
+   Every text token reaches at least 4.5 to 1 against the surface it is
+   written on, in both sets, which a test computes (D-075). */
+
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  /* Surfaces, from the back of the page to the front. */
+  --ground: #f6f7f9;
+  --panel: #ffffff;
+  --panel-raised: #f0f2f5;
+
+  /* Text and the lines between things. */
+  --text: #1c1e21;
+  --muted: #5a6067;
+  --line: #d6d9dd;
+
+  /* The one colour that leads the eye, and what is written on it. */
+  --accent: #14509c;
+  --accent-text: #ffffff;
+
+  /* The states a page reports, each with a surface to sit on. */
+  --ok: #1e7a3e;
+  --ok-soft: #e7f3ec;
+  --warn: #7a5000;
+  --warn-soft: #fff4dc;
+  --danger: #b3261e;
+  --danger-soft: #fbe9e7;
+
+  /* What is written on the text colour itself, as a filled badge is. */
+  --inverse-text: #ffffff;
+  --shadow: rgba(0, 0, 0, 0.18);
+
+  /* The stage of the editor and the preview: a picture, not a surface. */
+  --stage: #000000;
+  --stage-text: #e6e8ea;
+
+  /* The bars of the timeline. */
+  --bar: #cfe0ff;
+  --bar-selected: #ffe3b0;
+
+  /* The mark in the corner (D-074): the ground of the square, the accent
+     only where thesite puts it. */
+  --mark-ground: #e6ecf5;
+  --mark-accent: #14509c;
+
+  /* What the canvas of the editor and the preview draws with. */
+  --canvas-zone: #2f62c4;
+  --canvas-zone-fill: rgba(47, 98, 196, 0.16);
+  --canvas-zone-selected: #a35c00;
+  --canvas-zone-fill-selected: rgba(163, 92, 0, 0.18);
+  --canvas-zone-live: #1e7a3e;
+  --canvas-label: #ffffff;
+  --canvas-shot: rgba(255, 255, 255, 0.75);
+  --canvas-hit: #ffb000;
+  --canvas-trace: rgba(49, 208, 122, 0.55);
+  --canvas-dot: rgba(255, 255, 255, 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --ground: #14171a;
+    --panel: #1c2024;
+    --panel-raised: #242930;
+
+    --text: #e8eaed;
+    --muted: #a9b1b9;
+    --line: #363c44;
+
+    --accent: #7fb0ff;
+    --accent-text: #0b0f14;
+
+    --ok: #5cc98a;
+    --ok-soft: #17301f;
+    --warn: #e2ab55;
+    --warn-soft: #33281a;
+    --danger: #ff8a80;
+    --danger-soft: #3a1f1d;
+
+    --inverse-text: #14171a;
+    --shadow: rgba(0, 0, 0, 0.6);
+
+    --stage: #000000;
+    --stage-text: #e6e8ea;
+
+    --bar: #2c3e5e;
+    --bar-selected: #4d3c1b;
+
+    --mark-ground: #0d1218;
+    --mark-accent: #7fb0ff;
+
+    --canvas-zone: #7fa7ff;
+    --canvas-zone-fill: rgba(127, 167, 255, 0.16);
+    --canvas-zone-selected: #ffb000;
+    --canvas-zone-fill-selected: rgba(255, 176, 0, 0.2);
+    --canvas-zone-live: #31d07a;
+    --canvas-label: #ffffff;
+    --canvas-shot: rgba(255, 255, 255, 0.75);
+    --canvas-hit: #ffb000;
+    --canvas-trace: rgba(49, 208, 122, 0.55);
+    --canvas-dot: rgba(255, 255, 255, 0.35);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --ground: #14171a;
+  --panel: #1c2024;
+  --panel-raised: #242930;
+
+  --text: #e8eaed;
+  --muted: #a9b1b9;
+  --line: #363c44;
+
+  --accent: #7fb0ff;
+  --accent-text: #0b0f14;
+
+  --ok: #5cc98a;
+  --ok-soft: #17301f;
+  --warn: #e2ab55;
+  --warn-soft: #33281a;
+  --danger: #ff8a80;
+  --danger-soft: #3a1f1d;
+
+  --inverse-text: #14171a;
+  --shadow: rgba(0, 0, 0, 0.6);
+
+  --stage: #000000;
+  --stage-text: #e6e8ea;
+
+  --bar: #2c3e5e;
+  --bar-selected: #4d3c1b;
+
+  --mark-ground: #0d1218;
+  --mark-accent: #7fb0ff;
+
+  --canvas-zone: #7fa7ff;
+  --canvas-zone-fill: rgba(127, 167, 255, 0.16);
+  --canvas-zone-selected: #ffb000;
+  --canvas-zone-fill-selected: rgba(255, 176, 0, 0.2);
+  --canvas-zone-live: #31d07a;
+  --canvas-label: #ffffff;
+  --canvas-shot: rgba(255, 255, 255, 0.75);
+  --canvas-hit: #ffb000;
+  --canvas-trace: rgba(49, 208, 122, 0.55);
+  --canvas-dot: rgba(255, 255, 255, 0.35);
+}

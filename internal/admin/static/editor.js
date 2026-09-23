@@ -7,6 +7,11 @@
   if (!root) return;
 
   const urls = root.dataset;
+
+  // Every colour the canvas draws with comes from the tokens of
+  // tokens.css (D-072), read from the page so that the drawing follows the
+  // theme the operator chose.
+  const paint = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const words = JSON.parse(root.dataset.words || '{}');
   const tier = root.dataset.tier || 'video';
   // Zones move through time in the interactive and the layered tier only.
@@ -339,8 +344,9 @@
     if (points.length === 0) return;
     ctx.lineWidth = how.selected ? 6 : 4;
     ctx.setLineDash(how.drawing ? [12, 10] : []);
-    ctx.strokeStyle = how.selected ? '#ffb000' : how.live ? '#31d07a' : '#7fa7ff';
-    ctx.fillStyle = how.selected ? 'rgba(255,176,0,0.18)' : 'rgba(127,167,255,0.12)';
+    ctx.strokeStyle = how.selected ? paint('--canvas-zone-selected')
+      : how.live ? paint('--canvas-zone-live') : paint('--canvas-zone');
+    ctx.fillStyle = how.selected ? paint('--canvas-zone-fill-selected') : paint('--canvas-zone-fill');
     ctx.beginPath();
     if (zone.shape === 'circle') {
       ctx.arc(points[0][0], points[0][1], Math.max(1, shape.radius || 0), 0, Math.PI * 2);
@@ -354,12 +360,12 @@
     ctx.fill();
     ctx.stroke();
     if (how.label) {
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = paint('--canvas-label');
       ctx.font = '28px system-ui, sans-serif';
       ctx.fillText(how.label, points[0][0] + 8, Math.max(30, points[0][1] - 12));
     }
     if (how.selected) {
-      ctx.fillStyle = '#ffb000';
+      ctx.fillStyle = paint('--canvas-zone-selected');
       handles(zone, shape).forEach((p) => {
         ctx.beginPath();
         ctx.arc(p[0], p[1], 12, 0, Math.PI * 2);

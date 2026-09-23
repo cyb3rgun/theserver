@@ -8,6 +8,11 @@
   if (!root || !window.cyb3rgunRules) return;
 
   const urls = root.dataset;
+
+  // Every colour the canvas draws with comes from the tokens of
+  // tokens.css (D-072), read from the page so that the drawing follows the
+  // theme the operator chose.
+  const paint = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   const words = JSON.parse(root.dataset.words || '{}');
   const tier = root.dataset.tier || 'video';
 
@@ -212,7 +217,7 @@
       const points = shape.points || [];
       if (points.length === 0) return;
       ctx.lineWidth = 3;
-      ctx.strokeStyle = 'rgba(49, 208, 122, 0.55)';
+      ctx.strokeStyle = paint('--canvas-trace');
       ctx.beginPath();
       if (item.zone.shape === 'circle') {
         ctx.arc(points[0][0], points[0][1], Math.max(1, shape.radius || 0), 0, Math.PI * 2);
@@ -233,7 +238,7 @@
     state.marks.forEach((mark) => {
       flash = flash || (mark.hit && mark.until - state.now > 830);
       ctx.lineWidth = 6;
-      ctx.strokeStyle = mark.hit ? '#ffb000' : 'rgba(255,255,255,0.7)';
+      ctx.strokeStyle = mark.hit ? paint('--canvas-hit') : paint('--canvas-shot');
       if (marker === 'ring' || !mark.hit) {
         ctx.beginPath();
         ctx.arc(mark.x, mark.y, 26, 0, Math.PI * 2);
@@ -249,7 +254,7 @@
       }
     });
     if (flash && immediate().flash) {
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillStyle = paint('--canvas-dot');
       ctx.fillRect(0, 0, size.w, size.h);
     }
   }
