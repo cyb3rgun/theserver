@@ -24,9 +24,27 @@ header.top {
   border-bottom: 1px solid var(--line);
 }
 
+/* The brand: the mark of thesite in the corner, flat and in one token
+   colour, with the name beside it (D-074). */
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
   font-weight: 700;
   font-size: 1.1rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.brand:hover .brand-name {
+  text-decoration: underline;
+}
+
+svg.mark {
+  display: block;
+  width: 1.9rem;
+  height: 1.9rem;
+  flex: none;
 }
 
 nav {

@@ -62,6 +62,18 @@ func TestThemeSwitchAndCookie(t *testing.T) {
 	h.theme = "purple"
 	contains(t, h.html("GET", "/admin/devices", nil), `data-theme="auto"`)
 
+	// The mark and the favicon are in place (D-074).
+	h.theme = ""
+	page = h.html("GET", "/admin/devices", nil)
+	contains(t, page, `<link rel="icon" href="/admin/static/logo.svg" type="image/svg+xml">`,
+		`<svg class="mark"`, `fill="var(--mark-ground)"`, `stroke="var(--mark-accent)"`)
+	icon := h.do("GET", "/admin/static/logo.svg", nil, true)
+	if icon.Code != http.StatusOK {
+		t.Fatalf("the favicon answered %d", icon.Code)
+	}
+	if !strings.Contains(icon.Body.String(), "<svg") || !strings.Contains(icon.Body.String(), "CYB3RGUN") {
+		t.Errorf("the favicon is not the mark: %s", icon.Body.String()[:80])
+	}
 }
 
 // tokenFile is the one file a colour may stand in.

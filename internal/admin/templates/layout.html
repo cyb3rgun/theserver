@@ -5,14 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="htmx-config" content='{"includeIndicatorCSS": false}'>
 <title>{{t "admin.title" .Title}}</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="/admin/static/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/admin/static/tokens.css">
 <link rel="stylesheet" href="/admin/static/admin.css">
 <script src="/admin/static/htmx.min.js" integrity="{{.Integrity}}" defer></script>
 </head>
 <body>
 <header class="top">
-  <span class="brand">{{t "admin.brand"}} <span class="muted">{{t "admin.brand_admin"}}</span></span>
+  <a class="brand" href="/admin/devices">
+    {{template "mark" .}}
+    <span class="brand-name">{{t "admin.brand"}} <span class="muted">{{t "admin.brand_admin"}}</span></span>
+  </a>
   <form class="language" method="post" action="/admin/language">
     <input type="hidden" name="back" value="{{.Back}}">
     <label for="language">{{t "admin.language.label"}}</label>
