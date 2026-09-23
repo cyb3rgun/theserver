@@ -30,6 +30,7 @@ Numbered newest first. Every entry names its date, the decision, the reason and 
 
 - Date: 23 September 2026 (S01-B13)
 - Decision: A target type carries none or two to sixteen beacon clusters, each with x and y in millimetres relative to the picture and the output channel of the target module that drives it, 0 to 7. The device is told `calib.pts`, the clusters in canvas coordinates as `"id,x,y id,x,y ..."` ordered by channel, and `calib.rect` as the bounding box of those points, so devices built against B12 keep working. The plan of the room follows as `beacon.period_ms`, `beacon.slots` and the target's own `beacon.slot`. Protocol section 8.13 records the keys.
+- Agreed with the architect at the close of the pass: a layout holds two to sixteen clusters or none at all, and exactly one cluster is refused. None is the type whose beacons are not measured yet, which is described and hung before anybody stands in front of it with a tape measure; such a type is told no calibration until its clusters are there.
 - Details: A layout whose clusters span no area has points and no rectangle, and the rectangle key is then not sent. A layout that names no channels is numbered 0, 1, 2 in the order it was written, so an operator who does not care does not have to say. Two targets of one room can never hold the same slot, and a slot outside the plan of the room is refused; the room page lists the free ones. The firmware side follows in its own pass and has room for eight channels in its mask.
 - Reason: Four clusters were an assumption of the first hardware, not a property of the idea. A target with six or eight clusters is a different shape, not a different protocol, and the rectangle a shot is mapped into is the thing that is derived, not the thing that is described.
 - Versions: none.
@@ -38,7 +39,7 @@ Numbered newest first. Every entry names its date, the decision, the reason and 
 
 - Date: 23 September 2026 (S01-B13)
 - Decision: A session names the room it runs in. The approved targets of that room become its devices, a single target can be left out before it starts, and the age rating of the room is the age rating of the session: a scenario rated higher is refused with the room named in the message. The age a single device is set for stays as it was (D-039), so a target can be stricter than its room.
-- Agreed with the architect during this pass: the targets are taken when the session is created with a room, not when it starts, because an exclusion that a start undoes is not an exclusion. A session without a room behaves exactly as it did before.
+- Agreed with the architect at the close of the pass: the targets are taken when the session is created with a room, not when it starts, because an exclusion that a start undoes is not an exclusion. A session without a room behaves exactly as it did before. The price is that a target hung after the session was created is added by hand, which the handover names.
 - Details: `DELETE /api/v1/sessions/{id}/devices/{device}` is the exclusion, and it is refused for a session that is stopped. A device that is not approved is not taken into the session by itself.
 - Reason: Nobody starts a session by naming seven targets. A room is the unit an operator thinks in, and the age of the players in that room is the fact the age check needs.
 - Versions: none.
@@ -47,7 +48,8 @@ Numbered newest first. Every entry names its date, the decision, the reason and 
 
 - Date: 23 September 2026 (S01-B13)
 - Decision: A site is the venue, a room belongs to a site, a target is a device of kind target that stands in a room, and a controller is a device of kind controller that belongs to a site and may belong to a room. The tables are `sites` and `rooms`; a device carries `site_id`, `room_id`, `beacon_slot` and `position`.
-- Details: The briefing names `devices.room_id` and the slot; `site_id` follows from its own words, because a controller that is free for the whole site has to name that site without naming a room. A room keeps its site: a room that moves is a new room. A site that holds rooms or devices, and a room that holds devices or is named by a session, are not deleted.
+- Agreed with the architect at the close of the pass: a device carries `site_id` beside `room_id`, although the briefing names only the room. It follows from the decision itself, because a controller that is free for the whole site has to name that site without naming a room.
+- Details: A room keeps its site: a room that moves is a new room. A site that holds rooms or devices, and a room that holds devices or is named by a session, are not deleted.
 - Reason: Everything the admin knew was flat, and sessions, rankings, rights, prices and the franchise statement all hang from the shape of a venue. Every month it is missing is a month of rebuilding later.
 - Versions: none.
 
