@@ -38,8 +38,10 @@ type harness struct {
 	token  string
 	id     string
 	cookie *http.Cookie
-	// lang, when set, is sent as the language cookie.
-	lang string
+	// lang, when set, is sent as the language cookie, theme as the theme
+	// cookie.
+	lang  string
+	theme string
 
 	// settings is the configuration behind the API, kept in configPath.
 	settings   *config.Runtime
@@ -162,6 +164,9 @@ func (h *harness) do(method, path string, form url.Values, withCookie bool, head
 	}
 	if h.lang != "" {
 		req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: h.lang})
+	}
+	if h.theme != "" {
+		req.AddCookie(&http.Cookie{Name: ThemeCookieName, Value: h.theme})
 	}
 	rec := httptest.NewRecorder()
 	h.admin.ServeHTTP(rec, req)

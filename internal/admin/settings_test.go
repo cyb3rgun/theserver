@@ -237,7 +237,7 @@ func TestPerFieldReset(t *testing.T) {
 func TestLanguageSwitchChangesTheLabels(t *testing.T) {
 	h := newHarness(t)
 	english := h.html("GET", "/admin/settings", nil)
-	contains(t, english, `<html lang="en">`, "Listen address", "Save", `<option value="en" selected>English</option>`)
+	contains(t, english, `<html lang="en" data-theme="auto">`, "Listen address", "Save", `<option value="en" selected>English</option>`)
 
 	rec := h.do("POST", "/admin/language", url.Values{"lang": {"de"}, "back": {"/admin/settings"}}, true)
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/settings" {
@@ -252,7 +252,7 @@ func TestLanguageSwitchChangesTheLabels(t *testing.T) {
 
 	h.lang = cookies[0].Value
 	german := h.html("GET", "/admin/settings", nil)
-	contains(t, german, `<html lang="de">`, "Adresse und Port", "Speichern", "Warum?", "Aktueller Wert",
+	contains(t, german, `<html lang="de" data-theme="auto">`, "Adresse und Port", "Speichern", "Warum?", "Aktueller Wert",
 		"Braucht einen Neustart", `<option value="de" selected>Deutsch</option>`, `<option value="en">Englisch</option>`,
 		"Geräteverbindung", "0 ungespeicherte Änderungen", "Zeit zwischen zwei Pings an ein verbundenes Gerät.")
 	for _, s := range settings.All() {

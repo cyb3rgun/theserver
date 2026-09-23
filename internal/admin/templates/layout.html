@@ -1,5 +1,5 @@
 {{define "layout"}}<!doctype html>
-<html lang="{{.Lang}}">
+<html lang="{{.Lang}}" data-theme="{{.Theme}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -21,6 +21,15 @@
       <option value="de"{{if eq .Lang "de"}} selected{{end}}>{{t "admin.language.de"}}</option>
     </select>
     <button class="button quiet" type="submit">{{t "admin.language.switch"}}</button>
+  </form>
+  <form class="theme" method="post" action="/admin/theme">
+    <input type="hidden" name="back" value="{{.Back}}">
+    <label for="theme">{{t "admin.theme.label"}}</label>
+    <select id="theme" name="theme">
+      {{$current := .Theme}}
+      {{range .Themes}}<option value="{{.}}"{{if eq . $current}} selected{{end}}>{{word "admin.theme" .}}</option>{{end}}
+    </select>
+    <button class="button quiet" type="submit">{{t "admin.theme.switch"}}</button>
   </form>
   {{if .Admin}}
   <nav aria-label="{{t "admin.nav.label"}}">

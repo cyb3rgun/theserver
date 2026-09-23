@@ -3,6 +3,8 @@ package admin
 import (
 	"fmt"
 	"math"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +16,53 @@ import (
 // The look of the admin is made of tokens (D-072, D-075): every colour lives
 // in static/tokens.css, and every text reaches 4.5 to 1 against the surface
 // it is written on, in both sets.
+
+// The theme of a page comes from the cookie and is on the html element
+// before the first byte of the body, so a dark screen never flashes white
+// (D-073).
+func TestThemeSwitchAndCookie(t *testing.T) {
+	h := newHarness(t)
+
+	// Without a cookie the page follows the browser and the system.
+	page := h.html("GET", "/admin/devices", nil)
+	contains(t, page, `<html lang="en" data-theme="auto">`, `id="theme"`,
+		`<option value="auto" selected>Automatic</option>`, "Light", "Dark")
+	if strings.Index(page, "data-theme") > strings.Index(page, "<body") {
+		t.Error("the theme is set after the body starts, which is a flash on a dark screen")
+	}
+	if !strings.Contains(page, `<link rel="stylesheet" href="/admin/static/tokens.css">`) {
+		t.Error("the page does not load the token file")
+	}
+
+	// The switch keeps the choice in a cookie of its own.
+	rec := h.do("POST", "/admin/theme", url.Values{"theme": {"dark"}, "back": {"/admin/devices"}}, true)
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/admin/devices" {
+		t.Fatalf("the switch answered %d to %q", rec.Code, rec.Header().Get("Location"))
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != ThemeCookieName || cookies[0].Value != "dark" ||
+		!cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite != http.SameSiteStrictMode ||
+		cookies[0].Path != "/admin" {
+		t.Fatalf("the theme cookie is %+v", cookies)
+	}
+
+	// The choice survives a reload, on every page and on the login page.
+	h.theme = "dark"
+	for _, path := range []string{"/admin/devices", "/admin/settings", "/admin/sites"} {
+		if got := h.html("GET", path, nil); !strings.Contains(got, `data-theme="dark"`) {
+			t.Errorf("%s does not carry the chosen theme", path)
+		}
+	}
+	login := h.do("GET", "/admin/login", nil, false)
+	if !strings.Contains(login.Body.String(), `data-theme="dark"`) {
+		t.Error("the login page does not carry the chosen theme")
+	}
+
+	// A cookie that names no theme is read as auto, not as an error.
+	h.theme = "purple"
+	contains(t, h.html("GET", "/admin/devices", nil), `data-theme="auto"`)
+
+}
 
 // tokenFile is the one file a colour may stand in.
 const tokenFile = "tokens.css"

@@ -94,7 +94,8 @@ func TestEveryPageInEveryLanguage(t *testing.T) {
 		h.lang = lang
 		for path, title := range titles[lang] {
 			page := h.html("GET", path, nil)
-			contains(t, page, `<html lang="`+lang+`">`, "<h1>"+title+"</h1>", i18n.T(lang, "admin.logout"))
+			contains(t, page, `<html lang="`+lang+`" data-theme="auto">`, "<h1>"+title+"</h1>",
+				i18n.T(lang, "admin.logout"))
 		}
 		for _, fragment := range []string{"/admin/devices/table", "/admin/ranking/table"} {
 			h.html("GET", fragment, nil)

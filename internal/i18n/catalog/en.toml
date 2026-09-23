@@ -21,6 +21,13 @@ unknown_action = "Unknown action %s."
 error_generic = "The server could not complete this. The log has the details."
 session_ended = "The session ended. Log in again."
 
+[admin.theme]
+label = "Theme"
+switch = "Switch"
+auto = "Automatic"
+light = "Light"
+dark = "Dark"
+
 [admin.language]
 label = "Language"
 switch = "Switch"

@@ -69,11 +69,13 @@ func LoadOrCreateKey(path string) ([]byte, error) {
 	return key, f.Close()
 }
 
-// session is a logged in admin and the language of the request.
+// session is a logged in admin, the language of the request and the theme
+// the browser asked for (D-073).
 type session struct {
 	TokenID string
 	Name    string
 	Lang    string
+	Theme   string
 }
 
 // NewSessionCookie signs a session for an admin token id, valid for
@@ -191,7 +193,7 @@ func (a *Admin) page(h func(http.ResponseWriter, *http.Request, session)) http.H
 			a.sessionEnded(w, r)
 			return
 		}
-		s.Lang = a.lang(r)
+		s.Lang, s.Theme = a.lang(r), a.theme(r)
 		h(w, r, s)
 	})
 }
@@ -206,13 +208,13 @@ func (a *Admin) loginPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lang := a.lang(r)
-	a.render(w, lang, http.StatusOK, "login", "layout", loginData{layout: a.layout("admin.login.title", "", session{Lang: lang})})
+	a.render(w, lang, http.StatusOK, "login", "layout", loginData{layout: a.layout("admin.login.title", "", session{Lang: lang, Theme: a.theme(r)})})
 }
 
 // login checks the pasted admin token once and sets the session cookie.
 func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
 	lang := a.lang(r)
-	data := loginData{layout: a.layout("admin.login.title", "", session{Lang: lang})}
+	data := loginData{layout: a.layout("admin.login.title", "", session{Lang: lang, Theme: a.theme(r)})}
 	token := strings.TrimSpace(r.PostFormValue("token"))
 	row, err := a.opts.Store.VerifyAdminToken(r.Context(), token)
 	switch {

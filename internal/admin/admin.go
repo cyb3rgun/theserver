@@ -133,6 +133,7 @@ func New(opts Options) (*Admin, error) {
 	mux.HandleFunc("POST /admin/login", a.login)
 	mux.HandleFunc("POST /admin/logout", a.logout)
 	mux.HandleFunc("POST /admin/language", a.setLanguage)
+	mux.HandleFunc("POST /admin/theme", a.setTheme)
 	mux.Handle("GET /admin/static/", staticHandler(http.StripPrefix("/admin/static/", http.FileServerFS(static))))
 
 	mux.Handle("GET /admin/devices", a.page(a.devicesPage))
@@ -261,18 +262,30 @@ type layout struct {
 	Notice    string
 	alert
 	SessionHours int
-	// Back is where the language switch returns to.
+	// Back is where the language switch and the theme switch return to.
 	Back string
+	// Theme is auto, light or dark (D-073); the page carries it as
+	// data-theme, so the first paint is already right.
+	Theme string
+	// Themes are the choices of the switch, in order.
+	Themes []string
 }
 
 // layout fills the frame of a page; titleKey names its title in the
-// catalogue.
+// catalogue. The theme comes from the session, which read it from the
+// cookie of the request (D-073).
 func (a *Admin) layout(titleKey, active string, s session) layout {
 	back := "/admin/login"
 	if active != "" {
 		back = "/admin/" + active
 	}
+	theme := s.Theme
+	if theme == "" {
+		theme = ThemeAuto
+	}
 	return layout{
+		Theme:        theme,
+		Themes:       Themes(),
 		Lang:         s.Lang,
 		Title:        i18n.T(s.Lang, titleKey),
 		Active:       active,
