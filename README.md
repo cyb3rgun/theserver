@@ -105,7 +105,7 @@ This is enforced by the shape of the data, not by good intentions:
 | **Rankings** | Per session or over everything, computed from hit and miss events, verified against an independent computation |
 | **Scenarios** | Packages as `docs/scenario.md` defines them, checked on upload with every problem named in English and German, kept as drafts, published versions never change; targets download them with their own token and report them installed; a session plays one published version, checked against the age its devices are set for |
 | **API v1** | JSON over HTTPS under `/api/v1`, bearer tokens for administration, every route documented in `docs/openapi.yaml` and served at `/api/v1/openapi.yaml` |
-| **Admin** | Login, devices with what they hold, sessions, the scenario catalogue with upload and check, live ranking, and every setting editable with its help; English and German; server rendered pages with HTMX 4, no build step, no CDN |
+| **Admin** | Login, devices with what they hold, sessions, the scenario catalogue with upload and check, live ranking, and every setting editable with its help; English and German, light and dark, every colour in one token file; server rendered pages with HTMX 4, no build step, no CDN |
 | **TLS** | A self signed certificate is created on first start and its fingerprint logged; operators replace two files to install a real one |
 | **Configuration** | One registry describes every setting with type, range, restart flag and texts in English and German; defaults, TOML file, environment variables, command line flags, in that precedence; changes from the admin page or the API are written back to the file and take effect at once where they can |
 | **Simulator** | `simtarget`, a second binary that behaves like a target, journals locally, drops its connection on purpose and replays, installs announced scenario packages, so the whole chain runs under load without firmware |
@@ -324,6 +324,7 @@ theserver/
 | Admin pages: devices, sessions, scenarios, ranking, settings | Working |
 | Journal retention, backup and restore | Planned |
 | Configuration editable from the admin page, English and German | Working |
+| Light and dark from one token file, with the mark in the corner | Working |
 | Passkeys, roles, audit log | Planned |
 | Device certificates (mutual TLS) | Planned |
 | Enrolment by shooting and by NFC, floor plan with live status | Planned |

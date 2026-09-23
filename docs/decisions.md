@@ -2,6 +2,38 @@
 
 Numbered newest first. Every entry names its date, the decision, the reason and the versions it pins, copied from `go.mod`. A version is never typed from memory: a dependency is added with `go get <module>@latest` and the version Go resolves is the one recorded here.
 
+## D-075 Both themes are readable, and no state is told by colour alone
+
+- Date: 23 September 2026 (S01-B14)
+- Decision: Every text token reaches a contrast ratio of at least 4.5 to 1 against the surface it is written on, in the light set and in the dark one, and no status is carried by colour alone: every badge keeps its word beside its colour.
+- Details: `TestBothThemesAreReadable` parses `tokens.css`, computes the WCAG ratio of eighteen pairs in all three blocks and fails below 4.5; it also checks that the automatic dark set and the chosen dark set hold the same values, so a cookie never changes what a page looks like. The words beside the colours were already there from B04 and stay: approved, online, installing, refused, and the rest.
+- Reason: An operator reads these pages in a bright hall and on a dark screen at night, and some of them do not separate red and green. A ratio that a test computes is a promise that survives the next change of a value.
+- Versions: none.
+
+## D-074 The mark of thesite, in the corner and in the tab
+
+- Date: 23 September 2026 (S01-B14)
+- Decision: The mark sits top left of every page and links to the overview, and the same file is the favicon. The admin version is the restrained one: flat, no glow, the square in one token colour and the accent only where thesite puts it.
+- Details: `internal/admin/static/logo.svg` is a copy of `src/assets/logo.svg` of thesite, commit `96d7d56` of 11 September 2026, byte for byte; it is the favicon a browser loads without our stylesheet, and the only file beside the token file that carries a colour. The mark inside the page is the same two paths drawn from `--mark-ground` and `--mark-accent`, so it follows the theme.
+- Reason: An admin page of a product should say which product it belongs to, and a tab full of pages should be findable by its icon. Taking the file rather than redrawing it keeps the mark one thing across the repositories.
+- Versions: none.
+
+## D-073 Three themes, chosen like the language
+
+- Date: 23 September 2026 (S01-B14)
+- Decision: Auto follows the browser and the operating system, light and dark are the manual choices. The switch sits in the header beside the language switch, the choice lives in the cookie `theserver_theme` for as long as a login lasts, and auto is the default.
+- Details: The page carries the choice as `data-theme` on the `html` element, written before the body starts, so the first paint is already right and a dark screen never flashes white; the automatic case is the same values under `prefers-color-scheme: dark`, which is why the token file holds the dark set twice. The login page carries the theme as well, and a cookie that names no theme reads as auto instead of as an error.
+- Reason: The people who run a hall work in a dark room and the people who set it up work in daylight. Following the system is the polite default, and the two manual choices are for the screen that does not know what room it is in.
+- Versions: none.
+
+## D-072 Every colour is a token
+
+- Date: 23 September 2026 (S01-B14)
+- Decision: One file, `internal/admin/static/tokens.css`, holds every colour of the admin as CSS custom properties, in a light and a dark set: the surfaces, the text, the lines, the accent, the four states with a surface each, the stage, the bars, the mark and what the canvas draws with. No stylesheet, page or script carries a colour of its own, and a test greps every static file of ours and fails on one that does.
+- Details: `editor.js` and `preview.js` read the tokens from the page when they draw, so the canvas follows the theme. The favicon is the one exception, because a browser loads it without our stylesheet (D-074). `docs/look.md` names every token and what it paints, so the founder knows which line to edit.
+- Reason: Look and wording belong to the founder. A look he can change in one file is a look he can change without asking anybody, and a test that refuses a stray colour is what keeps it that way after the next pass.
+- Versions: none.
+
 ## D-071 The tag v0.5.0
 
 - Date: 23 September 2026 (S01-B13)

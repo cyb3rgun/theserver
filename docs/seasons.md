@@ -4,7 +4,7 @@
 
 | Season | Goal | Status | Start | Passes |
 |--------|------|--------|-------|--------|
-| S01 | theserver runs as one binary on the M150, accepts events from a simulated target over the device link, journals them in SQLite, replays correctly after a dropped connection, and shows a ranking through the API and a first admin page. | running | 15 September 2026 | B01 (D-001 to D-008), B02 (D-009 to D-015), B03 (D-016 to D-022), B04 (D-023 to D-028), B05 (D-029), B06 (D-030 to D-034), B07 (D-035 to D-040), B08 (D-041 to D-047), B09 (D-048 to D-051), B10 (D-052 to D-055), B11 (D-056 to D-060), B12 (D-061 to D-065), B13 (D-066 to D-071) |
+| S01 | theserver runs as one binary on the M150, accepts events from a simulated target over the device link, journals them in SQLite, replays correctly after a dropped connection, and shows a ranking through the API and a first admin page. | running | 15 September 2026 | B01 (D-001 to D-008), B02 (D-009 to D-015), B03 (D-016 to D-022), B04 (D-023 to D-028), B05 (D-029), B06 (D-030 to D-034), B07 (D-035 to D-040), B08 (D-041 to D-047), B09 (D-048 to D-051), B10 (D-052 to D-055), B11 (D-056 to D-060), B12 (D-061 to D-065), B13 (D-066 to D-071), B14 (D-072 to D-075) |
 
 ## S01 in progress
 
@@ -31,5 +31,7 @@
 - **S01-B12.** Target types: a kind of target described once as data, with its display in millimetres, its resolution, its orientation, its beacon clusters and its sound, edited in the admin and seeded with the three types that exist today. A device belongs to a type and is told the beacon rectangle the server derives from it; a scenario can name the type it was made for and takes its canvas from it; the type page draws the layout as an outline so the numbers can be seen. Tagged `v0.4.0` (D-061 to D-065).
 
 - **S01-B13.** The shape of a venue: a site with its address, its timezone and the licence fields the franchise statement will need, rooms with the age of their players and the beacon round their targets share, targets that stand in a room with a slot, and controllers that belong to a site. A session runs in a room and takes its targets. The beacon side stops assuming four clusters: a layout is a list of points with the channel that drives each one, and the rectangle of B12 is the box around them. Everything that existed was moved into a site Default without losing its history. Tagged `v0.5.0` (D-066 to D-071).
+
+- **S01-B14.** Light and dark: every colour of the admin became a token in one file, with a light and a dark set, and the pages, the scripts and the canvas read them; three themes are chosen in the header like the language, auto follows the system and the page carries the choice before the body starts; the mark of thesite sits in the corner and in the tab. Both sets are held at a contrast of 4.5 to 1 by a test (D-072 to D-075).
 
 The run of the full chain on the M150 was dropped on 17 September 2026 by Sascha's decision. Linux binaries are built when a Linux target is due, not before.
